@@ -1,6 +1,8 @@
 import type { HistorySession } from "../../../shared/lib/sessionReadRepository.ts";
 import {
+  compileSessions,
   buildDailySummaries,
+  buildNormalizedAppStats,
   getRollingDayRanges,
   type SessionRange,
 } from "../../../shared/lib/sessionReadCompiler.ts";
@@ -33,6 +35,40 @@ export interface DataTrendViewModel {
     ticks: number[];
   };
   metricLabels: DataTrendMetricLabels;
+}
+
+export interface DataAppOption {
+  appKey: string;
+  appName: string;
+  exeName: string;
+  totalDuration: number;
+  percentage: number;
+  averageDuration: number;
+  activeDayCount: number;
+}
+
+export interface DataAppTrendPoint {
+  label: string;
+  date: string;
+  hours: number;
+  duration: number;
+}
+
+export interface DataAppDayRow {
+  date: string;
+  label: string;
+  duration: number;
+  intensity: number;
+}
+
+export interface DataAppTrendViewModel {
+  rangeLabel: string;
+  appOptions: DataAppOption[];
+  selectedApp: DataAppOption | null;
+  chartData: DataAppTrendPoint[];
+  chartAxis: DataTrendViewModel["chartAxis"];
+  dayRows: DataAppDayRow[];
+  peakDay: DataAppDayRow | null;
 }
 
 export interface HeatmapCell {
@@ -140,6 +176,11 @@ function formatMonthLabel(monthKey: string) {
   return `${month}月`;
 }
 
+function formatAppDayLabel(dateKey: string) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  return date.toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit", weekday: "short" });
+}
+
 function getRecentMonthRanges(nowMs: number, monthCount: number): SessionRange[] {
   const now = new Date(nowMs);
   const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -155,6 +196,61 @@ function getRecentMonthRanges(nowMs: number, monthCount: number): SessionRange[]
       endMs: Math.min(monthEnd.getTime(), nowMs),
     };
   });
+}
+
+function getRangeBounds(ranges: SessionRange[]) {
+  const firstRange = ranges[0];
+  const lastRange = ranges[ranges.length - 1];
+  return {
+    startMs: firstRange?.startMs ?? 0,
+    endMs: lastRange?.endMs ?? 0,
+  };
+}
+
+function getClippedSessionDuration(
+  session: { startTime: number; endTime: number | null },
+  rangeStartMs: number,
+  rangeEndMs: number,
+) {
+  const clippedStart = Math.max(session.startTime, rangeStartMs);
+  const clippedEnd = Math.min(session.endTime ?? session.startTime, rangeEndMs);
+  return Math.max(0, clippedEnd - clippedStart);
+}
+
+function buildAppDayRows(
+  sessions: ReturnType<typeof compileSessions>,
+  dayRanges: SessionRange[],
+) {
+  const rows = dayRanges.map((range) => {
+    const date = toDateKey(new Date(range.startMs));
+    return {
+      date,
+      label: formatAppDayLabel(date),
+      duration: sessions.reduce(
+        (sum, session) => sum + getClippedSessionDuration(session, range.startMs, range.endMs),
+        0,
+      ),
+      intensity: 0,
+    };
+  });
+  const maxDuration = Math.max(1, ...rows.map((row) => row.duration));
+
+  return rows.map((row) => ({
+    ...row,
+    intensity: row.duration > 0 ? Math.max(0.08, row.duration / maxDuration) : 0,
+  }));
+}
+
+function resolveAppKeyByStats(
+  appName: string,
+  exeName: string,
+  sessions: ReturnType<typeof compileSessions>,
+) {
+  return sessions.find((session) => (
+    session.appKey === exeName
+    || (session.displayName === appName && session.exeName === exeName)
+    || session.displayName === appName
+  ))?.appKey ?? exeName;
 }
 
 export function getDataTrendRangeLabel(range: DataTrendRange) {
@@ -192,6 +288,77 @@ export function buildDataTrendViewModel(
       average: shouldGroupByMonth ? "月均时长" : "日均时长",
       averageHint: shouldGroupByMonth ? "按近一年月份计算" : `按${rangeLabel}计算`,
     },
+  };
+}
+
+export function buildDataAppTrendViewModel(
+  sessions: HistorySession[],
+  range: DataTrendRange,
+  nowMs: number,
+  selectedAppKey: string | null,
+): DataAppTrendViewModel {
+  const dayRanges = getRollingDayRanges(range, nowMs);
+  const shouldGroupByMonth = range === 365;
+  const averageDivisor = Math.max(1, shouldGroupByMonth ? getRecentMonthRanges(nowMs, 12).length : dayRanges.length);
+  const { startMs, endMs } = getRangeBounds(dayRanges);
+  const compiledSessions = compileSessions(sessions, {
+    startMs,
+    endMs,
+    minSessionSecs: 0,
+  });
+  const dayRowsByApp = new Map<string, DataAppDayRow[]>();
+  const appStats = buildNormalizedAppStats(compiledSessions);
+  const totalAppDuration = appStats.reduce((sum, item) => sum + item.totalDuration, 0);
+  const appOptions = appStats.map((item) => {
+    const appKey = resolveAppKeyByStats(item.appName, item.exeName, compiledSessions);
+    const appSessions = compiledSessions.filter((session) => session.appKey === appKey);
+    const dayRows = buildAppDayRows(appSessions, dayRanges);
+    dayRowsByApp.set(appKey, dayRows);
+
+    return {
+      appKey,
+      appName: item.appName,
+      exeName: item.exeName,
+      totalDuration: item.totalDuration,
+      percentage: totalAppDuration > 0 ? (item.totalDuration / totalAppDuration) * 100 : 0,
+      averageDuration: Math.round(item.totalDuration / averageDivisor),
+      activeDayCount: dayRows.filter((row) => row.duration > 0).length,
+    };
+  });
+  const selectedApp = appOptions.find((item) => item.appKey === selectedAppKey) ?? appOptions[0] ?? null;
+  const selectedDayRows = selectedApp ? dayRowsByApp.get(selectedApp.appKey) ?? [] : [];
+  const chartRanges = shouldGroupByMonth ? getRecentMonthRanges(nowMs, 12) : dayRanges;
+  const selectedSessions = selectedApp
+    ? compiledSessions.filter((session) => session.appKey === selectedApp.appKey)
+    : [];
+  const chartData = chartRanges.map((rangeItem) => {
+    const date = toDateKey(new Date(rangeItem.startMs));
+    const duration = selectedSessions.reduce(
+      (sum, session) => sum + getClippedSessionDuration(session, rangeItem.startMs, rangeItem.endMs),
+      0,
+    );
+    return {
+      label: shouldGroupByMonth ? formatMonthLabel(date.slice(0, 7)) : date.slice(5),
+      date,
+      duration,
+      hours: duration / 3600000,
+    };
+  });
+  const peakDay = selectedDayRows.reduce<DataAppDayRow | null>((peak, row) => {
+    if (!peak || row.duration > peak.duration) {
+      return row;
+    }
+    return peak;
+  }, null);
+
+  return {
+    rangeLabel: getDataTrendRangeLabel(range),
+    appOptions,
+    selectedApp,
+    chartData,
+    chartAxis: buildChartAxis(chartData),
+    dayRows: selectedDayRows.slice().reverse(),
+    peakDay: peakDay && peakDay.duration > 0 ? peakDay : null,
   };
 }
 

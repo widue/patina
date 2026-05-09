@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   buildActivityHeatmap,
+  buildDataAppTrendViewModel,
   buildYearOptions,
   getCachedDataHeatmapSessions,
   getHeatmapRange,
@@ -82,6 +83,77 @@ await runTest("year options include every year from current back to earliest act
     [2026, 2025, 2024],
   );
   assert.deepEqual(buildYearOptions(null, 2026), [2026]);
+});
+
+await runTest("app trend groups sessions by application and day", () => {
+  const nowMs = new Date(2026, 4, 8, 12, 0, 0).getTime();
+  const rows = buildDataAppTrendViewModel([
+    makeSession({
+      appName: "Blender",
+      exeName: "blender.exe",
+      startTime: new Date(2026, 4, 6, 10, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 6, 12, 0, 0).getTime(),
+    }),
+    makeSession({
+      id: 2,
+      appName: "Blender",
+      exeName: "blender.exe",
+      startTime: new Date(2026, 4, 7, 9, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 7, 10, 30, 0).getTime(),
+    }),
+    makeSession({
+      id: 3,
+      appName: "Cursor",
+      exeName: "cursor.exe",
+      startTime: new Date(2026, 4, 7, 14, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 7, 15, 0, 0).getTime(),
+    }),
+  ], 7, nowMs, null);
+  const may7 = rows.dayRows.find((row) => row.date === "2026-05-07");
+
+  assert.equal(rows.selectedApp?.appName, "Blender");
+  assert.equal(rows.selectedApp?.totalDuration, 210 * 60 * 1000);
+  assert.equal(rows.selectedApp?.activeDayCount, 2);
+  assert.equal(rows.dayRows.length, 7);
+  assert.equal(may7?.duration, 90 * 60 * 1000);
+  assert.equal(rows.peakDay?.date, "2026-05-06");
+});
+
+await runTest("app trend preserves explicit selected application", () => {
+  const nowMs = new Date(2026, 4, 8, 12, 0, 0).getTime();
+  const rows = buildDataAppTrendViewModel([
+    makeSession({
+      appName: "Blender",
+      exeName: "blender.exe",
+      startTime: new Date(2026, 4, 8, 10, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 8, 11, 0, 0).getTime(),
+    }),
+    makeSession({
+      id: 2,
+      appName: "Cursor",
+      exeName: "cursor.exe",
+      startTime: new Date(2026, 4, 8, 8, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 8, 11, 0, 0).getTime(),
+    }),
+  ], 7, nowMs, "blender.exe");
+
+  assert.equal(rows.selectedApp?.appName, "Blender");
+  assert.equal(rows.selectedApp?.totalDuration, 60 * 60 * 1000);
+  assert.equal(rows.chartData.at(-1)?.duration, 60 * 60 * 1000);
+});
+
+await runTest("yearly app trend averages by month", () => {
+  const nowMs = new Date(2026, 4, 8, 12, 0, 0).getTime();
+  const rows = buildDataAppTrendViewModel([
+    makeSession({
+      appName: "Blender",
+      exeName: "blender.exe",
+      startTime: new Date(2026, 3, 8, 10, 0, 0).getTime(),
+      endTime: new Date(2026, 3, 8, 22, 0, 0).getTime(),
+    }),
+  ], 365, nowMs, "blender.exe");
+
+  assert.equal(rows.selectedApp?.averageDuration, 60 * 60 * 1000);
 });
 
 await runTest("recent heatmap range is aligned to whole local weeks", () => {

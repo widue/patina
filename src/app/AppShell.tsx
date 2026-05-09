@@ -190,6 +190,7 @@ function AppShellContent() {
               {currentView === "data" && (
                 <Data
                   key="data"
+                  icons={icons}
                   refreshKey={refreshSignal}
                   trackerHealth={trackerHealth}
                   loadHistorySnapshot={loadHistoryRuntimeSnapshot}
