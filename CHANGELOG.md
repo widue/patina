@@ -36,6 +36,26 @@ App note: 待定。
 
 - 暂无。
 
+## [0.6.2] - 2026-05-13
+
+Release: 将更新清单迁移到 GitHub Release 附件，并停用独立 updates 分支。
+App note: 更新通道迁移至 Release 附件。
+### Added
+
+- 暂无。
+### Changed
+
+- 更新通道改为从 GitHub Release 附件读取 `latest.json`，不再依赖独立的 `updates` 分支。
+- 发布流程会把 `latest.json` 与安装包一起上传到 GitHub Release，后续发布链路更集中。
+### Fixed
+
+- 暂无。
+### Removed
+
+- 移除发布流程中强推 `updates` 分支的步骤。
+### Internal
+
+- 暂无。
 ## [0.6.1] - 2026-05-13
 
 Release: 优化历史时间线的活动摘要与窗口标题详情查看。
