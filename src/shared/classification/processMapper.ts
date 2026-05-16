@@ -9,7 +9,7 @@ import {
 import { DEFAULT_APP_MAPPINGS } from "./defaultMappings.ts";
 import { resolveCanonicalExecutable, shouldTrackProcess } from "./processNormalization.ts";
 import { CategoryColorRegistry } from "./categoryColorRegistry.ts";
-import { getUiTextLanguage, UI_TEXT } from "../copy/uiText.ts";
+import { getUiTextLanguage } from "../copy/uiText.ts";
 
 export type MappingConfidence = "high" | "medium" | "low";
 
@@ -112,25 +112,6 @@ function normalizeUserAssignableCategory(category: string | undefined): UserAssi
   const normalized = (category ?? "").trim();
   if (!normalized) {
     return null;
-  }
-
-  if (normalized === "custom") {
-    return buildCustomCategory(UI_TEXT.categories.custom);
-  }
-
-  // Transitional compatibility for category values written before the lean
-  // assignable category set. Keep this in the 0.6.6 merge transition release
-  // so 0.6.4 installs can upgrade directly and rewrite their overrides.
-  if (normalized === "meeting") {
-    return "office";
-  }
-
-  if (normalized === "finance") {
-    return "utility";
-  }
-
-  if (normalized === "reading") {
-    return "browser";
   }
 
   if (isCustomCategory(normalized)) {
@@ -356,14 +337,6 @@ export class ProcessMapper {
       const parsed = JSON.parse(rawValue) as AppOverride;
       return normalizeOverride(parsed);
     } catch {
-      const legacyCategory = normalizeUserAssignableCategory(rawValue.trim());
-      if (legacyCategory) {
-        return normalizeOverride({
-          category: legacyCategory,
-          enabled: true,
-          updatedAt: Date.now(),
-        });
-      }
       return null;
     }
   }

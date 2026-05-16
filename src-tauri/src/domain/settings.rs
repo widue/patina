@@ -106,10 +106,10 @@ pub fn parse_close_behavior(raw: &str) -> CloseBehavior {
 }
 
 pub fn parse_minimize_behavior(raw: &str) -> MinimizeBehavior {
-    if raw.trim().eq_ignore_ascii_case("widget") {
-        MinimizeBehavior::Widget
-    } else {
-        MinimizeBehavior::Taskbar
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "widget" => MinimizeBehavior::Widget,
+        "taskbar" => MinimizeBehavior::Taskbar,
+        _ => MinimizeBehavior::default(),
     }
 }
 
@@ -133,11 +133,11 @@ mod tests {
     fn parse_desktop_behavior_keeps_invalid_values_conservative() {
         assert_eq!(parse_close_behavior("tray"), CloseBehavior::Tray);
         assert_eq!(parse_close_behavior("unknown"), CloseBehavior::Exit);
-        assert_eq!(parse_minimize_behavior("tray"), MinimizeBehavior::Taskbar);
         assert_eq!(parse_minimize_behavior("widget"), MinimizeBehavior::Widget);
+        assert_eq!(parse_minimize_behavior("taskbar"), MinimizeBehavior::Taskbar);
         assert_eq!(
             parse_minimize_behavior("anything-else"),
-            MinimizeBehavior::Taskbar
+            MinimizeBehavior::Widget
         );
     }
 

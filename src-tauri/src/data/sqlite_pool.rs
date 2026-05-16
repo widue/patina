@@ -126,7 +126,146 @@ pub async fn reopen_sqlite_pool<R: Runtime>(app: &AppHandle<R>) -> Result<Pool<S
     Ok(next_pool)
 }
 
-pub async fn repair_legacy_migration_history(app_identifier: &str) -> Result<(), String> {
+async fn table_exists(pool: &Pool<Sqlite>, table_name: &str) -> Result<bool, String> {
+    sqlx::query("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1")
+        .bind(table_name)
+        .fetch_optional(pool)
+        .await
+        .map(|row| row.is_some())
+        .map_err(|error| format!("failed to inspect sqlite table `{table_name}`: {error}"))
+}
+
+async fn table_has_columns(
+    pool: &Pool<Sqlite>,
+    table_name: &str,
+    required_columns: &[&str],
+) -> Result<bool, String> {
+    let pragma = match table_name {
+        "sessions" => "PRAGMA table_info(sessions)",
+        "settings" => "PRAGMA table_info(settings)",
+        "icon_cache" => "PRAGMA table_info(icon_cache)",
+        _ => return Err(format!("unsupported schema inspection table `{table_name}`")),
+    };
+
+    let rows = sqlx::query(pragma)
+        .fetch_all(pool)
+        .await
+        .map_err(|error| format!("failed to inspect sqlite table `{table_name}` columns: {error}"))?;
+    let columns = rows
+        .iter()
+        .map(|row| row.get::<String, _>("name"))
+        .collect::<Vec<_>>();
+
+    Ok(required_columns
+        .iter()
+        .all(|required| columns.iter().any(|column| column == required)))
+}
+
+async fn sessions_has_index(pool: &Pool<Sqlite>, index_name: &str) -> Result<bool, String> {
+    let rows = sqlx::query("PRAGMA index_list(sessions)")
+        .fetch_all(pool)
+        .await
+        .map_err(|error| format!("failed to inspect sessions indexes: {error}"))?;
+
+    Ok(rows
+        .iter()
+        .any(|row| row.get::<String, _>("name") == index_name))
+}
+
+async fn has_current_baseline_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
+    if !table_exists(pool, "sessions").await?
+        || !table_exists(pool, "settings").await?
+        || !table_exists(pool, "icon_cache").await?
+    {
+        return Ok(false);
+    }
+
+    let sessions_ready = table_has_columns(
+        pool,
+        "sessions",
+        &[
+            "id",
+            "app_name",
+            "exe_name",
+            "window_title",
+            "start_time",
+            "end_time",
+            "duration",
+            "continuity_group_start_time",
+        ],
+    )
+    .await?;
+    let settings_ready = table_has_columns(pool, "settings", &["key", "value"]).await?;
+    let icon_cache_ready =
+        table_has_columns(pool, "icon_cache", &["exe_name", "icon_base64", "last_updated"]).await?;
+    let date_index_ready = sessions_has_index(pool, "idx_sessions_date").await?;
+    let active_index_ready = sessions_has_index(pool, "idx_sessions_single_active").await?;
+
+    Ok(sessions_ready
+        && settings_ready
+        && icon_cache_ready
+        && date_index_ready
+        && active_index_ready)
+}
+
+async fn normalize_current_baseline_migration_history_for_pool(
+    pool: &Pool<Sqlite>,
+) -> Result<bool, String> {
+    if !table_exists(pool, "_sqlx_migrations").await? {
+        return Ok(false);
+    }
+
+    if !has_current_baseline_schema(pool).await? {
+        return Ok(false);
+    }
+
+    let Some((version, description, checksum)) = expected_migration_metadata().into_iter().next()
+    else {
+        return Ok(false);
+    };
+
+    let applied_rows = sqlx::query("SELECT version, description, checksum FROM _sqlx_migrations")
+        .fetch_all(pool)
+        .await
+        .map_err(|error| format!("failed to load applied sqlite migrations: {error}"))?;
+
+    let already_normalized = applied_rows.len() == 1
+        && applied_rows[0].get::<i64, _>("version") == version
+        && applied_rows[0].get::<String, _>("description") == description
+        && applied_rows[0].get::<Vec<u8>, _>("checksum") == checksum;
+
+    if already_normalized {
+        return Ok(false);
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("failed to start sqlite migration history normalization: {error}"))?;
+    sqlx::query("DELETE FROM _sqlx_migrations")
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| format!("failed to clear sqlite migration history: {error}"))?;
+    sqlx::query(
+        "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+         VALUES (?, ?, 1, ?, 0)",
+    )
+    .bind(version)
+    .bind(description)
+    .bind(checksum)
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| format!("failed to write sqlite current baseline migration history: {error}"))?;
+    tx.commit()
+        .await
+        .map_err(|error| format!("failed to commit sqlite migration history normalization: {error}"))?;
+
+    Ok(true)
+}
+
+pub async fn normalize_current_baseline_migration_history(
+    app_identifier: &str,
+) -> Result<(), String> {
     let Some(db_path) = resolve_app_config_db_path(app_identifier) else {
         return Ok(());
     };
@@ -145,61 +284,8 @@ pub async fn repair_legacy_migration_history(app_identifier: &str) -> Result<(),
         .await
         .map_err(|error| format!("failed to open sqlite db `{}`: {error}", db_path.display()))?;
 
-    let migrations_table_exists = sqlx::query(
-        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations' LIMIT 1",
-    )
-    .fetch_optional(&pool)
-    .await
-    .map_err(|error| format!("failed to inspect sqlite migrations table: {error}"))?
-    .is_some();
-
-    if !migrations_table_exists {
-        pool.close().await;
-        return Ok(());
-    }
-
-    let applied_rows = sqlx::query("SELECT version, description, checksum FROM _sqlx_migrations")
-        .fetch_all(&pool)
-        .await
-        .map_err(|error| format!("failed to load applied sqlite migrations: {error}"))?;
-
-    let mut repaired_versions: Vec<i64> = Vec::new();
-    for (version, description, checksum) in expected_migration_metadata() {
-        let Some(applied_row) = applied_rows
-            .iter()
-            .find(|row| row.get::<i64, _>("version") == version)
-        else {
-            continue;
-        };
-
-        let applied_description = applied_row.get::<String, _>("description");
-        let applied_checksum = applied_row.get::<Vec<u8>, _>("checksum");
-
-        if applied_description == description && applied_checksum == checksum {
-            continue;
-        }
-
-        sqlx::query("UPDATE _sqlx_migrations SET description = ?, checksum = ? WHERE version = ?")
-            .bind(description)
-            .bind(checksum)
-            .bind(version)
-            .execute(&pool)
-            .await
-            .map_err(|error| {
-                format!("failed to repair sqlite migration metadata for v{version}: {error}")
-            })?;
-        repaired_versions.push(version);
-    }
-
-    if !repaired_versions.is_empty() {
-        eprintln!(
-            "[sql] repaired legacy migration metadata for versions: {}",
-            repaired_versions
-                .into_iter()
-                .map(|version| version.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+    if normalize_current_baseline_migration_history_for_pool(&pool).await? {
+        eprintln!("[sql] normalized sqlite migration history to the current baseline");
     }
 
     pool.close().await;
@@ -223,5 +309,117 @@ pub async fn wait_for_sqlite_pool<R: Runtime>(app: &AppHandle<R>) -> Result<Pool
         }
 
         sleep(Duration::from_millis(100)).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sqlx::{Executor, SqlitePool};
+
+    async fn create_sqlx_migrations_table(pool: &SqlitePool) {
+        pool.execute(
+            "CREATE TABLE _sqlx_migrations (
+                version BIGINT PRIMARY KEY,
+                description TEXT NOT NULL,
+                installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                success BOOLEAN NOT NULL,
+                checksum BLOB NOT NULL,
+                execution_time BIGINT NOT NULL
+            )",
+        )
+        .await
+        .unwrap();
+    }
+
+    #[test]
+    fn current_baseline_migration_creates_complete_schema() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(migrations::MIGRATION_1_SQL).await.unwrap();
+
+            assert!(has_current_baseline_schema(&pool).await.unwrap());
+        });
+    }
+
+    #[test]
+    fn current_schema_history_is_normalized_to_single_baseline_row() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(migrations::MIGRATION_1_SQL).await.unwrap();
+            create_sqlx_migrations_table(&pool).await;
+            pool.execute(
+                "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+                 VALUES (1, 'old_v1', 1, x'01', 0),
+                        (2, 'old_v2', 1, x'02', 0),
+                        (7, 'old_v7', 1, x'07', 0)",
+            )
+            .await
+            .unwrap();
+
+            let normalized = normalize_current_baseline_migration_history_for_pool(&pool)
+                .await
+                .unwrap();
+
+            assert!(normalized);
+            let rows =
+                sqlx::query("SELECT version, description, checksum FROM _sqlx_migrations")
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap();
+            let expected = expected_migration_metadata();
+
+            assert_eq!(rows.len(), 1);
+            assert_eq!(rows[0].get::<i64, _>("version"), expected[0].0);
+            assert_eq!(rows[0].get::<String, _>("description"), expected[0].1);
+            assert_eq!(rows[0].get::<Vec<u8>, _>("checksum"), expected[0].2);
+        });
+    }
+
+    #[test]
+    fn old_schema_without_continuity_column_is_not_normalized() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(
+                "CREATE TABLE sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    app_name TEXT NOT NULL,
+                    exe_name TEXT NOT NULL,
+                    window_title TEXT,
+                    start_time INTEGER NOT NULL,
+                    end_time INTEGER,
+                    duration INTEGER
+                );
+                CREATE INDEX idx_sessions_date ON sessions(start_time);
+                CREATE UNIQUE INDEX idx_sessions_single_active ON sessions((1)) WHERE end_time IS NULL;
+                CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE icon_cache (
+                    exe_name TEXT PRIMARY KEY,
+                    icon_base64 TEXT NOT NULL,
+                    last_updated INTEGER
+                );",
+            )
+            .await
+            .unwrap();
+            create_sqlx_migrations_table(&pool).await;
+            pool.execute(
+                "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+                 VALUES (1, 'old_v1', 1, x'01', 0)",
+            )
+            .await
+            .unwrap();
+
+            let normalized = normalize_current_baseline_migration_history_for_pool(&pool)
+                .await
+                .unwrap();
+
+            assert!(!normalized);
+            let description: String =
+                sqlx::query_scalar("SELECT description FROM _sqlx_migrations WHERE version = 1")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(description, "old_v1");
+        });
     }
 }

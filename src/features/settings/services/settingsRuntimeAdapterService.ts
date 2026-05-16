@@ -64,7 +64,7 @@ function buildBackupPreviewSummary(preview: BackupPreview): string {
     `${UI_TEXT.backup.versionLabel(preview.version)}（${UI_TEXT.backup.schemaLabel(preview.schemaVersion)}）`,
     UI_TEXT.backup.exportedAt(exportedAt),
     UI_TEXT.backup.appVersion(preview.appVersion),
-    UI_TEXT.backup.compatibility(preview.compatibilityMessage),
+    UI_TEXT.backup.restoreSafety(preview.restoreMessage),
     UI_TEXT.backup.itemCounts(preview.sessionCount, preview.settingCount, preview.iconCacheCount),
   ].join("\n");
 }
@@ -107,13 +107,13 @@ export async function prepareBackupRestoreWithDeps(
   }
 
   const preview = await deps.previewBackup(selectedPath);
-  if (preview.compatibilityLevel === "incompatible") {
+  if (!preview.restoreSupported) {
     return {
       path: selectedPath,
       preview,
       previewSummary: "",
       compatible: false,
-      incompatibilityMessage: preview.compatibilityMessage,
+      incompatibilityMessage: preview.restoreMessage,
     };
   }
 

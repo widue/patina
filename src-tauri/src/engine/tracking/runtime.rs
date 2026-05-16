@@ -308,12 +308,6 @@ mod tests {
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_2_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_3_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_4_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_5_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_6_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_7_SQL).await.unwrap();
         pool
     }
 
@@ -600,7 +594,20 @@ mod tests {
     fn migration_dedupes_multiple_active_sessions() {
         tauri::async_runtime::block_on(async {
             let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-            pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
+            pool.execute(
+                "CREATE TABLE sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    app_name TEXT NOT NULL,
+                    exe_name TEXT NOT NULL,
+                    window_title TEXT,
+                    start_time INTEGER NOT NULL,
+                    end_time INTEGER,
+                    duration INTEGER,
+                    continuity_group_start_time INTEGER
+                )",
+            )
+            .await
+            .unwrap();
             pool.execute(
                 "INSERT INTO sessions (app_name, exe_name, window_title, start_time)
                  VALUES ('QQ', 'QQ.exe', 'Chat A', 1000),
@@ -608,8 +615,7 @@ mod tests {
             )
             .await
             .unwrap();
-
-            pool.execute(db_schema::MIGRATION_3_SQL).await.unwrap();
+            pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
 
             let active_count: i64 =
                 sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE end_time IS NULL")

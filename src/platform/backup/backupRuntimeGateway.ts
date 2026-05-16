@@ -5,10 +5,10 @@ interface RawBackupPreview {
   exported_at_ms: number;
   schema_version: number;
   app_version: string;
-  compatibility_level: string;
-  compatibility_message_key?: string;
-  compatibility_message_args?: string[];
-  compatibility_message: string;
+  restore_supported: boolean;
+  restore_message_key?: string;
+  restore_message_args?: string[];
+  restore_message: string;
   session_count: number;
   setting_count: number;
   icon_cache_count: number;
@@ -19,10 +19,10 @@ export interface BackupPreview {
   exportedAtMs: number;
   schemaVersion: number;
   appVersion: string;
-  compatibilityLevel: string;
-  compatibilityMessageKey: string | null;
-  compatibilityMessageArgs: string[];
-  compatibilityMessage: string;
+  restoreSupported: boolean;
+  restoreMessageKey: string | null;
+  restoreMessageArgs: string[];
+  restoreMessage: string;
   sessionCount: number;
   settingCount: number;
   iconCacheCount: number;
@@ -40,8 +40,8 @@ function isRawBackupPreview(value: unknown): value is RawBackupPreview {
     && typeof record.exported_at_ms === "number"
     && typeof record.schema_version === "number"
     && typeof record.app_version === "string"
-    && typeof record.compatibility_level === "string"
-    && typeof record.compatibility_message === "string"
+    && typeof record.restore_supported === "boolean"
+    && typeof record.restore_message === "string"
     && typeof record.session_count === "number"
     && typeof record.setting_count === "number"
     && typeof record.icon_cache_count === "number";
@@ -53,10 +53,10 @@ function mapRawBackupPreview(raw: RawBackupPreview): BackupPreview {
     exportedAtMs: raw.exported_at_ms,
     schemaVersion: raw.schema_version,
     appVersion: raw.app_version,
-    compatibilityLevel: raw.compatibility_level,
-    compatibilityMessageKey: raw.compatibility_message_key ?? null,
-    compatibilityMessageArgs: raw.compatibility_message_args ?? [],
-    compatibilityMessage: raw.compatibility_message,
+    restoreSupported: raw.restore_supported,
+    restoreMessageKey: raw.restore_message_key ?? null,
+    restoreMessageArgs: raw.restore_message_args ?? [],
+    restoreMessage: raw.restore_message,
     sessionCount: raw.session_count,
     settingCount: raw.setting_count,
     iconCacheCount: raw.icon_cache_count,

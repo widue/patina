@@ -16,7 +16,6 @@ use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 const BACKUP_FILE_EXT: &str = "zip";
-const BACKUP_JSON_ENTRY_NAME: &str = "backup.json";
 const BACKUP_MANIFEST_ENTRY_NAME: &str = "manifest.json";
 const BACKUP_CHECKSUMS_ENTRY_NAME: &str = "checksums.json";
 const BACKUP_SESSIONS_ENTRY_NAME: &str = "data/sessions.json";
@@ -164,9 +163,7 @@ pub fn pick_backup_save_file(initial_path: Option<String>) -> Option<String> {
 }
 
 pub fn pick_backup_file(initial_path: Option<String>) -> Option<String> {
-    let mut dialog = rfd::FileDialog::new()
-        .add_filter("Time Tracker backup", &["zip"])
-        .add_filter("Legacy backup files", &["json", "ttbackup"]);
+    let mut dialog = rfd::FileDialog::new().add_filter("Time Tracker backup", &["zip"]);
     if let Some(dir) = resolve_dialog_directory(initial_path) {
         dialog = dialog.set_directory(dir);
     }
@@ -182,17 +179,6 @@ pub enum RestoreStrategy {
     #[default]
     Replace,
     Merge,
-}
-
-fn decode_backup_payload(raw_json: &str, source_path: &Path) -> Result<BackupPayload, String> {
-    let payload = serde_json::from_str::<BackupPayload>(raw_json).map_err(|error| {
-        format!(
-            "failed to parse backup file `{}`: {error}",
-            source_path.display()
-        )
-    })?;
-
-    Ok(payload)
 }
 
 fn build_backup_manifest(payload: &BackupPayload) -> BackupArchiveManifest {
@@ -430,17 +416,16 @@ fn read_backup_payload(backup_path: &Path) -> Result<BackupPayload, String> {
             return decode_structured_backup_archive(&mut archive, backup_path);
         }
 
-        let raw_json = read_zip_entry(&mut archive, BACKUP_JSON_ENTRY_NAME, backup_path)?;
-        return decode_backup_payload(&raw_json, backup_path);
+        return Err(format!(
+            "backup archive `{}` is not a supported structured Time Tracker backup",
+            backup_path.display()
+        ));
     }
 
-    let raw_json = String::from_utf8(raw_bytes).map_err(|error| {
-        format!(
-            "failed to decode backup file `{}` as UTF-8: {error}",
-            backup_path.display()
-        )
-    })?;
-    decode_backup_payload(&raw_json, backup_path)
+    Err(format!(
+        "backup file `{}` is not a supported structured Time Tracker backup",
+        backup_path.display()
+    ))
 }
 
 pub async fn export_backup(backup_path: Option<String>, app: AppHandle) -> Result<String, String> {
@@ -465,9 +450,9 @@ pub async fn restore_backup(
     }
 
     let payload = read_backup_payload(&backup_path)?;
-    let compatibility = payload.compatibility();
-    if !compatibility.supported {
-        return Err(compatibility.message);
+    let restore_safety = payload.restore_safety();
+    if !restore_safety.supported {
+        return Err(restore_safety.message);
     }
 
     let pool = wait_for_sqlite_pool(&app).await?;
@@ -613,15 +598,39 @@ mod tests {
         assert_eq!(decoded.icon_cache.len(), 1);
     }
 
+    #[test]
+    fn plain_json_backup_payload_is_not_supported() {
+        let backup_path = std::env::temp_dir().join(format!(
+            "timetracker-legacy-json-{}.json",
+            std::process::id()
+        ));
+        fs::write(&backup_path, r#"{"version":1}"#).unwrap();
+
+        let error = read_backup_payload(&backup_path).unwrap_err();
+        let _ = fs::remove_file(&backup_path);
+        assert!(error.contains("not a supported structured Time Tracker backup"));
+    }
+
+    #[test]
+    fn legacy_zip_backup_json_payload_is_not_supported() {
+        let backup_path = std::env::temp_dir().join(format!(
+            "timetracker-legacy-zip-{}.zip",
+            std::process::id()
+        ));
+        let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
+        zip_write_file(&mut archive, "backup.json", r#"{"version":1}"#, options).unwrap();
+        let archive_bytes = archive.finish().unwrap().into_inner();
+        fs::write(&backup_path, archive_bytes).unwrap();
+
+        let error = read_backup_payload(&backup_path).unwrap_err();
+        let _ = fs::remove_file(&backup_path);
+        assert!(error.contains("not a supported structured Time Tracker backup"));
+    }
+
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_2_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_3_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_4_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_5_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_6_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_7_SQL).await.unwrap();
         pool
     }
 

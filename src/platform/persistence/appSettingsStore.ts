@@ -32,7 +32,6 @@ type RawAppSettingsKey =
   | "minimize_behavior"
   | "theme_mode"
   | "language"
-  | "color_scheme"
   | "color_scheme_light"
   | "color_scheme_dark"
   | "launch_at_login"
@@ -95,7 +94,9 @@ function normalizeCloseBehavior(value: string | undefined): CloseBehavior {
 
 function normalizeMinimizeBehavior(value: string | undefined): MinimizeBehavior {
   if (value === undefined) return DEFAULT_SETTINGS.minimizeBehavior;
-  return value.trim().toLowerCase() === "widget" ? "widget" : "taskbar";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "widget" || normalized === "taskbar") return normalized;
+  return DEFAULT_SETTINGS.minimizeBehavior;
 }
 
 function normalizeThemeMode(value: string | undefined): ThemeMode {
@@ -201,11 +202,11 @@ export function normalizeSettingsRecord(record: Record<string, string | undefine
     themeMode: normalizeThemeMode(record.theme_mode),
     language: normalizeLanguage(record.language),
     colorSchemeLight: normalizeColorScheme(
-      record.color_scheme_light ?? record.color_scheme ?? DEFAULT_SETTINGS.colorSchemeLight,
+      record.color_scheme_light ?? DEFAULT_SETTINGS.colorSchemeLight,
       LIGHT_COLOR_SCHEMES,
     ),
     colorSchemeDark: normalizeColorScheme(
-      record.color_scheme_dark ?? record.color_scheme ?? DEFAULT_SETTINGS.colorSchemeDark,
+      record.color_scheme_dark ?? DEFAULT_SETTINGS.colorSchemeDark,
       DARK_COLOR_SCHEMES,
     ),
     launchAtLogin: parseBooleanSetting(record.launch_at_login, DEFAULT_SETTINGS.launchAtLogin),
@@ -215,30 +216,6 @@ export function normalizeSettingsRecord(record: Record<string, string | undefine
       DEFAULT_SETTINGS.onboardingCompleted,
     ),
   };
-}
-
-export function buildAppSettingsTransitionPatch(
-  record: Record<string, string | undefined>,
-  settings: AppSettings = normalizeSettingsRecord(record),
-): Record<string, PersistedSettingValue> {
-  const patch: Record<string, PersistedSettingValue> = {};
-
-  // Transitional writeback for settings produced before split light/dark schemes.
-  if (record.color_scheme !== undefined) {
-    if (record.color_scheme_light === undefined) {
-      patch.color_scheme_light = settings.colorSchemeLight;
-    }
-    if (record.color_scheme_dark === undefined) {
-      patch.color_scheme_dark = settings.colorSchemeDark;
-    }
-  }
-
-  // Transitional writeback for the retired tray-as-minimize value.
-  if (record.minimize_behavior?.trim().toLowerCase() === "tray") {
-    patch.minimize_behavior = settings.minimizeBehavior;
-  }
-
-  return patch;
 }
 
 export function buildRawAppSettingsPatch(patch: AppSettingsPatch): Record<string, PersistedSettingValue> {
@@ -257,12 +234,7 @@ export async function loadAppSettings(): Promise<AppSettings> {
   for (const row of rows) {
     record[row.key] = row.value;
   }
-  const settings = normalizeSettingsRecord(record);
-  const transitionPatch = buildAppSettingsTransitionPatch(record, settings);
-  if (Object.keys(transitionPatch).length > 0) {
-    await saveSettingEntries(transitionPatch);
-  }
-  return settings;
+  return normalizeSettingsRecord(record);
 }
 
 export async function saveAppSetting<K extends keyof AppSettings>(

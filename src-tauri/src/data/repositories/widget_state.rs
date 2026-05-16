@@ -35,8 +35,6 @@ mod tests {
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_2_SQL).await.unwrap();
-        pool.execute(db_schema::MIGRATION_3_SQL).await.unwrap();
         pool
     }
 

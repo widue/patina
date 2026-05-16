@@ -107,47 +107,35 @@ await runTest("first install assignable categories match the lean default set", 
   assert.equal(ProcessMapper.map("teams.exe").category, "office");
   assert.equal(
     ProcessMapper.fromOverrideStorageValue(JSON.stringify({ category: "meeting", enabled: true }))?.category,
-    "office",
+    undefined,
   );
   assert.equal(
     ProcessMapper.fromOverrideStorageValue(JSON.stringify({ category: "reading", enabled: true }))?.category,
-    "browser",
+    undefined,
   );
   assert.equal(
     ProcessMapper.fromOverrideStorageValue(JSON.stringify({ category: "finance", enabled: true }))?.category,
-    "utility",
+    undefined,
   );
 });
 
-await runTest("legacy classification overrides are normalized for transition writeback", () => {
+await runTest("unsupported historical classification overrides are ignored", () => {
   const transition = buildAppOverrideTransition(
     "__app_override::Zoom.exe",
     JSON.stringify({ category: "meeting", enabled: true, updatedAt: 123 }),
   );
 
   assert.equal(transition.canonicalExe, "zoom.exe");
-  assert.equal(transition.override?.category, "office");
-  assert.deepEqual(transition.mutations, [
-    {
-      key: "__app_override::Zoom.exe",
-      value: null,
-    },
-    {
-      key: "__app_override::zoom.exe",
-      value: ProcessMapper.toOverrideStorageValue(transition.override!),
-    },
-  ]);
+  assert.equal(transition.override, null);
+  assert.deepEqual(transition.mutations, []);
 });
 
-await runTest("legacy plain category overrides are rewritten as current JSON", () => {
+await runTest("plain category override storage values are ignored", () => {
   const transition = buildAppOverrideTransition("__app_override::reader.exe", "reading");
 
   assert.equal(transition.canonicalExe, "reader.exe");
-  assert.equal(transition.override?.category, "browser");
-  assert.deepEqual(transition.mutations, [{
-    key: "__app_override::reader.exe",
-    value: ProcessMapper.toOverrideStorageValue(transition.override!),
-  }]);
+  assert.equal(transition.override, null);
+  assert.deepEqual(transition.mutations, []);
 });
 
 await runTest("hasClassificationDraftChanges ignores unsupported deleted categories", () => {

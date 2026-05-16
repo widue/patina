@@ -37,7 +37,7 @@
 - [x] 当前电脑已升级到 `0.6.6`，并确认数据正常。
 - [x] 另一台已安装 Time Tracker 的电脑已升级到 `0.6.6`，并确认数据正常。
 - [x] 开始 `0.6.7` 完全简并前，已在 `0.6.6` 内导出一份新的结构化 `.zip` 备份作为临时回滚点。
-- [ ] `0.6.7` 完全简并版本尚未开始实施。
+- [x] `0.6.7` 完全简并版本代码已完成并通过发布前校验。
 
 发布工作流：
 
@@ -189,7 +189,7 @@
 - [x] 两台电脑都成功启动过 `0.6.6`。
 - [x] 两台电脑都确认主要数据正常。
 - [x] 完全简并前至少导出过一份新的 `.zip` 临时回滚备份。
-- [ ] 没有仍需从旧 `.json`、`.ttbackup`、旧 zip 内 `backup.json` 恢复的数据。
+- [x] 没有仍需从旧 `.json`、`.ttbackup`、旧 zip 内 `backup.json` 恢复的数据。
 
 ## 阶段 D：`0.6.7` 完全简并版本门禁
 
@@ -200,15 +200,15 @@
 - [x] 另一台已安装电脑已运行过 `0.6.6`。
 - [x] 所有需要保留的数据都已在 `0.6.6` 中正常显示。
 - [x] 开始完全简并前，已导出至少一份 `0.6.6` 结构化 `.zip` 临时回滚备份。
-- [ ] 明确接受完全简并版本不再读取旧设置、旧分类、旧备份格式。
-- [ ] 开始前再次确认 git 工作区干净，或明确哪些改动属于本次任务。
+- [x] 明确接受完全简并版本不再读取旧设置、旧分类、旧备份格式。
+- [x] 开始前已确认 git 工作区干净，本轮后续改动均属于 `0.6.7` 完全简并任务。
 
 方案二门禁：
 
-- [ ] 不允许只删除 4/5/6 然后保留 `MIGRATION_7_SQL`。这属于方案一，不是当前文档采用的方案二。
-- [ ] 不允许只把迁移压成 `MIGRATION_1_SQL` 而不处理已有数据库的 `_sqlx_migrations` 记录。
-- [ ] 完全简并版本必须能打开已经成功运行过 `0.6.6` 的数据库。
-- [ ] 完全简并版本可以明确不支持 `0.6.4` 数据库直接跳过 `0.6.6` 启动。
+- [x] 不允许只删除 4/5/6 然后保留 `MIGRATION_7_SQL`。这属于方案一，不是当前文档采用的方案二。
+- [x] 不允许只把迁移压成 `MIGRATION_1_SQL` 而不处理已有数据库的 `_sqlx_migrations` 记录。
+- [x] 完全简并版本必须能打开已经成功运行过 `0.6.6` 的数据库。
+- [x] 完全简并版本可以明确不支持 `0.6.4` 数据库直接跳过 `0.6.6` 启动。
 
 建议版本号：
 
@@ -342,20 +342,20 @@
 
 每批之后至少跑该批列出的局部测试。全部完成后跑完整门槛：
 
-- [ ] `npm run check:architecture`
-- [ ] `npm run check:naming`
-- [ ] `npm test`
-- [ ] `npm run test:replay`
-- [ ] `npm run test:settings`
-- [ ] `npm run test:classification`
-- [ ] `npm run check:rust`
-- [ ] `npm run check:full`
+- [x] `npm run check:architecture`
+- [x] `npm run check:naming`
+- [x] `npm test`
+- [x] `npm run test:replay`
+- [x] `npm run test:settings`
+- [x] `npm run test:classification`
+- [x] `npm run check:rust`
+- [x] `npm run check:full`
 
 发布前门槛：
 
-- [ ] 更新 `CHANGELOG.md`。
-- [ ] 同步目标版本号。
-- [ ] 跑 `npm run release:check -- <version>`。
+- [x] 更新 `CHANGELOG.md`。
+- [x] 同步目标版本号。
+- [x] 跑 `npm run release:check -- 0.6.7`。
 - [ ] 提交 `release: v<version>`。
 - [ ] 推送 `main`。
 - [ ] 推送 `v<version>` tag。

@@ -23,9 +23,9 @@ pub fn run() {
     let app_identifier = context.config().identifier.clone();
 
     if let Err(error) = tauri::async_runtime::block_on(
-        data::sqlite_pool::repair_legacy_migration_history(&app_identifier),
+        data::sqlite_pool::normalize_current_baseline_migration_history(&app_identifier),
     ) {
-        eprintln!("[sql] failed to repair legacy migration history: {error}");
+        eprintln!("[sql] failed to normalize current baseline migration history: {error}");
     }
 
     app::bootstrap::build(app::bootstrap::BootstrapInput {

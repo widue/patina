@@ -51,56 +51,31 @@ pub struct BackupPreview {
     pub exported_at_ms: u64,
     pub schema_version: u32,
     pub app_version: String,
-    pub compatibility_level: String,
-    pub compatibility_message_key: String,
-    pub compatibility_message_args: Vec<String>,
-    pub compatibility_message: String,
+    pub restore_supported: bool,
+    pub restore_message_key: String,
+    pub restore_message_args: Vec<String>,
+    pub restore_message: String,
     pub session_count: usize,
     pub setting_count: usize,
     pub icon_cache_count: usize,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BackupCompatibilityLevel {
-    Compatible,
-    Legacy,
-    Incompatible,
-}
-
-impl BackupCompatibilityLevel {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Compatible => "compatible",
-            Self::Legacy => "legacy",
-            Self::Incompatible => "incompatible",
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct BackupCompatibility {
-    pub level: BackupCompatibilityLevel,
+pub struct BackupRestoreSafety {
     pub message_key: &'static str,
     pub message_args: Vec<String>,
     pub message: String,
     pub supported: bool,
 }
 
-impl BackupCompatibility {
-    pub fn level_str(&self) -> &'static str {
-        self.level.as_str()
-    }
-}
-
 impl BackupPayload {
-    pub fn compatibility(&self) -> BackupCompatibility {
+    pub fn restore_safety(&self) -> BackupRestoreSafety {
         if self.version > CURRENT_BACKUP_VERSION {
-            return BackupCompatibility {
-                level: BackupCompatibilityLevel::Incompatible,
-                message_key: "backup.compatibility.versionTooNew",
+            return BackupRestoreSafety {
+                message_key: "backup.restore.versionTooNew",
                 message_args: vec![self.version.to_string(), CURRENT_BACKUP_VERSION.to_string()],
                 message: format!(
-                    "备份格式版本 {} 高于当前支持的 {}，请升级应用后再恢复。",
+                    "Backup format version {} is newer than the supported version {}. Upgrade the app before restoring.",
                     self.version, CURRENT_BACKUP_VERSION
                 ),
                 supported: false,
@@ -108,55 +83,52 @@ impl BackupPayload {
         }
 
         if self.version < CURRENT_BACKUP_VERSION {
-            return BackupCompatibility {
-                level: BackupCompatibilityLevel::Legacy,
-                message_key: "backup.compatibility.legacyVersion",
+            return BackupRestoreSafety {
+                message_key: "backup.restore.versionTooOld",
                 message_args: vec![self.version.to_string(), CURRENT_BACKUP_VERSION.to_string()],
                 message: format!(
-                    "备份格式版本 {} 低于当前版本 {}，将按兼容模式尝试恢复。",
+                    "Backup format version {} is older than the supported version {}. Restore it with 0.6.6 first, then export a current zip backup.",
                     self.version, CURRENT_BACKUP_VERSION
                 ),
-                supported: true,
+                supported: false,
             };
         }
 
         if self.meta.schema_version > CURRENT_BACKUP_SCHEMA_VERSION {
-            return BackupCompatibility {
-                level: BackupCompatibilityLevel::Incompatible,
-                message_key: "backup.compatibility.schemaTooNew",
+            return BackupRestoreSafety {
+                message_key: "backup.restore.schemaTooNew",
                 message_args: vec![
                     self.meta.schema_version.to_string(),
                     CURRENT_BACKUP_SCHEMA_VERSION.to_string(),
                 ],
                 message: format!(
-                    "备份 schema 版本 {} 高于当前支持的 {}，请升级应用后再恢复。",
+                    "Backup schema version {} is newer than the supported version {}. Upgrade the app before restoring.",
                     self.meta.schema_version, CURRENT_BACKUP_SCHEMA_VERSION
                 ),
                 supported: false,
             };
         }
 
-        BackupCompatibility {
-            level: BackupCompatibilityLevel::Compatible,
-            message_key: "backup.compatibility.compatible",
+        BackupRestoreSafety {
+            message_key: "backup.restore.supported",
             message_args: Vec::new(),
-            message: "当前版本可直接恢复该备份。".to_string(),
+            message: "This backup can be restored by the current version.".to_string(),
             supported: true,
         }
     }
 
     pub fn preview(&self) -> BackupPreview {
-        let compatibility = self.compatibility();
+        let restore_safety = self.restore_safety();
 
         BackupPreview {
             version: self.version,
             exported_at_ms: self.meta.exported_at_ms,
             schema_version: self.meta.schema_version,
             app_version: self.meta.app_version.clone(),
-            compatibility_level: compatibility.level_str().to_string(),
-            compatibility_message_key: compatibility.message_key.to_string(),
-            compatibility_message_args: compatibility.message_args,
-            compatibility_message: compatibility.message,
+            restore_supported: restore_safety.supported,
+            restore_message_key: restore_safety.message_key.to_string(),
+            restore_message_args: restore_safety.message_args,
+            restore_message: restore_safety.message,
             session_count: self.sessions.len(),
             setting_count: self.settings.len(),
             icon_cache_count: self.icon_cache.len(),
@@ -167,8 +139,8 @@ impl BackupPayload {
 #[cfg(test)]
 mod tests {
     use super::{
-        BackupCompatibilityLevel, BackupIconCache, BackupMeta, BackupPayload, BackupSession,
-        BackupSetting, CURRENT_BACKUP_SCHEMA_VERSION, CURRENT_BACKUP_VERSION,
+        BackupIconCache, BackupMeta, BackupPayload, BackupSession, BackupSetting,
+        CURRENT_BACKUP_SCHEMA_VERSION, CURRENT_BACKUP_VERSION,
     };
 
     fn sample_payload(version: u32, schema_version: u32) -> BackupPayload {
@@ -202,37 +174,34 @@ mod tests {
     }
 
     #[test]
-    fn compatibility_is_incompatible_when_backup_version_is_newer() {
+    fn restore_safety_is_unsupported_when_backup_version_is_newer() {
         let payload = sample_payload(CURRENT_BACKUP_VERSION + 1, CURRENT_BACKUP_SCHEMA_VERSION);
-        let compatibility = payload.compatibility();
+        let restore_safety = payload.restore_safety();
 
-        assert_eq!(compatibility.level, BackupCompatibilityLevel::Incompatible);
-        assert!(!compatibility.supported);
-        assert!(compatibility.message.contains("高于当前支持"));
+        assert!(!restore_safety.supported);
+        assert_eq!(restore_safety.message_key, "backup.restore.versionTooNew");
     }
 
     #[test]
-    fn compatibility_is_legacy_but_supported_when_backup_version_is_older() {
+    fn restore_safety_is_unsupported_when_backup_version_is_older() {
         let payload = sample_payload(CURRENT_BACKUP_VERSION.saturating_sub(1), 1);
-        let compatibility = payload.compatibility();
+        let restore_safety = payload.restore_safety();
 
-        assert_eq!(compatibility.level, BackupCompatibilityLevel::Legacy);
-        assert!(compatibility.supported);
-        assert!(compatibility.message.contains("兼容模式"));
+        assert!(!restore_safety.supported);
+        assert_eq!(restore_safety.message_key, "backup.restore.versionTooOld");
     }
 
     #[test]
-    fn compatibility_is_incompatible_when_schema_is_newer() {
+    fn restore_safety_is_unsupported_when_schema_is_newer() {
         let payload = sample_payload(CURRENT_BACKUP_VERSION, CURRENT_BACKUP_SCHEMA_VERSION + 1);
-        let compatibility = payload.compatibility();
+        let restore_safety = payload.restore_safety();
 
-        assert_eq!(compatibility.level, BackupCompatibilityLevel::Incompatible);
-        assert!(!compatibility.supported);
-        assert!(compatibility.message.contains("schema 版本"));
+        assert!(!restore_safety.supported);
+        assert_eq!(restore_safety.message_key, "backup.restore.schemaTooNew");
     }
 
     #[test]
-    fn preview_exposes_contract_counts_and_compatibility_fields() {
+    fn preview_exposes_contract_counts_and_restore_fields() {
         let mut payload = sample_payload(CURRENT_BACKUP_VERSION, CURRENT_BACKUP_SCHEMA_VERSION);
         payload.sessions.push(BackupSession {
             id: 2,
@@ -246,8 +215,8 @@ mod tests {
         });
 
         let preview = payload.preview();
-        assert_eq!(preview.compatibility_level, "compatible");
-        assert!(preview.compatibility_message.contains("可直接恢复"));
+        assert!(preview.restore_supported);
+        assert_eq!(preview.restore_message_key, "backup.restore.supported");
         assert_eq!(preview.session_count, 2);
         assert_eq!(preview.setting_count, 1);
         assert_eq!(preview.icon_cache_count, 1);

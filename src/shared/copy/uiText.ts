@@ -419,7 +419,7 @@ const ZH_CN_UI_TEXT = {
     schemaLabel: (schemaVersion: number) => `Schema ${schemaVersion}`,
     exportedAt: (value: string) => `导出时间：${value}`,
     appVersion: (version: string) => `应用版本：${version}`,
-    compatibility: (message: string) => `兼容提示：${message}`,
+    restoreSafety: (message: string) => `恢复提示：${message}`,
     itemCounts: (sessionCount: number, settingCount: number, iconCacheCount: number) => (
       `会话数：${sessionCount}，设置项：${settingCount}，图标缓存：${iconCacheCount}`
     ),
@@ -896,7 +896,7 @@ const EN_US_UI_TEXT: UiText = {
     schemaLabel: (schemaVersion: number) => `Schema ${schemaVersion}`,
     exportedAt: (value: string) => `Exported at: ${value}`,
     appVersion: (version: string) => `App version: ${version}`,
-    compatibility: (message: string) => `Compatibility: ${message}`,
+    restoreSafety: (message: string) => `Restore status: ${message}`,
     itemCounts: (sessionCount: number, settingCount: number, iconCacheCount: number) => (
       `Sessions: ${sessionCount}, settings: ${settingCount}, cached icons: ${iconCacheCount}`
     ),

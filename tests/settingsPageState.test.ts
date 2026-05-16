@@ -11,7 +11,6 @@ import {
   runSettingsCleanupFlow,
 } from "../src/features/settings/services/settingsPageActions.ts";
 import {
-  buildAppSettingsTransitionPatch,
   normalizeSettingsRecord,
 } from "../src/platform/persistence/appSettingsStore.ts";
 
@@ -120,10 +119,10 @@ function buildPreview(overrides: Partial<BackupPreview> = {}): BackupPreview {
     exportedAtMs: 1_714_000_000_000,
     schemaVersion: 7,
     appVersion: "0.3.2",
-    compatibilityLevel: "compatible",
-    compatibilityMessageKey: null,
-    compatibilityMessageArgs: [],
-    compatibilityMessage: "Looks good",
+    restoreSupported: true,
+    restoreMessageKey: null,
+    restoreMessageArgs: [],
+    restoreMessage: "Looks good",
     sessionCount: 42,
     settingCount: 10,
     iconCacheCount: 5,
@@ -267,7 +266,7 @@ await runTest("commitSettingsPatchWithDeps does not attempt runtime sync when pe
   assert.deepEqual(events, ["persist"]);
 });
 
-await runTest("normalizeSettingsRecord accepts widget minimize behavior and maps legacy tray to taskbar", () => {
+await runTest("normalizeSettingsRecord accepts current minimize behavior values", () => {
   const defaultSettings = normalizeSettingsRecord({});
   assert.equal(defaultSettings.minimizeBehavior, "widget");
   assert.equal(defaultSettings.closeBehavior, "tray");
@@ -283,15 +282,15 @@ await runTest("normalizeSettingsRecord accepts widget minimize behavior and maps
   assert.equal(widgetSettings.minimizeBehavior, "widget");
   assert.equal(widgetSettings.closeBehavior, "tray");
 
-  const legacyTraySettings = normalizeSettingsRecord({
+  const retiredTraySettings = normalizeSettingsRecord({
     minimize_behavior: "tray",
   });
-  assert.equal(legacyTraySettings.minimizeBehavior, "taskbar");
+  assert.equal(retiredTraySettings.minimizeBehavior, "widget");
 
   const fallbackSettings = normalizeSettingsRecord({
     minimize_behavior: "floating-sidebar",
   });
-  assert.equal(fallbackSettings.minimizeBehavior, "taskbar");
+  assert.equal(fallbackSettings.minimizeBehavior, "widget");
 });
 
 await runTest("normalizeSettingsRecord accepts theme modes and falls back to light", () => {
@@ -355,44 +354,8 @@ await runTest("normalizeSettingsRecord accepts color schemes and falls back to d
   assert.equal(normalizeSettingsRecord({ color_scheme_dark: "vitesse" }).colorSchemeDark, "default");
   assert.equal(normalizeSettingsRecord({ color_scheme_dark: "NORD" }).colorSchemeDark, "nord");
   assert.equal(normalizeSettingsRecord({ color_scheme_light: "marketplace" }).colorSchemeLight, "default");
-  assert.deepEqual(
-    {
-      light: normalizeSettingsRecord({ color_scheme: "github" }).colorSchemeLight,
-      dark: normalizeSettingsRecord({ color_scheme: "github" }).colorSchemeDark,
-    },
-    { light: "github", dark: "github" },
-  );
-  assert.deepEqual(
-    {
-      light: normalizeSettingsRecord({ color_scheme: "nord" }).colorSchemeLight,
-      dark: normalizeSettingsRecord({ color_scheme: "nord" }).colorSchemeDark,
-    },
-    { light: "default", dark: "nord" },
-  );
-});
-
-await runTest("buildAppSettingsTransitionPatch writes current fields for legacy settings", () => {
-  assert.deepEqual(
-    buildAppSettingsTransitionPatch({
-      color_scheme: "github",
-      minimize_behavior: "tray",
-    }),
-    {
-      color_scheme_light: "github",
-      color_scheme_dark: "github",
-      minimize_behavior: "taskbar",
-    },
-  );
-
-  assert.deepEqual(
-    buildAppSettingsTransitionPatch({
-      color_scheme: "nord",
-      color_scheme_light: "linear",
-      color_scheme_dark: "nord",
-      minimize_behavior: "widget",
-    }),
-    {},
-  );
+  assert.equal(normalizeSettingsRecord({ color_scheme: "github" }).colorSchemeLight, "default");
+  assert.equal(normalizeSettingsRecord({ color_scheme: "github" }).colorSchemeDark, "default");
 });
 
 await runTest("runSettingsCleanupFlow executes confirmed cleanup and reloads", async () => {
@@ -529,7 +492,7 @@ await runTest("runBackupRestoreFlow blocks incompatible backups before confirmat
     restoreStrategy: "replace",
     prepareBackupRestore: async () => ({
       path: "C:/tmp/incompatible.db",
-      preview: buildPreview({ compatibilityLevel: "incompatible" }),
+      preview: buildPreview({ restoreSupported: false }),
       previewSummary: "",
       compatible: false,
       incompatibilityMessage: "schema mismatch",
