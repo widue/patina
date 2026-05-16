@@ -41,7 +41,9 @@
 
 发布工作流：
 
-- `Publish Release` run: https://github.com/Ceceliaee/time-tracking/actions/runs/25920387288
+- `0.6.5` Publish Release run: https://github.com/Ceceliaee/time-tracking/actions/runs/25920387288
+- `0.6.6` Publish Release run: https://github.com/Ceceliaee/time-tracking/actions/runs/25923294364
+- `0.6.6` Release: https://github.com/Ceceliaee/time-tracking/releases/tag/v0.6.6
 
 ## 一句话结论
 
@@ -160,10 +162,10 @@
 
 先等待：
 
-- [ ] GitHub Actions `Publish Release` 结束且状态为成功。
-- [ ] GitHub Release 页面出现 `v0.6.6`。
-- [ ] Release 附件包含 Windows 安装包。
-- [ ] Release 附件包含 updater 使用的 `latest.json`。
+- [x] GitHub Actions `Publish Release` 结束且状态为成功。
+- [x] GitHub Release 页面出现 `v0.6.6`。
+- [x] Release 附件包含 Windows 安装包。
+- [x] Release 附件包含 updater 使用的 `latest.json`。
 
 当前电脑验证：
 
@@ -193,7 +195,7 @@
 
 只有全部勾选后，才能开始删除兼容代码。
 
-- [ ] `0.6.6` Release 已正式发布成功。
+- [x] `0.6.6` Release 已正式发布成功。
 - [x] 当前电脑已运行过 `0.6.6`。
 - [x] 另一台已安装电脑已运行过 `0.6.6`。
 - [x] 所有需要保留的数据都已在 `0.6.6` 中正常显示。
