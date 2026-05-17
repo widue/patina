@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {
+  fieldValue,
   readVersionPolicyCurrentCodeVersion,
+  renderUpdaterNotes,
   syncVersionPolicyCurrentCodeVersion,
   validateVersionPolicyCurrentCodeVersionText,
 } from "../scripts/release.ts";
@@ -38,9 +40,27 @@ function testStalePolicyVersionFailsValidation() {
   );
 }
 
+function testUpdaterNotesStaySingleLanguage() {
+  const sectionBody = [
+    "Release: 修复更新说明。",
+    "App note: 修复英文更新说明显示。",
+    "App note en: Fixed English release notes.",
+  ].join("\n");
+
+  const notes = renderUpdaterNotes({
+    appNote: fieldValue(sectionBody, "App note"),
+    appNoteEn: fieldValue(sectionBody, "App note en"),
+  });
+
+  assert.equal(notes, "Fixed English release notes.");
+  assert.equal(notes.includes("zh-CN:"), false);
+  assert.equal(notes.includes("en-US:"), false);
+}
+
 testSyncsCurrentCodeVersion();
 testSupportsPrereleaseVersion();
 testMissingPolicyVersionIsNull();
 testStalePolicyVersionFailsValidation();
+testUpdaterNotesStaySingleLanguage();
 
-console.log("Passed 4 release policy tests");
+console.log("Passed 5 release policy tests");

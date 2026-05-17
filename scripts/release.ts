@@ -176,20 +176,13 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function fieldValue(sectionBody, field) {
+export function fieldValue(sectionBody, field) {
   const match = new RegExp(`^${field}:\\s*(.+?)\\s*$`, "m").exec(sectionBody);
   return match?.[1]?.trim() ?? "";
 }
 
-function renderLocalizedAppNote(parsed) {
-  if (!parsed.appNoteEn) {
-    return parsed.appNote;
-  }
-
-  return [
-    `zh-CN: ${parsed.appNote}`,
-    `en-US: ${parsed.appNoteEn}`,
-  ].join("\n");
+export function renderUpdaterNotes(parsed) {
+  return parsed.appNoteEn || parsed.appNote;
 }
 
 function assertFinalField(field, value, version) {
@@ -310,7 +303,7 @@ async function writeLatestJson(version, assetUrl, signature, outputPath, target 
 
   const latest = {
     version,
-    notes: renderLocalizedAppNote(parsed),
+    notes: renderUpdaterNotes(parsed),
     pub_date: new Date().toISOString(),
     platforms: {
       [target]: {
