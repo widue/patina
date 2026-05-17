@@ -114,11 +114,62 @@ const NON_TRACKABLE_EXE_NAMES = new Set([
   "unins000",
   "unins.exe",
   "unins",
+  "un_a.exe",
+  "un_a",
 ]);
 
 const READ_MODEL_BLOCKED_EXE_NAMES = new Set([
+  "consent.exe",
+  "consent",
+  "csrss.exe",
+  "csrss",
+  "dwm.exe",
+  "dwm",
+  "fontdrvhost.exe",
+  "fontdrvhost",
+  "gameinputsvc.exe",
+  "gameinputsvc",
+  "logonui.exe",
+  "logonui",
+  "lsass.exe",
+  "lsass",
+  "runtimebroker.exe",
+  "runtimebroker",
+  "services.exe",
+  "services",
+  "sihost.exe",
+  "sihost",
+  "smss.exe",
+  "smss",
+  "system",
+  "svchost.exe",
+  "svchost",
+  "usoclient.exe",
+  "usoclient",
+  "wininit.exe",
+  "wininit",
+  "winlogon.exe",
+  "winlogon",
+  "wuauclt.exe",
+  "wuauclt",
+  "applicationframehost.exe",
+  "applicationframehost",
+  "lockapp.exe",
+  "lockapp",
+  "openwith.exe",
+  "openwith",
   "pickerhost.exe",
   "pickerhost",
+  "searchhost.exe",
+  "searchhost",
+  "shellexperiencehost.exe",
+  "shellexperiencehost",
+  "startmenuexperiencehost.exe",
+  "startmenuexperiencehost",
+  "taskhostw.exe",
+  "taskhostw",
+  "textinputhost.exe",
+  "textinputhost",
 ]);
 
 export function normalizeExecutable(exeName: string) {
@@ -141,7 +192,40 @@ function isStandaloneUninstallerAppStem(stem: string) {
   return STANDALONE_UNINSTALLER_APP_IDENTITIES.has(normalizeAppIdentityStem(stem));
 }
 
-function isLifecycleUtilityExecutable(exeName: string) {
+function resolveCompactLifecycleParts(stem: string) {
+  for (const marker of LIFECYCLE_TRACKING_MARKERS) {
+    if (!stem.endsWith(marker) || stem === marker) {
+      continue;
+    }
+
+    const baseStem = stem.slice(0, -marker.length);
+    if (baseStem.length >= 2 && /[a-z]/.test(baseStem)) {
+      return { baseStem, marker };
+    }
+  }
+
+  return null;
+}
+
+function hasCompactLifecycleSuffix(stem: string) {
+  return Boolean(resolveCompactLifecycleParts(stem));
+}
+
+function areKnownEquivalentAppStems(left: string, right: string) {
+  if (left === right) {
+    return true;
+  }
+
+  const leftMapping = DEFAULT_APP_MAPPINGS[`${left}.exe`];
+  const rightMapping = DEFAULT_APP_MAPPINGS[`${right}.exe`];
+  return Boolean(leftMapping && rightMapping && leftMapping.name === rightMapping.name);
+}
+
+function isLifecycleUtilityExecutable(
+  exeName: string,
+  appName: string | undefined,
+  windowTitle: string | undefined,
+) {
   const normalized = normalizeExecutable(exeName);
   const stem = stripExeSuffix(normalized);
   if (!stem) {
@@ -153,6 +237,13 @@ function isLifecycleUtilityExecutable(exeName: string) {
   }
 
   if (LIFECYCLE_TRACKING_MARKERS.has(stem)) {
+    return true;
+  }
+
+  if (
+    hasCompactLifecycleSuffix(stem)
+    && hasMatchingCompactLifecycleMetadata(stem, [appName, windowTitle])
+  ) {
     return true;
   }
 
@@ -187,6 +278,31 @@ function hasLifecycleMetadataSignal(value: string) {
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
   return englishTokens.some((token) => LIFECYCLE_TITLE_MARKERS.has(token));
+}
+
+function normalizeLifecycleMetadataIdentity(value: string) {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function hasMatchingCompactLifecycleMetadata(stem: string, values: Array<string | undefined>) {
+  const parts = resolveCompactLifecycleParts(stem);
+  if (!parts) {
+    return false;
+  }
+
+  return values.some((value) => {
+    const metadataStem = normalizeLifecycleMetadataIdentity(value ?? "");
+    if (metadataStem === stem) {
+      return true;
+    }
+
+    const metadataParts = resolveCompactLifecycleParts(metadataStem);
+    return Boolean(
+      metadataParts
+      && metadataParts.marker === parts.marker
+      && areKnownEquivalentAppStems(metadataParts.baseStem, parts.baseStem),
+    );
+  });
 }
 
 function isLifecycleMetadataCandidateExecutable(exeName: string) {
@@ -337,7 +453,7 @@ export function shouldTrackProcess(
     return false;
   }
 
-  if (isLifecycleUtilityExecutable(exeName)) {
+  if (isLifecycleUtilityExecutable(exeName, options.appName, options.windowTitle)) {
     return false;
   }
 

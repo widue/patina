@@ -580,6 +580,8 @@ Rust 侧允许为了稳定演进保留少量入口协调或兼容封装，但规
 - 平台适配不再散落在多个层级
 - `commands/*` 与 `lib.rs` 没有重新变厚
 - `shared/*` 没有新增明显的过渡职责
+- `domain/tracking.rs` 这类领域聚合出口保持薄，稳定语义继续拆入明确 owner 的 `domain/tracking/*` 子模块
+- 前端与 Rust 的高吸力层边界有轻量自动化门禁覆盖，而不是只依赖人工记忆
 - 新问题默认先判断 owner，再实现
 - 关键路径变更可以通过固定验证快速回归
 
@@ -603,6 +605,12 @@ Rust 侧允许为了稳定演进保留少量入口协调或兼容封装，但规
 结构性改动、Rust 边界改动或发布前复核默认继续使用：
 
 - `npm run check:full`
+
+边界门禁的当前入口包括：
+
+- `npm run check:architecture`
+- `npm run check:naming`
+- `npm run check:rust-boundaries`
 
 如果某次结构性改动无法通过这些最小验证之一，应优先解释风险或补验证，而不是直接跳过。
 

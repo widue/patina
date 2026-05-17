@@ -105,12 +105,14 @@ fn is_allowed_classification_setting_key(key: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::migrations as db_schema;
+    use crate::data::schema as db_schema;
     use sqlx::{Executor, Row, SqlitePool};
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
+        pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+            .await
+            .unwrap();
         pool
     }
 

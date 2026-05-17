@@ -132,7 +132,7 @@
 
 - `npm run check:rust`
 
-Rust 默认门槛包含 `cargo check`、Rust 测试与 `cargo clippy -- -D warnings`，其中 clippy 通过 `npm run check:rust:clippy` 单独暴露，便于局部复查。
+Rust 默认门槛包含 `npm run check:rust-boundaries`、`cargo check`、Rust 测试与 `cargo clippy -- -D warnings`，其中 clippy 通过 `npm run check:rust:clippy` 单独暴露，便于局部复查。
 
 命中风险时追加验证：
 
@@ -142,9 +142,13 @@ Rust 默认门槛包含 `cargo check`、Rust 测试与 `cargo clippy -- -D warni
 
 当前仓库默认 CI gate 与 release workflow 的质量校验入口统一为 `npm run check:full`。
 
-`check:naming` 是前端边界的轻量命名防线。它默认扫描 `src/app/**`、`src/features/**`、`src/shared/types/**` 与 `src/shared/lib/**`，阻止 tracking / update IPC、backup preview、widget placement、settings persistence 与 SQLite read row 的常见 raw 字段重新扩散到业务层。Raw DTO、协议字段与数据库字段应继续留在 `src/platform/**`、`src-tauri/**` 或明确的 read model 内部边界。
+`check:naming` 是前端边界的轻量命名防线。它默认扫描 `src/app/**`、`src/features/**`、`src/shared/types/**` 与 `src/shared/lib/**`，阻止 tracking / update IPC、backup preview、widget placement、settings persistence 与 SQLite read row 的常见 raw 字段和 `RawXxx` 协议类型重新扩散到业务层。Raw DTO、协议字段与数据库字段应继续留在 `src/platform/**`、`src-tauri/**`、测试 fixture 或明确的 read model 内部边界。
 
-`check:architecture` 是前端 owner 边界的轻量结构防线。它默认阻止 `src/features/*/components/**` 与 `src/features/*/hooks/**` 直接绕过 feature-owned service 访问 persistence、Tauri API 或 `invoke`。
+`check:architecture` 是前端 owner 边界的轻量结构防线。它默认扫描 `src/app`、`src/features`、`src/shared` 与 `src/platform`，阻止 shared 反向依赖 app / features / platform，阻止 platform 反向依赖 app / features，并阻止 `src/features/*/components/**` 与 `src/features/*/hooks/**` 直接绕过 feature-owned service 访问 platform、Tauri API 或 `invoke`。`src/app/components/**` 与 `src/app/hooks/**` 不应直接访问 `platform/persistence/**`。
+
+`check:rust-boundaries` 是 Rust 高吸力层的轻量结构防线。它默认阻止 `commands/*`、`app/*` 与 `lib.rs` 直接写 SQL，阻止 `commands/*` 承接 SQLite pool 类型，阻止 `platform/*` 反向依赖 `data/*`，并阻止 `domain/*` 依赖 `data/*` 或 `platform/*`。测试代码可保留必要的局部例外，但生产路径应继续让 SQL 留在 `data/*`，平台细节留在 `platform/*`，领域决策留在 `domain/*`。
+
+压缩 SQLite migration 基线时，必须同时保留旧版本数据库直升保护：新安装可以走当前压缩基线，已安装旧数据库在归一化 `_sqlx_migrations` 前必须先完成幂等的 legacy schema repair，并用 Rust 自动化测试覆盖缺列补齐、历史数据保留、必要回填、active session 归一化和不完整 schema 不误标为当前基线。
 
 `test:ui-smoke` 是当前仓库的最小 UI smoke 防线。它不依赖真实 Tauri runtime，而是通过 stub Tauri API、SSR 渲染 AppShell，并确认主导航和 Dashboard 首屏可以被构建与渲染。
 

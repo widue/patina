@@ -89,7 +89,8 @@ interface SourceFile {
 interface NamingViolation {
   path: string;
   line: number;
-  field: string;
+  token: string;
+  rule: string;
   text: string;
 }
 
@@ -97,6 +98,7 @@ const rawFieldPattern = new RegExp(
   `\\b(${RAW_FIELD_NAMES.map(escapeRegExp).join("|")})\\b`,
   "g",
 );
+const rawTypePattern = /\bRaw[A-Z][A-Za-z0-9_]*\b/g;
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -152,7 +154,19 @@ function findViolations(files: SourceFile[]): NamingViolation[] {
         violations.push({
           path: file.path,
           line: index + 1,
-          field: match[1],
+          token: match[1],
+          rule: "raw-field-outside-boundary",
+          text: lineText.trim(),
+        });
+      }
+
+      rawTypePattern.lastIndex = 0;
+      for (const match of lineText.matchAll(rawTypePattern)) {
+        violations.push({
+          path: file.path,
+          line: index + 1,
+          token: match[0],
+          rule: "raw-type-outside-boundary",
           text: lineText.trim(),
         });
       }
@@ -176,9 +190,16 @@ function runSelfTest() {
       path: "src/app/Good.ts",
       content: "const active = snapshot.isTrackingActive;",
     },
+    {
+      path: "src/app/services/badRawDto.ts",
+      content: "interface RawSettingsSnapshot { is_tracking_active: boolean }",
+    },
   ]);
 
-  if (violations.length !== 1 || violations[0]?.field !== "is_tracking_active") {
+  const tokens = violations.map((violation) => violation.token).sort();
+  const expectedTokens = ["RawSettingsSnapshot", "is_tracking_active", "is_tracking_active"].sort();
+
+  if (JSON.stringify(tokens) !== JSON.stringify(expectedTokens)) {
     throw new Error("Naming boundary self-test failed");
   }
 }
@@ -200,7 +221,9 @@ function main() {
 
   console.error("Naming boundary check failed. Raw protocol fields must stay in platform boundaries.");
   for (const violation of violations) {
-    console.error(`${violation.path}:${violation.line} ${violation.field} -> ${violation.text}`);
+    console.error(
+      `${violation.path}:${violation.line} ${violation.rule} ${violation.token} -> ${violation.text}`,
+    );
   }
   process.exitCode = 1;
 }

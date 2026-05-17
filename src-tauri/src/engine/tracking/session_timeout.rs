@@ -173,7 +173,7 @@ fn sustained_participation_window_ms(sustained_participation_secs: u64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::migrations as db_schema;
+    use crate::data::schema as db_schema;
     use crate::data::tracking_runtime::TrackingRuntimeDataStore;
     use crate::domain::tracking::SustainedParticipationStatusReason;
     use crate::engine::tracking::active_session;
@@ -212,7 +212,9 @@ mod tests {
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
+        pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+            .await
+            .unwrap();
         pool
     }
 

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+﻿import { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -8,7 +8,7 @@ import {
   YAxis,
   ResponsiveContainer,
 } from "recharts";
-import { ChevronDown, ChevronLeft, ChevronRight, Clock, Minus, Plus } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Minus, Plus } from "lucide-react";
 import { type HistorySession } from "../../../shared/types/sessions";
 import { UI_TEXT } from "../../../shared/copy/uiText.ts";
 import {
@@ -54,6 +54,10 @@ type TimelineDetailsPopover = {
   titleSamples: TimelineDetailTitle[];
   left: number;
   top: number;
+  anchorTop: number;
+  anchorBottom: number;
+  anchorCenterX: number;
+  placement: "top" | "bottom";
 };
 
 type TimelineDetailTitle = {
@@ -80,6 +84,35 @@ function cleanTimelineDetailTitles(samples: TimelineDetailTitle[], appName: stri
   return samples
     .map((sample) => cleanTimelineDetailTitle(sample, appName))
     .filter((sample) => sample.title);
+}
+
+function resolveTimelineDetailsPopoverPosition(
+  anchor: { top: number; bottom: number; centerX: number },
+  itemCount: number,
+  measuredHeight?: number,
+) {
+  const popoverHalfWidth = 142;
+  const viewportPadding = 12;
+  const gap = 8;
+  const estimatedHeight = Math.min(260, Math.max(48, 20 + itemCount * 40 + Math.max(0, itemCount - 1) * 6));
+  const height = measuredHeight ?? estimatedHeight;
+  const boundedHeight = Math.min(height, window.innerHeight - viewportPadding * 2);
+  const spaceBelow = window.innerHeight - anchor.bottom - gap - viewportPadding;
+  const spaceAbove = anchor.top - gap - viewportPadding;
+  const placement: "top" | "bottom" = spaceBelow < height && spaceAbove > spaceBelow ? "top" : "bottom";
+  const preferredTop = placement === "top" ? anchor.top - height - gap : anchor.bottom + gap;
+
+  return {
+    left: Math.min(
+      Math.max(anchor.centerX, popoverHalfWidth + viewportPadding),
+      window.innerWidth - popoverHalfWidth - viewportPadding,
+    ),
+    top: Math.min(
+      Math.max(preferredTop, viewportPadding),
+      window.innerHeight - boundedHeight - viewportPadding,
+    ),
+    placement,
+  };
 }
 const buildCalendarDays = (month: Date) => {
   const monthStart = startOfMonth(month);
@@ -125,6 +158,7 @@ export default function History({
   const [hasFetchedOnce, setHasFetchedOnce] = useState(Boolean(initialCachedSnapshot));
   const [timelineDetailsPopover, setTimelineDetailsPopover] = useState<TimelineDetailsPopover | null>(null);
   const timelineDetailsPopoverRef = useRef<HTMLDivElement | null>(null);
+  const timelineDetailsTriggerRef = useRef<HTMLElement | null>(null);
   const hasLoadedRef = useRef(false);
 
   const toggleTimelineSessionDetails = useCallback((
@@ -133,27 +167,84 @@ export default function History({
     titleSamples: TimelineDetailTitle[],
     trigger: HTMLElement,
   ) => {
+    timelineDetailsTriggerRef.current = trigger;
     setTimelineDetailsPopover((current) => {
       if (current?.sessionId === sessionId) {
+        timelineDetailsTriggerRef.current = null;
         return null;
       }
 
       const triggerRect = trigger.getBoundingClientRect();
-      const popoverHalfWidth = 142;
-      const viewportPadding = 12;
-      const centeredLeft = triggerRect.left + triggerRect.width / 2;
+      const cleanedTitles = cleanTimelineDetailTitles(titleSamples, appName);
+      const anchor = {
+        top: triggerRect.top,
+        bottom: triggerRect.bottom,
+        centerX: triggerRect.left + triggerRect.width / 2,
+      };
+      const position = resolveTimelineDetailsPopoverPosition(anchor, cleanedTitles.length);
 
       return {
         sessionId,
-        titleSamples: cleanTimelineDetailTitles(titleSamples, appName),
-        left: Math.min(
-          Math.max(centeredLeft, popoverHalfWidth + viewportPadding),
-          window.innerWidth - popoverHalfWidth - viewportPadding,
-        ),
-        top: triggerRect.bottom + 8,
+        titleSamples: cleanedTitles,
+        left: position.left,
+        top: position.top,
+        anchorTop: anchor.top,
+        anchorBottom: anchor.bottom,
+        anchorCenterX: anchor.centerX,
+        placement: position.placement,
       };
     });
   }, []);
+
+  const updateTimelineDetailsPopoverPosition = useCallback(() => {
+    const trigger = timelineDetailsTriggerRef.current;
+    if (!trigger?.isConnected) return;
+
+    const triggerRect = trigger.getBoundingClientRect();
+    const anchor = {
+      top: triggerRect.top,
+      bottom: triggerRect.bottom,
+      centerX: triggerRect.left + triggerRect.width / 2,
+    };
+    const measuredHeight = timelineDetailsPopoverRef.current?.offsetHeight;
+
+    setTimelineDetailsPopover((current) => {
+      if (!current) return current;
+
+      const position = resolveTimelineDetailsPopoverPosition(
+        anchor,
+        current.titleSamples.length,
+        measuredHeight,
+      );
+
+      if (
+        Math.abs(position.left - current.left) < 1
+        && Math.abs(position.top - current.top) < 1
+        && Math.abs(anchor.top - current.anchorTop) < 1
+        && Math.abs(anchor.bottom - current.anchorBottom) < 1
+        && Math.abs(anchor.centerX - current.anchorCenterX) < 1
+        && position.placement === current.placement
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        left: position.left,
+        top: position.top,
+        anchorTop: anchor.top,
+        anchorBottom: anchor.bottom,
+        anchorCenterX: anchor.centerX,
+        placement: position.placement,
+      };
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!timelineDetailsPopover) return undefined;
+    updateTimelineDetailsPopoverPosition();
+    return undefined;
+  }, [timelineDetailsPopover, updateTimelineDetailsPopoverPosition]);
 
   const loadData = useCallback(async (showLoading: boolean = false) => {
     const cachedSnapshot = getHistorySnapshotCache(selectedDate);
@@ -276,26 +367,37 @@ export default function History({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
       if (timelineDetailsPopoverRef.current?.contains(target)) return;
+      if (timelineDetailsTriggerRef.current?.contains(target)) return;
+      timelineDetailsTriggerRef.current = null;
       setTimelineDetailsPopover(null);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        timelineDetailsTriggerRef.current = null;
         setTimelineDetailsPopover(null);
       }
     };
-    const handleScroll = () => {
+    const handleResize = () => {
+      updateTimelineDetailsPopoverPosition();
+    };
+    const handleScroll = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Node && timelineDetailsPopoverRef.current?.contains(target)) return;
+      timelineDetailsTriggerRef.current = null;
       setTimelineDetailsPopover(null);
     };
 
     window.addEventListener("pointerdown", handlePointerDown);
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("resize", handleResize);
     window.addEventListener("scroll", handleScroll, true);
     return () => {
       window.removeEventListener("pointerdown", handlePointerDown);
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("resize", handleResize);
       window.removeEventListener("scroll", handleScroll, true);
     };
-  }, [timelineDetailsPopover]);
+  }, [timelineDetailsPopover, updateTimelineDetailsPopoverPosition]);
 
   const isToday = selectedDate.toDateString() === today.toDateString();
   const showInitialLoading = loading && !hasFetchedOnce;
@@ -565,9 +667,10 @@ export default function History({
                       title,
                       startTime: session.startTime,
                       endTime: session.endTime,
-                    }));
+                  }));
                   const hasDetails = titleSampleDetails.length > 0;
                   const isExpanded = timelineDetailsPopover?.sessionId === session.id;
+                  const detailPlacement = isExpanded ? timelineDetailsPopover.placement : "bottom";
 
                   return (
                     <div
@@ -609,11 +712,11 @@ export default function History({
                             )}
                             className="qp-button-secondary inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] p-0 text-[var(--qp-text-tertiary)]"
                           >
-                            <ChevronDown
-                              size={11}
-                              className={`transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                              aria-hidden="true"
-                            />
+                            {isExpanded
+                              ? detailPlacement === "top"
+                                ? <ChevronUp size={11} aria-hidden="true" />
+                                : <ChevronDown size={11} aria-hidden="true" />
+                              : <ChevronRight size={11} aria-hidden="true" />}
                           </button>
                         )}
                       </div>
@@ -637,7 +740,7 @@ export default function History({
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: -4, scale: 0.99 }}
                       transition={{ duration: 0.12, ease: "easeOut" }}
-                      className="history-activity-popover"
+                      className={`history-activity-popover history-activity-popover-${timelineDetailsPopover.placement}`}
                       style={{
                         left: timelineDetailsPopover.left,
                         top: timelineDetailsPopover.top,
@@ -648,7 +751,6 @@ export default function History({
                           <div
                             key={`${timelineDetailsPopover.sessionId}-${index}-${sample.title}`}
                             className="history-activity-popover-item"
-                            title={sample.title}
                           >
                             <span className="history-activity-popover-item-title">
                               {sample.title}

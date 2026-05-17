@@ -1,4 +1,4 @@
-use crate::data::migrations;
+use crate::data::schema;
 use sqlx::migrate::{Migration as SqlxMigration, MigrationType};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Pool, Row, Sqlite};
@@ -43,7 +43,7 @@ fn resolve_app_config_db_path(app_identifier: &str) -> Option<PathBuf> {
 }
 
 fn expected_migration_metadata() -> Vec<(i64, &'static str, Vec<u8>)> {
-    migrations::tracker_migrations()
+    schema::tracker_migrations()
         .into_iter()
         .map(|migration| {
             let sqlx_migration = SqlxMigration::new(
@@ -144,13 +144,16 @@ async fn table_has_columns(
         "sessions" => "PRAGMA table_info(sessions)",
         "settings" => "PRAGMA table_info(settings)",
         "icon_cache" => "PRAGMA table_info(icon_cache)",
-        _ => return Err(format!("unsupported schema inspection table `{table_name}`")),
+        _ => {
+            return Err(format!(
+                "unsupported schema inspection table `{table_name}`"
+            ))
+        }
     };
 
-    let rows = sqlx::query(pragma)
-        .fetch_all(pool)
-        .await
-        .map_err(|error| format!("failed to inspect sqlite table `{table_name}` columns: {error}"))?;
+    let rows = sqlx::query(pragma).fetch_all(pool).await.map_err(|error| {
+        format!("failed to inspect sqlite table `{table_name}` columns: {error}")
+    })?;
     let columns = rows
         .iter()
         .map(|row| row.get::<String, _>("name"))
@@ -159,6 +162,10 @@ async fn table_has_columns(
     Ok(required_columns
         .iter()
         .all(|required| columns.iter().any(|column| column == required)))
+}
+
+async fn sessions_has_column(pool: &Pool<Sqlite>, column_name: &str) -> Result<bool, String> {
+    table_has_columns(pool, "sessions", &[column_name]).await
 }
 
 async fn sessions_has_index(pool: &Pool<Sqlite>, index_name: &str) -> Result<bool, String> {
@@ -170,6 +177,122 @@ async fn sessions_has_index(pool: &Pool<Sqlite>, index_name: &str) -> Result<boo
     Ok(rows
         .iter()
         .any(|row| row.get::<String, _>("name") == index_name))
+}
+
+async fn ensure_sessions_continuity_group_start_time(
+    pool: &Pool<Sqlite>,
+) -> Result<bool, String> {
+    if sessions_has_column(pool, "continuity_group_start_time").await? {
+        return Ok(false);
+    }
+
+    let mut tx = pool
+        .begin()
+        .await
+        .map_err(|error| format!("failed to start sqlite legacy schema repair: {error}"))?;
+
+    sqlx::query("ALTER TABLE sessions ADD COLUMN continuity_group_start_time INTEGER")
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| {
+            format!("failed to add sessions.continuity_group_start_time during schema repair: {error}")
+        })?;
+    sqlx::query(
+        "UPDATE sessions
+         SET continuity_group_start_time = start_time
+         WHERE continuity_group_start_time IS NULL",
+    )
+    .execute(&mut *tx)
+    .await
+    .map_err(|error| {
+        format!("failed to backfill sessions.continuity_group_start_time during schema repair: {error}")
+    })?;
+
+    tx.commit()
+        .await
+        .map_err(|error| format!("failed to commit sqlite legacy schema repair: {error}"))?;
+
+    Ok(true)
+}
+
+async fn ensure_current_indexes(pool: &Pool<Sqlite>) -> Result<bool, String> {
+    let mut changed = false;
+
+    if !sessions_has_index(pool, "idx_sessions_date").await? {
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_sessions_date ON sessions(start_time)")
+            .execute(pool)
+            .await
+            .map_err(|error| format!("failed to create sessions date index: {error}"))?;
+        changed = true;
+    }
+
+    if !sessions_has_index(pool, "idx_sessions_single_active").await? {
+        sqlx::query(
+            "UPDATE sessions
+             SET end_time = start_time,
+                 duration = 0
+             WHERE end_time IS NULL
+               AND id NOT IN (
+                 SELECT id
+                 FROM sessions
+                 WHERE end_time IS NULL
+                 ORDER BY start_time DESC, id DESC
+                 LIMIT 1
+               )",
+        )
+        .execute(pool)
+        .await
+        .map_err(|error| {
+            format!("failed to seal duplicate active sessions before index repair: {error}")
+        })?;
+        sqlx::query(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_single_active
+             ON sessions((1))
+             WHERE end_time IS NULL",
+        )
+        .execute(pool)
+        .await
+        .map_err(|error| format!("failed to create single active session index: {error}"))?;
+        changed = true;
+    }
+
+    Ok(changed)
+}
+
+async fn repair_legacy_schema_before_baseline_normalization(
+    pool: &Pool<Sqlite>,
+) -> Result<bool, String> {
+    if !table_exists(pool, "sessions").await? {
+        return Ok(false);
+    }
+
+    let mut changed = ensure_sessions_continuity_group_start_time(pool).await?;
+
+    if has_current_baseline_schema(pool).await? {
+        return Ok(changed);
+    }
+
+    let sessions_base_ready = table_has_columns(
+        pool,
+        "sessions",
+        &[
+            "id",
+            "app_name",
+            "exe_name",
+            "window_title",
+            "start_time",
+            "end_time",
+            "duration",
+            "continuity_group_start_time",
+        ],
+    )
+    .await?;
+
+    if sessions_base_ready {
+        changed = ensure_current_indexes(pool).await? || changed;
+    }
+
+    Ok(changed)
 }
 
 async fn has_current_baseline_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
@@ -196,8 +319,12 @@ async fn has_current_baseline_schema(pool: &Pool<Sqlite>) -> Result<bool, String
     )
     .await?;
     let settings_ready = table_has_columns(pool, "settings", &["key", "value"]).await?;
-    let icon_cache_ready =
-        table_has_columns(pool, "icon_cache", &["exe_name", "icon_base64", "last_updated"]).await?;
+    let icon_cache_ready = table_has_columns(
+        pool,
+        "icon_cache",
+        &["exe_name", "icon_base64", "last_updated"],
+    )
+    .await?;
     let date_index_ready = sessions_has_index(pool, "idx_sessions_date").await?;
     let active_index_ready = sessions_has_index(pool, "idx_sessions_single_active").await?;
 
@@ -238,10 +365,9 @@ async fn normalize_current_baseline_migration_history_for_pool(
         return Ok(false);
     }
 
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|error| format!("failed to start sqlite migration history normalization: {error}"))?;
+    let mut tx = pool.begin().await.map_err(|error| {
+        format!("failed to start sqlite migration history normalization: {error}")
+    })?;
     sqlx::query("DELETE FROM _sqlx_migrations")
         .execute(&mut *tx)
         .await
@@ -255,10 +381,12 @@ async fn normalize_current_baseline_migration_history_for_pool(
     .bind(checksum)
     .execute(&mut *tx)
     .await
-    .map_err(|error| format!("failed to write sqlite current baseline migration history: {error}"))?;
-    tx.commit()
-        .await
-        .map_err(|error| format!("failed to commit sqlite migration history normalization: {error}"))?;
+    .map_err(|error| {
+        format!("failed to write sqlite current baseline migration history: {error}")
+    })?;
+    tx.commit().await.map_err(|error| {
+        format!("failed to commit sqlite migration history normalization: {error}")
+    })?;
 
     Ok(true)
 }
@@ -283,6 +411,10 @@ pub async fn normalize_current_baseline_migration_history(
         .connect_with(connect_options)
         .await
         .map_err(|error| format!("failed to open sqlite db `{}`: {error}", db_path.display()))?;
+
+    if repair_legacy_schema_before_baseline_normalization(&pool).await? {
+        eprintln!("[sql] repaired legacy sqlite schema before baseline normalization");
+    }
 
     if normalize_current_baseline_migration_history_for_pool(&pool).await? {
         eprintln!("[sql] normalized sqlite migration history to the current baseline");
@@ -336,7 +468,9 @@ mod tests {
     fn current_baseline_migration_creates_complete_schema() {
         tauri::async_runtime::block_on(async {
             let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-            pool.execute(migrations::MIGRATION_1_SQL).await.unwrap();
+            pool.execute(schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
 
             assert!(has_current_baseline_schema(&pool).await.unwrap());
         });
@@ -346,7 +480,9 @@ mod tests {
     fn current_schema_history_is_normalized_to_single_baseline_row() {
         tauri::async_runtime::block_on(async {
             let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-            pool.execute(migrations::MIGRATION_1_SQL).await.unwrap();
+            pool.execute(schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
             create_sqlx_migrations_table(&pool).await;
             pool.execute(
                 "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
@@ -362,11 +498,10 @@ mod tests {
                 .unwrap();
 
             assert!(normalized);
-            let rows =
-                sqlx::query("SELECT version, description, checksum FROM _sqlx_migrations")
-                    .fetch_all(&pool)
-                    .await
-                    .unwrap();
+            let rows = sqlx::query("SELECT version, description, checksum FROM _sqlx_migrations")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
             let expected = expected_migration_metadata();
 
             assert_eq!(rows.len(), 1);
@@ -376,8 +511,130 @@ mod tests {
         });
     }
 
+    async fn create_legacy_schema_without_continuity_column(pool: &SqlitePool) {
+        pool.execute(
+            "CREATE TABLE sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_name TEXT NOT NULL,
+                exe_name TEXT NOT NULL,
+                window_title TEXT,
+                start_time INTEGER NOT NULL,
+                end_time INTEGER,
+                duration INTEGER
+            );
+            CREATE INDEX idx_sessions_date ON sessions(start_time);
+            CREATE UNIQUE INDEX idx_sessions_single_active ON sessions((1)) WHERE end_time IS NULL;
+            CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE icon_cache (
+                exe_name TEXT PRIMARY KEY,
+                icon_base64 TEXT NOT NULL,
+                last_updated INTEGER
+            );",
+        )
+        .await
+        .unwrap();
+    }
+
     #[test]
-    fn old_schema_without_continuity_column_is_not_normalized() {
+    fn legacy_schema_without_continuity_column_is_repaired() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            create_legacy_schema_without_continuity_column(&pool).await;
+
+            let repaired = repair_legacy_schema_before_baseline_normalization(&pool)
+                .await
+                .unwrap();
+
+            assert!(repaired);
+            assert!(sessions_has_column(&pool, "continuity_group_start_time")
+                .await
+                .unwrap());
+            assert!(has_current_baseline_schema(&pool).await.unwrap());
+        });
+    }
+
+    #[test]
+    fn legacy_schema_repair_preserves_existing_sessions() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            create_legacy_schema_without_continuity_column(&pool).await;
+            pool.execute(
+                "INSERT INTO sessions (app_name, exe_name, window_title, start_time, end_time, duration)
+                 VALUES ('Editor', 'editor.exe', 'Doc', 100, 150, 50),
+                        ('Browser', 'browser.exe', 'Page', 200, NULL, NULL)",
+            )
+            .await
+            .unwrap();
+
+            repair_legacy_schema_before_baseline_normalization(&pool)
+                .await
+                .unwrap();
+
+            let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sessions")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(count, 2);
+        });
+    }
+
+    #[test]
+    fn legacy_schema_repair_backfills_continuity_group_start_time() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            create_legacy_schema_without_continuity_column(&pool).await;
+            pool.execute(
+                "INSERT INTO sessions (app_name, exe_name, window_title, start_time, end_time, duration)
+                 VALUES ('Editor', 'editor.exe', 'Doc', 321, 654, 333)",
+            )
+            .await
+            .unwrap();
+
+            repair_legacy_schema_before_baseline_normalization(&pool)
+                .await
+                .unwrap();
+
+            let continuity_group_start_time: i64 =
+                sqlx::query_scalar("SELECT continuity_group_start_time FROM sessions")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(continuity_group_start_time, 321);
+        });
+    }
+
+    #[test]
+    fn legacy_schema_repair_then_normalizes_migration_history() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            create_legacy_schema_without_continuity_column(&pool).await;
+            create_sqlx_migrations_table(&pool).await;
+            pool.execute(
+                "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+                 VALUES (1, 'old_v1', 1, x'01', 0)",
+            )
+                .await
+                .unwrap();
+
+            repair_legacy_schema_before_baseline_normalization(&pool)
+                .await
+                .unwrap();
+            let normalized = normalize_current_baseline_migration_history_for_pool(&pool)
+                .await
+                .unwrap();
+
+            assert!(normalized);
+            let description: String =
+                sqlx::query_scalar("SELECT description FROM _sqlx_migrations WHERE version = 1")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(description, schema::CURRENT_BASELINE_MIGRATION_DESCRIPTION);
+        });
+    }
+
+    #[test]
+    fn legacy_schema_repair_dedupes_active_sessions() {
         tauri::async_runtime::block_on(async {
             let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
             pool.execute(
@@ -391,12 +648,69 @@ mod tests {
                     duration INTEGER
                 );
                 CREATE INDEX idx_sessions_date ON sessions(start_time);
-                CREATE UNIQUE INDEX idx_sessions_single_active ON sessions((1)) WHERE end_time IS NULL;
                 CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE icon_cache (
                     exe_name TEXT PRIMARY KEY,
                     icon_base64 TEXT NOT NULL,
                     last_updated INTEGER
+                );
+                INSERT INTO sessions (app_name, exe_name, window_title, start_time, end_time, duration)
+                VALUES ('A', 'a.exe', 'A', 100, NULL, NULL),
+                       ('B', 'b.exe', 'B', 200, NULL, NULL);",
+            )
+            .await
+            .unwrap();
+
+            repair_legacy_schema_before_baseline_normalization(&pool)
+                .await
+                .unwrap();
+
+            let active_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE end_time IS NULL")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            let sealed_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE duration = 0")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(active_count, 1);
+            assert_eq!(sealed_count, 1);
+            assert!(sessions_has_index(&pool, "idx_sessions_single_active")
+                .await
+                .unwrap());
+        });
+    }
+
+    #[test]
+    fn current_schema_repair_is_idempotent() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
+
+            assert!(!repair_legacy_schema_before_baseline_normalization(&pool)
+                .await
+                .unwrap());
+            assert!(has_current_baseline_schema(&pool).await.unwrap());
+        });
+    }
+
+    #[test]
+    fn incomplete_schema_is_not_marked_as_current_baseline() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(
+                "CREATE TABLE sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    app_name TEXT NOT NULL,
+                    exe_name TEXT NOT NULL,
+                    window_title TEXT,
+                    start_time INTEGER NOT NULL,
+                    end_time INTEGER,
+                    duration INTEGER
                 );",
             )
             .await
@@ -409,6 +723,9 @@ mod tests {
             .await
             .unwrap();
 
+            repair_legacy_schema_before_baseline_normalization(&pool)
+                .await
+                .unwrap();
             let normalized = normalize_current_baseline_migration_history_for_pool(&pool)
                 .await
                 .unwrap();

@@ -53,7 +53,7 @@ fn register_managed_state_and_plugins(
             tauri_plugin_sql::Builder::default()
                 .add_migrations(
                     data::sqlite_pool::SQLITE_DB_NAME,
-                    data::migrations::tracker_migrations(),
+                    data::schema::tracker_migrations(),
                 )
                 .build(),
         )

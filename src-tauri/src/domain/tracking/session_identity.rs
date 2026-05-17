@@ -74,8 +74,8 @@ pub fn is_trackable_window(window: Option<WindowTrackingCandidate<'_>>) -> bool 
 
     !window.exe_name.is_empty()
         && !window.is_afk
-        && super::should_track(window.exe_name)
-        && !super::is_desktop_shell_window(window)
-        && super::is_trackable_explorer_window(window)
-        && !super::is_lifecycle_utility_window(window)
+        && super::process_filters::should_track(window.exe_name)
+        && !super::process_filters::is_desktop_shell_window(window)
+        && super::process_filters::is_trackable_explorer_window(window)
+        && !super::process_filters::is_lifecycle_utility_window(window)
 }

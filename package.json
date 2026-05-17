@@ -1,7 +1,7 @@
 {
   "name": "time-tracker",
   "private": true,
-  "version": "0.6.7",
+  "version": "0.6.8",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -21,10 +21,11 @@
     "test:ui-browser-smoke": "node --experimental-strip-types --experimental-specifier-resolution=node tests/uiBrowserSmoke.test.ts",
     "check:naming": "node --experimental-strip-types scripts/check-naming-boundaries.ts",
     "check:architecture": "node --experimental-strip-types scripts/check-architecture-boundaries.ts",
+    "check:rust-boundaries": "node --experimental-strip-types scripts/check-rust-boundaries.ts",
     "check:bundle": "node --experimental-strip-types scripts/check-bundle-budget.ts",
     "check:frontend": "npm test && npm run test:replay && npm run test:update && npm run test:settings && npm run test:widget && npm run test:classification && npm run test:data && npm run test:persistence && npm run test:interaction && npm run test:release && npm run test:startup && npm run test:ui-smoke && npm run test:ui-browser-smoke && npm run build && npm run check:bundle",
     "check:rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings",
-    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml --quiet && cargo test --manifest-path src-tauri/Cargo.toml --quiet && npm run check:rust:clippy",
+    "check:rust": "npm run check:rust-boundaries && cargo check --manifest-path src-tauri/Cargo.toml --quiet && cargo test --manifest-path src-tauri/Cargo.toml --quiet && npm run check:rust:clippy",
     "check:full": "npm run check && npm run check:rust",
     "check": "npm run check:naming && npm run check:architecture && npm run check:frontend",
     "perf:history-read-model": "node --experimental-strip-types --experimental-specifier-resolution=node scripts/perf/history-read-model-benchmark.ts",

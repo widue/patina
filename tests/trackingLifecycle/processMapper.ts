@@ -15,10 +15,40 @@ import { setUiTextLanguage } from "../../src/shared/copy/uiText.ts";
 
 export function runProcessMapperTests() {
   runTest("system windows processes are excluded from tracking", () => {
-    assert.equal(ProcessMapper.shouldTrack("SearchHost.exe"), false);
-    assert.equal(ProcessMapper.shouldTrack("ShellExperienceHost.exe"), false);
-    assert.equal(ProcessMapper.shouldTrack("Consent.exe"), false);
-    assert.equal(ProcessMapper.shouldTrack("PickerHost.exe"), false);
+    const blockedProcesses = [
+      "System",
+      "smss.exe",
+      "csrss.exe",
+      "wininit.exe",
+      "logonui.exe",
+      "lsass.exe",
+      "services.exe",
+      "winlogon.exe",
+      "svchost.exe",
+      "SearchHost.exe",
+      "ShellExperienceHost.exe",
+      "Consent.exe",
+      "PickerHost.exe",
+      "GameInputSvc.exe",
+      "dwm.exe",
+      "runtimebroker.exe",
+      "ApplicationFrameHost.exe",
+      "StartMenuExperienceHost.exe",
+      "TextInputHost.exe",
+      "fontdrvhost.exe",
+      "taskhostw.exe",
+      "LockApp.exe",
+      "OpenWith.exe",
+      "wuauclt.exe",
+      "UsoClient.exe",
+      "sihost.exe",
+    ];
+
+    for (const exeName of blockedProcesses) {
+      assert.equal(shouldTrackProcess(exeName), false);
+      assert.equal(ProcessMapper.shouldTrack(exeName), false);
+    }
+
     assert.equal(ProcessMapper.shouldTrack("Antigravity.exe"), true);
   });
 
@@ -307,9 +337,18 @@ export function runProcessMapperTests() {
     assert.equal(shouldTrackProcess("pickerhost"), false);
     assert.equal(shouldTrackProcess("uninstall.exe"), false);
     assert.equal(shouldTrackProcess("unins000.exe"), false);
+    assert.equal(shouldTrackProcess("un_A.exe"), false);
+    assert.equal(shouldTrackProcess("un_a"), false);
     assert.equal(shouldTrackProcess("obsidian-setup.exe"), false);
     assert.equal(shouldTrackProcess("cursor-installer.exe"), false);
     assert.equal(shouldTrackProcess("cursor-updater.exe"), false);
+    assert.equal(shouldTrackProcess("weixinupdate.exe", { appName: "WeChatUpdate" }), false);
+    assert.equal(shouldTrackProcess("microsoftedgeupdate.exe", { appName: "Microsoft Edge Update" }), false);
+    assert.equal(shouldTrackProcess("productupdate.exe", { appName: "Product Update" }), false);
+    assert.equal(shouldTrackProcess("productupdater.exe", { appName: "Product Updater" }), false);
+    assert.equal(shouldTrackProcess("productinstall.exe", { appName: "ProductInstall" }), false);
+    assert.equal(shouldTrackProcess("productupdate.exe", { appName: "Productivity Update" }), true);
+    assert.equal(shouldTrackProcess("productinstall.exe", { appName: "Product Install Studio" }), true);
     assert.equal(shouldTrackProcess("maintenancetool.exe"), false);
     assert.equal(shouldTrackProcess("bscccloud-3.33.0.tmp", {
       appName: "Setup/Uninstall",

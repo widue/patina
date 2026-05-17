@@ -62,7 +62,7 @@ export const RELEASE_DEFAULT_SETTINGS: ReleaseDefaultSettingsProfile = {
   idleTimeoutSecs: 900,
   timelineMergeGapSecs: 180,
   refreshIntervalSecs: 2,
-  minSessionSecs: 120,
+  minSessionSecs: 300,
   trackingPaused: false,
   closeBehavior: "tray",
   minimizeBehavior: "widget",

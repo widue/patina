@@ -72,7 +72,7 @@
 - [x] 当前电脑已成功升级并运行 `0.6.6`。
 - [x] 另一台电脑已成功升级并运行 `0.6.6`。
 - [x] `0.6.7` 完全简并前已导出新的 `.zip` 临时回滚备份。
-- [ ] `0.6.7` 完全简并版本发布并正常运行一段时间。
+- [x] `0.6.7` 完全简并版本发布并正常运行一段时间。
 
 ## 兼容代码清单
 
@@ -223,16 +223,16 @@
 
 目标：分类 override 只接受当前 JSON 存储格式与当前 category 集。
 
-- [ ] 在 `src/shared/classification/processMapper.ts` 删除旧 category 映射：
-  - [ ] `meeting -> office`
-  - [ ] `finance -> utility`
-  - [ ] `reading -> browser`
-  - [ ] 旧 `"custom"` 字符串兜底
-- [ ] 保留当前 `custom:<name>` 格式支持。
-- [ ] 删除 `fromOverrideStorageValue` 的纯字符串 category fallback。
-- [ ] 更新 `tests/classificationDraftState.test.ts`。
-- [ ] 跑 `npm run test:classification`。
-- [ ] 跑 `npm run test:replay`。
+- [x] 在 `src/shared/classification/processMapper.ts` 删除旧 category 映射：
+  - [x] `meeting -> office`
+  - [x] `finance -> utility`
+  - [x] `reading -> browser`
+  - [x] 旧 `"custom"` 字符串兜底
+- [x] 保留当前 `custom:<name>` 格式支持。
+- [x] 删除 `fromOverrideStorageValue` 的纯字符串 category fallback。
+- [x] 更新 `tests/classificationDraftState.test.ts`。
+- [x] 跑 `npm run test:classification`。
+- [x] 跑 `npm run test:replay`。
 
 ### E2. 删除旧设置值兼容
 
@@ -240,21 +240,21 @@
 
 开始前检查数据库中是否还有旧值：
 
-- [ ] `color_scheme`
-- [ ] `minimize_behavior = tray`
-- [ ] 其他已退出枚举值
+- [x] `color_scheme`
+- [x] `minimize_behavior = tray`
+- [x] 其他已退出枚举值
 
 执行项：
 
-- [ ] 在 `src/platform/persistence/appSettingsStore.ts` 删除 `RawAppSettingsKey` 中的旧 `color_scheme`。
-- [ ] `colorSchemeLight` 只读取 `color_scheme_light`。
-- [ ] `colorSchemeDark` 只读取 `color_scheme_dark`。
-- [ ] `normalizeMinimizeBehavior` 只接受 `"widget"` / `"taskbar"`。
-- [ ] 在 `src-tauri/src/domain/settings.rs` 同步收窄 `parse_minimize_behavior`。
-- [ ] 更新 `tests/settingsPageState.test.ts`。
-- [ ] 更新 Rust settings 相关测试。
-- [ ] 跑 `npm run test:settings`。
-- [ ] 跑 `npm run check:rust`。
+- [x] 在 `src/platform/persistence/appSettingsStore.ts` 删除 `RawAppSettingsKey` 中的旧 `color_scheme`。
+- [x] `colorSchemeLight` 只读取 `color_scheme_light`。
+- [x] `colorSchemeDark` 只读取 `color_scheme_dark`。
+- [x] `normalizeMinimizeBehavior` 只接受 `"widget"` / `"taskbar"`。
+- [x] 在 `src-tauri/src/domain/settings.rs` 同步收窄 `parse_minimize_behavior`。
+- [x] 更新 `tests/settingsPageState.test.ts`。
+- [x] 更新 Rust settings 相关测试。
+- [x] 跑 `npm run test:settings`。
+- [x] 跑 `npm run check:rust`。
 
 ### E3. 删除旧备份格式导入
 
@@ -262,24 +262,24 @@
 
 前置条件：
 
-- [ ] 已确认不再需要恢复旧 `.json`。
-- [ ] 已确认不再需要恢复旧 `.ttbackup`。
-- [ ] 已确认不再需要恢复旧 zip 内 `backup.json`。
-- [ ] 至少一份新结构化 `.zip` 已成功 preview。
+- [x] 已确认不再需要恢复旧 `.json`。
+- [x] 已确认不再需要恢复旧 `.ttbackup`。
+- [x] 已确认不再需要恢复旧 zip 内 `backup.json`。
+- [x] 至少一份新结构化 `.zip` 已成功 preview。
 
 执行项：
 
-- [ ] 在 `src-tauri/src/data/backup.rs` 删除 `BACKUP_JSON_ENTRY_NAME`。
-- [ ] 在 `pick_backup_file` 删除 `"Legacy backup files"` 过滤器。
-- [ ] 在 `read_backup_payload` 删除非 zip JSON 解析分支。
-- [ ] 在 `read_backup_payload` 删除 zip 内 `backup.json` fallback。
-- [ ] 在 `src-tauri/src/domain/backup.rs` 删除 `BackupCompatibilityLevel::Legacy`。
-- [ ] 将 `version < CURRENT_BACKUP_VERSION` 处理为不支持。
-- [ ] 保留 `version > CURRENT_BACKUP_VERSION` 与 `schema_version > CURRENT_BACKUP_SCHEMA_VERSION` 的拒绝逻辑。
-- [ ] 更新 Rust 备份测试。
-- [ ] 更新 `tests/settingsPageState.test.ts` 中 backup preview mock。
-- [ ] 跑 `npm run test:settings`。
-- [ ] 跑 `npm run check:rust`。
+- [x] 在 `src-tauri/src/data/backup.rs` 删除 `BACKUP_JSON_ENTRY_NAME`。
+- [x] 在 `pick_backup_file` 删除 `"Legacy backup files"` 过滤器。
+- [x] 在 `read_backup_payload` 删除非 zip JSON 解析分支。
+- [x] 在 `read_backup_payload` 删除 zip 内 `backup.json` fallback。
+- [x] 在 `src-tauri/src/domain/backup.rs` 删除 `BackupCompatibilityLevel::Legacy`。
+- [x] 将 `version < CURRENT_BACKUP_VERSION` 处理为不支持。
+- [x] 保留 `version > CURRENT_BACKUP_VERSION` 与 `schema_version > CURRENT_BACKUP_SCHEMA_VERSION` 的拒绝逻辑。
+- [x] 更新 Rust 备份测试。
+- [x] 更新 `tests/settingsPageState.test.ts` 中 backup preview mock。
+- [x] 跑 `npm run test:settings`。
+- [x] 跑 `npm run check:rust`。
 
 ### E4. 收窄备份 preview 边界字段
 
@@ -287,15 +287,15 @@
 
 这批可以和 E3 合并，也可以单独提交。
 
-- [ ] 将 Rust `BackupPreview.compatibility_level` 改为 `restore_status` 或 `restore_supported`。
-- [ ] 将 `compatibility_message` 改为 `restore_message`。
-- [ ] 评估是否删除 `compatibility_message_key` 与 `compatibility_message_args`。
-- [ ] 更新 `src/platform/backup/backupRuntimeGateway.ts`。
-- [ ] 更新 `src/features/settings/services/settingsRuntimeAdapterService.ts`。
-- [ ] 更新 `src/shared/copy/uiText.ts`。
-- [ ] 更新 `scripts/check-naming-boundaries.ts`。
-- [ ] 跑 `npm run check:naming`。
-- [ ] 跑 `npm run test:settings`。
+- [x] 将 Rust `BackupPreview.compatibility_level` 改为 `restore_status` 或 `restore_supported`。
+- [x] 将 `compatibility_message` 改为 `restore_message`。
+- [x] 评估是否删除 `compatibility_message_key` 与 `compatibility_message_args`。
+- [x] 更新 `src/platform/backup/backupRuntimeGateway.ts`。
+- [x] 更新 `src/features/settings/services/settingsRuntimeAdapterService.ts`。
+- [x] 更新 `src/shared/copy/uiText.ts`。
+- [x] 更新 `scripts/check-naming-boundaries.ts`。
+- [x] 跑 `npm run check:naming`。
+- [x] 跑 `npm run test:settings`。
 
 ### E5. 压成新的 SQLite schema 基线
 
@@ -305,38 +305,38 @@
 
 执行前：
 
-- [ ] 关闭所有 Time Tracker 进程。
-- [ ] 再复制一次 `timetracker.db`、`timetracker.db-wal`、`timetracker.db-shm` 到 Downloads。
-- [ ] 确认新结构化 `.zip` 可以 preview。
-- [ ] 确认接受旧 `0.6.4` 数据库不再直接跳过 `0.6.6` 进入 `0.6.7` 打开。
+- [x] 关闭所有 Time Tracker 进程。
+- [x] 再复制一次 `timetracker.db`、`timetracker.db-wal`、`timetracker.db-shm` 到 Downloads。
+- [x] 确认新结构化 `.zip` 可以 preview。
+- [x] 确认接受旧 `0.6.4` 数据库不再直接跳过 `0.6.6` 进入 `0.6.7` 打开。
 
 执行项：
 
-- [ ] 把 `src-tauri/src/data/migrations.rs` 改成新的单一当前基线迁移。
-- [ ] 新基线必须一次性创建当前完整 schema：
-  - [ ] `sessions` 包含 `continuity_group_start_time`
-  - [ ] `settings` 保持当前 key/value 表
-  - [ ] `icon_cache` 保持当前字段
-  - [ ] 保留 `idx_sessions_date`
-  - [ ] 保留 `idx_sessions_single_active`
-- [ ] 删除分段迁移常量：
-  - [ ] `MIGRATION_2_SQL`
-  - [ ] `MIGRATION_3_SQL`
-  - [ ] `MIGRATION_4_SQL`
-  - [ ] `MIGRATION_5_SQL`
-  - [ ] `MIGRATION_6_SQL`
-  - [ ] `MIGRATION_7_SQL`
-- [ ] `tracker_migrations()` 只返回新的当前基线迁移。
-- [ ] 增加或替换启动前的迁移历史处理逻辑：在 SQL plugin 运行迁移前，检测已运行过 `0.6.6` 的当前 schema，并把 `_sqlx_migrations` 重置为新基线对应的 metadata。
-- [ ] 迁移历史重置前必须验证真实表结构已经是当前 schema，不能对未知旧库盲目改 `_sqlx_migrations`。
-- [ ] 删除旧的 `repair_legacy_migration_history` 语义和命名，避免继续表达“修旧迁移历史”。
-- [ ] 更新 `src-tauri/src/lib.rs` 启动前调用，改为新的 current-baseline history normalization。
-- [ ] 更新所有 Rust 测试 setup，直接执行新的当前基线迁移。
-- [ ] 新增 Rust 测试：
-  - [ ] 空库执行新基线后表结构完整。
-  - [ ] 已有当前 schema 可被迁移历史重置逻辑识别。
-  - [ ] 缺少 `continuity_group_start_time` 的旧 schema 不会被错误重置为新基线。
-- [ ] 跑 `npm run check:rust`。
+- [x] 把 `src-tauri/src/data/migrations.rs` 改成新的单一当前基线迁移。
+- [x] 新基线必须一次性创建当前完整 schema：
+  - [x] `sessions` 包含 `continuity_group_start_time`
+  - [x] `settings` 保持当前 key/value 表
+  - [x] `icon_cache` 保持当前字段
+  - [x] 保留 `idx_sessions_date`
+  - [x] 保留 `idx_sessions_single_active`
+- [x] 删除分段迁移常量：
+  - [x] `MIGRATION_2_SQL`
+  - [x] `MIGRATION_3_SQL`
+  - [x] `MIGRATION_4_SQL`
+  - [x] `MIGRATION_5_SQL`
+  - [x] `MIGRATION_6_SQL`
+  - [x] `MIGRATION_7_SQL`
+- [x] `tracker_migrations()` 只返回新的当前基线迁移。
+- [x] 增加或替换启动前的迁移历史处理逻辑：在 SQL plugin 运行迁移前，检测已运行过 `0.6.6` 的当前 schema，并把 `_sqlx_migrations` 重置为新基线对应的 metadata。
+- [x] 迁移历史重置前必须验证真实表结构已经是当前 schema，不能对未知旧库盲目改 `_sqlx_migrations`。
+- [x] 删除旧的 `repair_legacy_migration_history` 语义和命名，避免继续表达“修旧迁移历史”。
+- [x] 更新 `src-tauri/src/lib.rs` 启动前调用，改为新的 current-baseline history normalization。
+- [x] 更新所有 Rust 测试 setup，直接执行新的当前基线迁移。
+- [x] 新增 Rust 测试：
+  - [x] 空库执行新基线后表结构完整。
+  - [x] 已有当前 schema 可被迁移历史重置逻辑识别。
+  - [x] 缺少 `continuity_group_start_time` 的旧 schema 不会被错误重置为新基线。
+- [x] 跑 `npm run check:rust`。
 
 ## 完全简并验证门槛
 
@@ -356,10 +356,10 @@
 - [x] 更新 `CHANGELOG.md`。
 - [x] 同步目标版本号。
 - [x] 跑 `npm run release:check -- 0.6.7`。
-- [ ] 提交 `release: v<version>`。
-- [ ] 推送 `main`。
-- [ ] 推送 `v<version>` tag。
-- [ ] 确认 GitHub Actions `Publish Release` 已触发。
+- [x] 提交 `release: v<version>`。
+- [x] 推送 `main`。
+- [x] 推送 `v<version>` tag。
+- [x] 确认 GitHub Actions `Publish Release` 已触发。
 
 ## 暂停条件
 
@@ -374,5 +374,5 @@
 
 ## 文档收尾
 
-- [ ] `0.6.7` 完全简并版本发布后，把本文移到 `docs/archive/`。
+- [x] `0.6.7` 完全简并版本发布后，把本文移到 `docs/archive/`。
 - [ ] 如果完全简并后产生长期规则变化，更新对应的顶层 `docs/` 文档，而不是继续修改本文。

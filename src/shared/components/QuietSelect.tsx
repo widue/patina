@@ -1,4 +1,14 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 
 export interface QuietSelectOption<T extends string | number> {
@@ -16,6 +26,22 @@ interface QuietSelectProps<T extends string | number> {
   className?: string;
 }
 
+interface SelectMenuPosition {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+  placement: "top" | "bottom";
+}
+
+const MENU_GAP = 6;
+const VIEWPORT_PADDING = 8;
+const DEFAULT_MENU_MAX_HEIGHT = 220;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
 export default function QuietSelect<T extends string | number>({
   value,
   options,
@@ -26,6 +52,7 @@ export default function QuietSelect<T extends string | number>({
 }: QuietSelectProps<T>) {
   const [open, setOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  const [menuPosition, setMenuPosition] = useState<SelectMenuPosition | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
@@ -38,6 +65,7 @@ export default function QuietSelect<T extends string | number>({
 
   const closeMenu = (restoreFocus = false) => {
     setOpen(false);
+    setMenuPosition(null);
     if (restoreFocus) {
       requestAnimationFrame(() => {
         triggerRef.current?.focus();
@@ -45,16 +73,93 @@ export default function QuietSelect<T extends string | number>({
     }
   };
 
+  const resolveMenuPosition = (measuredHeight?: number): SelectMenuPosition | null => {
+    const trigger = triggerRef.current;
+    if (!trigger) return null;
+
+    const rect = trigger.getBoundingClientRect();
+    const menuHeight = measuredHeight ?? listRef.current?.offsetHeight ?? DEFAULT_MENU_MAX_HEIGHT;
+    const width = Math.max(rect.width, 120);
+    const belowTop = rect.bottom + MENU_GAP;
+    const aboveTop = rect.top - menuHeight - MENU_GAP;
+    const spaceBelow = window.innerHeight - belowTop - VIEWPORT_PADDING;
+    const spaceAbove = rect.top - MENU_GAP - VIEWPORT_PADDING;
+    const shouldFlip = spaceBelow < menuHeight && spaceAbove > spaceBelow;
+    const availableSpace = Math.max(shouldFlip ? spaceAbove : spaceBelow, 96);
+    const maxHeight = Math.min(DEFAULT_MENU_MAX_HEIGHT, availableSpace);
+    const top = shouldFlip
+      ? clamp(aboveTop, VIEWPORT_PADDING, window.innerHeight - maxHeight - VIEWPORT_PADDING)
+      : clamp(belowTop, VIEWPORT_PADDING, window.innerHeight - maxHeight - VIEWPORT_PADDING);
+    const left = clamp(rect.left, VIEWPORT_PADDING, window.innerWidth - width - VIEWPORT_PADDING);
+
+    return {
+      top,
+      left,
+      width,
+      maxHeight,
+      placement: shouldFlip ? "top" : "bottom",
+    };
+  };
+
+  const updateMenuPosition = (measuredHeight?: number) => {
+    const nextPosition = resolveMenuPosition(measuredHeight);
+    if (!nextPosition) return;
+    setMenuPosition((current) => {
+      if (
+        current
+        && Math.abs(current.top - nextPosition.top) < 1
+        && Math.abs(current.left - nextPosition.left) < 1
+        && Math.abs(current.width - nextPosition.width) < 1
+        && Math.abs(current.maxHeight - nextPosition.maxHeight) < 1
+        && current.placement === nextPosition.placement
+      ) {
+        return current;
+      }
+      return nextPosition;
+    });
+  };
+
   useEffect(() => {
     if (!open) return;
-    const handleOutside = (event: MouseEvent) => {
-      if (!rootRef.current) return;
-      if (!rootRef.current.contains(event.target as Node)) {
-        setOpen(false);
+    const handleOutside = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (rootRef.current?.contains(target)) return;
+      if (listRef.current?.contains(target)) return;
+      closeMenu();
+    };
+    document.addEventListener("pointerdown", handleOutside);
+    return () => document.removeEventListener("pointerdown", handleOutside);
+  }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) return undefined;
+    updateMenuPosition(listRef.current?.offsetHeight);
+    return undefined;
+  }, [open, options.length]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleViewportChange = () => {
+      updateMenuPosition(listRef.current?.offsetHeight);
+    };
+    window.addEventListener("resize", handleViewportChange);
+    window.addEventListener("scroll", handleViewportChange, true);
+    return () => {
+      window.removeEventListener("resize", handleViewportChange);
+      window.removeEventListener("scroll", handleViewportChange, true);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeMenu();
       }
     };
-    window.addEventListener("mousedown", handleOutside);
-    return () => window.removeEventListener("mousedown", handleOutside);
+    document.addEventListener("keydown", handleDocumentKeyDown);
+    return () => document.removeEventListener("keydown", handleDocumentKeyDown);
   }, [open]);
 
   useEffect(() => {
@@ -69,6 +174,7 @@ export default function QuietSelect<T extends string | number>({
   useEffect(() => {
     if (!open) return;
     requestAnimationFrame(() => {
+      updateMenuPosition(listRef.current?.offsetHeight);
       listRef.current?.focus();
     });
   }, [open]);
@@ -130,15 +236,61 @@ export default function QuietSelect<T extends string | number>({
     }
   };
 
+  const menuStyle: CSSProperties | undefined = menuPosition
+    ? {
+      top: `${menuPosition.top}px`,
+      left: `${menuPosition.left}px`,
+      width: `${menuPosition.width}px`,
+      maxHeight: `${menuPosition.maxHeight}px`,
+    }
+    : { visibility: "hidden" };
+
+  const menu = open ? (
+    <ul
+      ref={listRef}
+      id={listboxId}
+      role="listbox"
+      tabIndex={-1}
+      aria-labelledby={`${listboxId}-trigger`}
+      aria-activedescendant={highlightedIndex >= 0 ? `${listboxId}-option-${highlightedIndex}` : undefined}
+      onKeyDown={handleListKeyDown}
+      className={`qp-select-menu qp-select-menu-${menuPosition?.placement ?? "bottom"}`}
+      style={menuStyle}
+    >
+      {options.map((option, index) => {
+        const selected = option.value === value;
+        const highlighted = index === highlightedIndex;
+        return (
+          <li
+            key={String(option.value)}
+            id={`${listboxId}-option-${index}`}
+            role="option"
+            aria-selected={selected}
+          >
+            <button
+              type="button"
+              tabIndex={-1}
+              disabled={option.disabled}
+              onMouseEnter={() => setHighlightedIndex(index)}
+              onClick={() => {
+                if (option.disabled) return;
+                onChange(option.value);
+                closeMenu(true);
+              }}
+              className={`qp-select-option ${selected ? "qp-select-option-selected" : ""} ${highlighted ? "qp-select-option-highlighted" : ""}`}
+            >
+              {option.label}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  ) : null;
+
   return (
     <div
       ref={rootRef}
       className={`qp-select-root ${className ?? ""}`}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-          closeMenu();
-        }
-      }}
     >
       <button
         ref={triggerRef}
@@ -156,46 +308,7 @@ export default function QuietSelect<T extends string | number>({
         <span className="truncate">{selectedOption?.label ?? ""}</span>
         <ChevronDown size={14} className={`qp-select-caret ${open ? "qp-select-caret-open" : ""}`} />
       </button>
-      {open && (
-        <ul
-          ref={listRef}
-          id={listboxId}
-          role="listbox"
-          tabIndex={-1}
-          aria-labelledby={`${listboxId}-trigger`}
-          aria-activedescendant={highlightedIndex >= 0 ? `${listboxId}-option-${highlightedIndex}` : undefined}
-          onKeyDown={handleListKeyDown}
-          className="qp-select-menu"
-        >
-          {options.map((option, index) => {
-            const selected = option.value === value;
-            const highlighted = index === highlightedIndex;
-            return (
-              <li
-                key={String(option.value)}
-                id={`${listboxId}-option-${index}`}
-                role="option"
-                aria-selected={selected}
-              >
-                <button
-                  type="button"
-                  tabIndex={-1}
-                  disabled={option.disabled}
-                  onMouseEnter={() => setHighlightedIndex(index)}
-                  onClick={() => {
-                    if (option.disabled) return;
-                    onChange(option.value);
-                    closeMenu(true);
-                  }}
-                  className={`qp-select-option ${selected ? "qp-select-option-selected" : ""} ${highlighted ? "qp-select-option-highlighted" : ""}`}
-                >
-                  {option.label}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      {menu ? createPortal(menu, document.body) : null}
     </div>
   );
 }

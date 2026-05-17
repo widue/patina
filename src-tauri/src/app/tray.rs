@@ -199,12 +199,14 @@ pub(crate) fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::migrations as db_schema;
+    use crate::data::schema as db_schema;
     use sqlx::{Executor, SqlitePool};
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
+        pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+            .await
+            .unwrap();
         pool
     }
 

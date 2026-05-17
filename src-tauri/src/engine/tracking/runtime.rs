@@ -270,7 +270,7 @@ pub async fn handle_power_lifecycle_event<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::migrations as db_schema;
+    use crate::data::schema as db_schema;
     use serde_json::json;
     use sqlx::{Executor, SqlitePool};
 
@@ -307,7 +307,9 @@ mod tests {
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
+        pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+            .await
+            .unwrap();
         pool
     }
 
@@ -355,19 +357,28 @@ mod tests {
         ]);
         let wallpaper_shell = make_window(&[
             ("exe_name", "ui32.exe"),
-            ("process_path", r"C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\ui32.exe"),
+            (
+                "process_path",
+                r"C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\ui32.exe",
+            ),
             ("window_class", "WorkerW"),
             ("title", ""),
         ]);
         let wallpaper_host = make_window(&[
             ("exe_name", "ui32.exe"),
-            ("process_path", r"C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\ui32.exe"),
+            (
+                "process_path",
+                r"C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\ui32.exe",
+            ),
             ("window_class", "Chrome_WidgetWin_1"),
             ("title", ""),
         ]);
         let wallpaper_app = make_window(&[
             ("exe_name", "ui32.exe"),
-            ("process_path", r"C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\ui32.exe"),
+            (
+                "process_path",
+                r"C:\Program Files (x86)\Steam\steamapps\common\wallpaper_engine\ui32.exe",
+            ),
             ("window_class", "Chrome_WidgetWin_1"),
             ("title", "Wallpaper Engine"),
         ]);
@@ -423,9 +434,7 @@ mod tests {
         assert!(crate::domain::tracking::should_track("cmd.exe"));
         assert!(crate::domain::tracking::should_track("powershell.exe"));
         assert!(crate::domain::tracking::should_track("pwsh.exe"));
-        assert!(crate::domain::tracking::should_track(
-            "WindowsTerminal.exe"
-        ));
+        assert!(crate::domain::tracking::should_track("WindowsTerminal.exe"));
         assert!(crate::domain::tracking::should_track("wt.exe"));
         assert!(crate::domain::tracking::should_track("conhost.exe"));
         assert!(crate::domain::tracking::should_track("OpenConsole.exe"));
@@ -615,7 +624,9 @@ mod tests {
             )
             .await
             .unwrap();
-            pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
+            pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
 
             let active_count: i64 =
                 sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE end_time IS NULL")

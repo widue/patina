@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { dirname, join, normalize, relative, sep } from "node:path";
 
-const SCAN_ROOTS = ["src/features", "src/shared"] as const;
+const SCAN_ROOTS = ["src/app", "src/features", "src/shared", "src/platform"] as const;
 
 interface SourceFile {
   path: string;
@@ -17,6 +17,35 @@ interface ArchitectureViolation {
 
 function normalizePath(path: string) {
   return path.split(sep).join("/");
+}
+
+function normalizeImportPath(fromFile: string, specifier: string) {
+  if (specifier.startsWith(".")) {
+    return normalizePath(normalize(join(dirname(fromFile), specifier)));
+  }
+
+  if (specifier.startsWith("@/")) {
+    return `src/${specifier.slice(2)}`;
+  }
+
+  return specifier;
+}
+
+function extractImportSpecifiers(lineText: string) {
+  const specifiers: string[] = [];
+  const patterns = [
+    /\bimport\s+(?:type\s+)?(?:[^'"]+?\s+from\s+)?["']([^"']+)["']/g,
+    /\bexport\s+(?:type\s+)?(?:[^'"]+?\s+from\s+)?["']([^"']+)["']/g,
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of lineText.matchAll(pattern)) {
+      specifiers.push(match[1]);
+    }
+  }
+
+  return specifiers;
 }
 
 function collectSourceFiles(root: string): SourceFile[] {
@@ -53,28 +82,90 @@ function isSharedSource(path: string) {
   return /^src\/shared\//.test(path);
 }
 
+function isPlatformSource(path: string) {
+  return /^src\/platform\//.test(path);
+}
+
+function isAppComponentOrHook(path: string) {
+  return /^src\/app\/(components|hooks)\//.test(path);
+}
+
 function findArchitectureViolations(files: SourceFile[]): ArchitectureViolation[] {
   const violations: ArchitectureViolation[] = [];
 
   for (const file of files) {
-    if (!isFeatureComponentOrHook(file.path) && !isSharedSource(file.path)) {
-      continue;
-    }
-
     const lines = file.content.split(/\r?\n/);
     lines.forEach((lineText, index) => {
-      if (lineText.includes("platform/persistence")) {
-        violations.push({
-          path: file.path,
-          line: index + 1,
-          rule: isSharedSource(file.path)
-            ? "shared-no-platform-persistence"
-            : "feature-ui-no-persistence",
-          text: lineText.trim(),
-        });
+      const importedPaths = extractImportSpecifiers(lineText).map((specifier) =>
+        normalizeImportPath(file.path, specifier),
+      );
+
+      for (const importedPath of importedPaths) {
+        if (isSharedSource(file.path) && /^src\/app\//.test(importedPath)) {
+          violations.push({
+            path: file.path,
+            line: index + 1,
+            rule: "shared-no-app-import",
+            text: lineText.trim(),
+          });
+        }
+
+        if (isSharedSource(file.path) && /^src\/features\//.test(importedPath)) {
+          violations.push({
+            path: file.path,
+            line: index + 1,
+            rule: "shared-no-feature-import",
+            text: lineText.trim(),
+          });
+        }
+
+        if (isSharedSource(file.path) && /^src\/platform\//.test(importedPath)) {
+          violations.push({
+            path: file.path,
+            line: index + 1,
+            rule: "shared-no-platform-import",
+            text: lineText.trim(),
+          });
+        }
+
+        if (isFeatureComponentOrHook(file.path) && /^src\/platform\//.test(importedPath)) {
+          violations.push({
+            path: file.path,
+            line: index + 1,
+            rule: "feature-ui-no-platform-import",
+            text: lineText.trim(),
+          });
+        }
+
+        if (isAppComponentOrHook(file.path) && /^src\/platform\/persistence\//.test(importedPath)) {
+          violations.push({
+            path: file.path,
+            line: index + 1,
+            rule: "app-shell-no-direct-persistence-import",
+            text: lineText.trim(),
+          });
+        }
+
+        if (isPlatformSource(file.path) && /^src\/app\//.test(importedPath)) {
+          violations.push({
+            path: file.path,
+            line: index + 1,
+            rule: "platform-no-app-import",
+            text: lineText.trim(),
+          });
+        }
+
+        if (isPlatformSource(file.path) && /^src\/features\//.test(importedPath)) {
+          violations.push({
+            path: file.path,
+            line: index + 1,
+            rule: "platform-no-feature-import",
+            text: lineText.trim(),
+          });
+        }
       }
 
-      if (lineText.includes("@tauri-apps")) {
+      if (isFeatureComponentOrHook(file.path) && lineText.includes("@tauri-apps")) {
         violations.push({
           path: file.path,
           line: index + 1,
@@ -83,7 +174,7 @@ function findArchitectureViolations(files: SourceFile[]): ArchitectureViolation[
         });
       }
 
-      if (/\binvoke\s*\(/.test(lineText)) {
+      if (isFeatureComponentOrHook(file.path) && /\binvoke\s*\(/.test(lineText)) {
         violations.push({
           path: file.path,
           line: index + 1,
@@ -109,15 +200,46 @@ function runSelfTest() {
     },
     {
       path: "src/shared/lib/sessionReadRepository.ts",
-      content: "export type { HistorySession } from '../../platform/persistence/sessionReadRepository.ts';",
+      content: [
+        "export type { HistorySession } from '../../platform/persistence/sessionReadRepository.ts';",
+        "import type { View } from '../../app/types/view.ts';",
+        "import Dashboard from '../../features/dashboard/components/Dashboard.tsx';",
+      ].join("\n"),
     },
     {
       path: "src/features/settings/hooks/useSettings.ts",
       content: "await invoke('cmd_save_settings');",
     },
+    {
+      path: "src/features/settings/services/settingsRuntimeAdapterService.ts",
+      content: "import { setAfkThreshold } from '../../../platform/runtime/trackingRuntimeGateway.ts';",
+    },
+    {
+      path: "src/app/components/AppTitleBar.tsx",
+      content: "import { getSessionsInRange } from '../../platform/persistence/sessionReadRepository.ts';",
+    },
+    {
+      path: "src/platform/persistence/sessionReadRepository.ts",
+      content: "import { loadDashboardSnapshot } from '../../features/dashboard/services/dashboardReadModel.ts';",
+    },
+    {
+      path: "src/platform/runtime/trackingRuntimeGateway.ts",
+      content: "import { invoke } from '@tauri-apps/api/core';",
+    },
   ]);
 
-  if (violations.length !== 3) {
+  const rules = violations.map((violation) => violation.rule).sort();
+  const expectedRules = [
+    "app-shell-no-direct-persistence-import",
+    "feature-ui-no-direct-invoke",
+    "feature-ui-no-platform-import",
+    "platform-no-feature-import",
+    "shared-no-app-import",
+    "shared-no-feature-import",
+    "shared-no-platform-import",
+  ].sort();
+
+  if (JSON.stringify(rules) !== JSON.stringify(expectedRules)) {
     throw new Error("Architecture boundary self-test failed");
   }
 }

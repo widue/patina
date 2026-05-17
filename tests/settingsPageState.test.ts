@@ -274,6 +274,7 @@ await runTest("normalizeSettingsRecord accepts current minimize behavior values"
   assert.equal(defaultSettings.language, "zh-CN");
   assert.equal(defaultSettings.colorSchemeLight, "default");
   assert.equal(defaultSettings.colorSchemeDark, "default");
+  assert.equal(defaultSettings.minSessionSecs, 300);
 
   const widgetSettings = normalizeSettingsRecord({
     minimize_behavior: "widget",

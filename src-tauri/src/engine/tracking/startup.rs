@@ -120,14 +120,16 @@ fn log_startup_error(message: impl AsRef<str>) {
 #[cfg(test)]
 mod tests {
     use super::{resolve_startup_seal_time, seal_startup_active_session};
-    use crate::data::migrations as db_schema;
     use crate::data::repositories::{sessions, tracker_settings};
+    use crate::data::schema as db_schema;
     use crate::data::tracking_runtime::TrackingRuntimeDataStore;
     use sqlx::{Executor, SqlitePool};
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
+        pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+            .await
+            .unwrap();
         pool
     }
 

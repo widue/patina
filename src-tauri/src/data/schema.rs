@@ -3,7 +3,7 @@ use tauri_plugin_sql::{Migration, MigrationKind};
 pub const CURRENT_BASELINE_MIGRATION_VERSION: i64 = 1;
 pub const CURRENT_BASELINE_MIGRATION_DESCRIPTION: &str = "create_current_baseline_schema";
 
-pub const MIGRATION_1_SQL: &str = "
+pub const CURRENT_BASELINE_SCHEMA_SQL: &str = "
     CREATE TABLE IF NOT EXISTS sessions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         app_name TEXT NOT NULL,
@@ -53,7 +53,7 @@ pub fn tracker_migrations() -> Vec<Migration> {
     vec![Migration {
         version: CURRENT_BASELINE_MIGRATION_VERSION,
         description: CURRENT_BASELINE_MIGRATION_DESCRIPTION,
-        sql: MIGRATION_1_SQL,
+        sql: CURRENT_BASELINE_SCHEMA_SQL,
         kind: MigrationKind::Up,
     }]
 }

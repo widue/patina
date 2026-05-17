@@ -28,13 +28,15 @@ pub async fn save_widget_placement(
 #[cfg(test)]
 mod tests {
     use super::{load_widget_placement, save_widget_placement};
-    use crate::data::migrations as db_schema;
+    use crate::data::schema as db_schema;
     use crate::domain::widget::{WidgetPlacement, WidgetSide, DEFAULT_WIDGET_ANCHOR_Y};
     use sqlx::{Executor, SqlitePool};
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
+        pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+            .await
+            .unwrap();
         pool
     }
 

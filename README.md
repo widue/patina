@@ -61,7 +61,7 @@ Time tracking has long-term value only when the results are trustworthy. Time Tr
 - Normal use does not require an account, cloud sync, or server dependency.
 - Window title capture can be disabled per app.
 - Backups currently include `sessions`, `settings`, and `icon_cache`.
-- Restoring a backup replaces current data; if restore fails, it rolls back to avoid damaging existing data.
+- Restoring a backup can replace or merge with current data, depending on the selected restore strategy; if restore fails, it rolls back to avoid damaging existing data.
 
 ## Current Scope
 

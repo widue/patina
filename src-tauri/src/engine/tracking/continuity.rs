@@ -122,7 +122,7 @@ mod tests {
         load_pending_continuity, resolve_next_pending_continuity,
         resolve_next_session_continuity_group_start_time,
     };
-    use crate::data::migrations as db_schema;
+    use crate::data::schema as db_schema;
     use crate::data::tracking_runtime::TrackingRuntimeDataStore;
     use crate::domain::tracking::{SustainedParticipationKind, TrackingStatusSnapshot};
     use crate::engine::tracking::{active_session, transition};
@@ -162,7 +162,9 @@ mod tests {
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
+        pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+            .await
+            .unwrap();
         pool
     }
 

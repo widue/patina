@@ -507,7 +507,7 @@ pub async fn preview_backup(backup_path: String) -> Result<BackupPreview, String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::migrations as db_schema;
+    use crate::data::schema as db_schema;
     use crate::domain::backup::{BackupIconCache, BackupSession, BackupSetting};
     use sqlx::{Executor, SqlitePool};
 
@@ -613,10 +613,8 @@ mod tests {
 
     #[test]
     fn legacy_zip_backup_json_payload_is_not_supported() {
-        let backup_path = std::env::temp_dir().join(format!(
-            "timetracker-legacy-zip-{}.zip",
-            std::process::id()
-        ));
+        let backup_path =
+            std::env::temp_dir().join(format!("timetracker-legacy-zip-{}.zip", std::process::id()));
         let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Stored);
         zip_write_file(&mut archive, "backup.json", r#"{"version":1}"#, options).unwrap();
@@ -630,7 +628,9 @@ mod tests {
 
     async fn setup_test_db() -> SqlitePool {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
-        pool.execute(db_schema::MIGRATION_1_SQL).await.unwrap();
+        pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+            .await
+            .unwrap();
         pool
     }
 
