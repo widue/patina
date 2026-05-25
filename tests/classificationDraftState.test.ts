@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   buildCustomCategory,
+  resolveCustomCategoryLabel,
   USER_ASSIGNABLE_CATEGORIES,
   type UserAssignableAppCategory,
 } from "../src/shared/classification/categoryTokens.ts";
@@ -155,6 +156,49 @@ await runTest("plain category override storage values are ignored", () => {
   assert.equal(transition.canonicalExe, "reader.exe");
   assert.equal(transition.override, null);
   assert.deepEqual(transition.mutations, []);
+});
+
+await runTest("custom category ids are not repeatedly percent encoded", () => {
+  const category = buildCustomCategory("中文");
+  const doubleEncodedCategory = buildCustomCategory(category.slice("custom:".length));
+
+  assert.equal(category, "custom:%E4%B8%AD%E6%96%87");
+  assert.equal(doubleEncodedCategory, "custom:%25E4%25B8%25AD%25E6%2596%2587");
+  assert.equal(resolveCustomCategoryLabel(doubleEncodedCategory), "中文");
+  assert.equal(
+    ProcessMapper.fromOverrideStorageValue(JSON.stringify({ category, enabled: true }))?.category,
+    category,
+  );
+  assert.equal(
+    ProcessMapper.fromOverrideStorageValue(JSON.stringify({ category: doubleEncodedCategory, enabled: true }))?.category,
+    category,
+  );
+});
+
+await runTest("encoded custom category app override transitions back to canonical storage", () => {
+  const category = buildCustomCategory("中文");
+  const doubleEncodedCategory = buildCustomCategory(category.slice("custom:".length));
+  const transition = buildAppOverrideTransition(
+    "__app_override::notepad.exe",
+    JSON.stringify({ category: doubleEncodedCategory, enabled: true, updatedAt: 123 }),
+  );
+
+  assert.equal(transition.canonicalExe, "notepad.exe");
+  assert.equal(transition.override?.category, category);
+  assert.deepEqual(transition.mutations, [
+    {
+      key: "__app_override::notepad.exe",
+      value: JSON.stringify({
+        category,
+        displayName: null,
+        color: null,
+        track: true,
+        captureTitle: true,
+        enabled: true,
+        updatedAt: 123,
+      }),
+    },
+  ]);
 });
 
 await runTest("hasClassificationDraftChanges ignores unsupported deleted categories", () => {

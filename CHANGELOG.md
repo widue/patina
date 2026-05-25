@@ -36,6 +36,32 @@ App note en: TBD.
 
 - 暂无。
 
+## [1.1.1] - 2026-05-25
+
+Release: 修复中文自定义分类在重新加载后显示为编码乱码的问题。
+App note: 修复中文分类乱码。
+App note en: Fixed Chinese category garbling.
+
+### Added
+
+- 暂无。
+
+### Changed
+
+- 暂无。
+
+### Fixed
+
+- 修复中文自定义分类应用到软件后，重新加载应用映射时可能变成 `%25...` 编码乱码并重复生成乱码分类的问题（[#1](https://github.com/Ceceliaee/time-tracking/issues/1)）。
+
+### Removed
+
+- 暂无。
+
+### Internal
+
+- 补充中文自定义分类编码归一化回归测试，覆盖旧的重复编码分类自动恢复为规范分类 ID。
+
 ## [1.1.0] - 2026-05-24
 
 Release: 新增历史窗口标题明细，让切换网页、文件和文档时的活动回看更可信。

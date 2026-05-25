@@ -1,7 +1,7 @@
 import {
-  buildCustomCategory,
   getCategoryToken,
   isCustomCategory,
+  normalizeCustomCategory,
   USER_ASSIGNABLE_CATEGORIES,
   type AppCategory,
   type UserAssignableAppCategory,
@@ -115,7 +115,7 @@ function normalizeUserAssignableCategory(category: string | undefined): UserAssi
   }
 
   if (isCustomCategory(normalized)) {
-    return buildCustomCategory(normalized.slice("custom:".length));
+    return normalizeCustomCategory(normalized);
   }
 
   if (USER_ASSIGNABLE_CATEGORY_SET.has(normalized)) {

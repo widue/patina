@@ -22,7 +22,7 @@
 
 截至当前发布线：
 
-- 代码版本为 `1.1.0`
+- 代码版本为 `1.1.1`
 - 稳定发布线为 `1.x`
 - 仓库已进入公开稳定阶段，后续版本按标准 `SemVer` 管理
 - 默认通过推送 `vX.Y.Z` / `vX.Y.Z-prerelease` 版本 tag 自动触发 GitHub Actions 工作流 [prepare-release.yml](../.github/workflows/prepare-release.yml) 中的 `Publish Release` 流程；必要时也可手动触发该工作流
@@ -223,6 +223,7 @@ App note: 一句话概括应用内更新提示要显示的变化。
 - 只写“相对上一个已发布版本”的真实变化，不写本轮开发中出现过、但最终没有进入发布结果的中间尝试或回退
 - 准备正式版本时，必须先对比最近一个已发布 tag 或 release 提交之后的完整范围，例如 `git log vX.Y.Z..HEAD` 与 `git diff --stat vX.Y.Z..HEAD`；changelog 应总结这一整段时间的最终结果，而不是只总结最后一轮局部改动
 - 优先写用户能感知到的结果，不先写实现手段、模块名或重构过程
+- 如果条目修复了 GitHub issue，必须在对应 `Fixed` 条目中带上 issue 编号或链接，例如 `[#1](https://github.com/Ceceliaee/time-tracking/issues/1)`，方便从发布说明追溯到问题上下文
 - 一条尽量只表达一个结果，避免把多个层次不同的变化揉成一条长句
 - `Added` 只写新增能力或新增入口，不把“补了支持逻辑”误写成新增功能
 - `Changed` 只写用户可感知的行为调整、体验变化或默认值变化

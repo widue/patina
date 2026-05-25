@@ -104,49 +104,50 @@ function tauriStubFor(path: string) {
 
   if (path === "@tauri-apps/plugin-sql") {
     return `
-      function smokeDayStart() {
+      function smokeSessionTiming() {
         const now = new Date();
-        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0, 0).getTime();
+        const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+        const latestEnd = Math.max(dayStart + 70 * 1000, now.getTime() - 60 * 1000);
+        const duration = Math.min(
+          40 * 60 * 1000,
+          Math.max(60 * 1000, latestEnd - dayStart - 1000),
+        );
+
+        return {
+          start: Math.max(dayStart, latestEnd - duration),
+          end: latestEnd,
+          duration,
+        };
       }
 
       function historySessionRows() {
-        const start = smokeDayStart();
+        const timing = smokeSessionTiming();
         return [
           {
             id: 901,
             app_name: "Extremely Long Research Workbench Application Name",
             exe_name: "deep-research-workbench.exe",
             window_title: "Extremely detailed project brief",
-            start_time: start,
-            end_time: start + 20 * 60 * 1000,
-            duration: 20 * 60 * 1000,
-            continuity_group_start_time: start,
-          },
-          {
-            id: 902,
-            app_name: "Extremely Long Research Workbench Application Name",
-            exe_name: "deep-research-workbench.exe",
-            window_title: "Budget spreadsheet review",
-            start_time: start + 22 * 60 * 1000,
-            end_time: start + 42 * 60 * 1000,
-            duration: 20 * 60 * 1000,
-            continuity_group_start_time: start,
+            start_time: timing.start,
+            end_time: timing.end,
+            duration: timing.duration,
+            continuity_group_start_time: timing.start,
           },
         ];
       }
 
       function historyTitleSampleRows() {
-        const start = smokeDayStart();
+        const timing = smokeSessionTiming();
+        const sampleDuration = Math.max(1, Math.floor(timing.duration / ${HISTORY_TITLE_DETAIL_COUNT}));
         return Array.from({ length: ${HISTORY_TITLE_DETAIL_COUNT} }, (_, index) => {
-          const sessionId = index < 5 ? 901 : 902;
-          const sessionOffset = index < 5 ? 0 : 22 * 60 * 1000;
-          const sampleIndex = index % 5;
-          const sampleStart = start + sessionOffset + sampleIndex * 4 * 60 * 1000;
+          const sampleStart = timing.start + index * sampleDuration;
           return {
-            session_id: sessionId,
+            session_id: 901,
             title: "Detailed document title " + (index + 1) + " for a very long research workflow",
             start_time: sampleStart,
-            end_time: sampleStart + 4 * 60 * 1000,
+            end_time: index === ${HISTORY_TITLE_DETAIL_COUNT} - 1
+              ? timing.end
+              : Math.min(timing.end, sampleStart + sampleDuration),
           };
         });
       }
@@ -427,15 +428,23 @@ async function waitForExpression(
   client: CdpConnection,
   sessionId: string,
   expression: string,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
   return waitFor("browser expression", async () => {
     const value = await evaluate(client, sessionId, expression);
     return value ? value : null;
-  });
+  }, timeoutMs);
 }
 
 function jsonString(value: string) {
   return JSON.stringify(value);
+}
+
+function titleDetailsButtonExpression(labelFragment: string) {
+  return `
+    Boolean(Array.from(document.querySelectorAll('button[aria-label]'))
+      .find((node) => node.getAttribute('aria-label')?.includes(${jsonString(labelFragment)})))
+  `;
 }
 
 let browserProcess: ChildProcess | null = null;
@@ -638,7 +647,13 @@ try {
       await waitForExpression(
         client!,
         sessionId,
-        `document.body.innerText.includes(${jsonString("标题 " + HISTORY_TITLE_DETAIL_COUNT)})`,
+        `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("历史"))} + ']')?.className.includes("qp-nav-item-active")`,
+      );
+      await waitForExpression(
+        client!,
+        sessionId,
+        titleDetailsButtonExpression("标题详情"),
+        45_000,
       );
       assert.equal(
         await evaluate(client!, sessionId, `
@@ -706,7 +721,13 @@ try {
     await waitForExpression(
       client!,
       sessionId,
-      `document.body.innerText.includes(${jsonString("Titles " + HISTORY_TITLE_DETAIL_COUNT)})`,
+      `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("History"))} + ']')?.className.includes("qp-nav-item-active")`,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      titleDetailsButtonExpression("title details"),
+      45_000,
     );
     assert.equal(
       await evaluate(client!, sessionId, `

@@ -111,16 +111,28 @@ function normalizeCustomCategoryLabel(label: string): string {
   return trimmed.slice(0, 20);
 }
 
+function decodeCustomCategoryRawLabel(raw: string): string {
+  let decoded = raw;
+  for (let index = 0; index < 4; index += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) {
+        break;
+      }
+      decoded = next;
+    } catch {
+      break;
+    }
+  }
+  return decoded;
+}
+
 export function resolveCustomCategoryLabel(category: CustomAppCategory): string {
   const raw = category.slice(CUSTOM_CATEGORY_PREFIX.length);
   if (!raw) {
     return UI_TEXT.categories.custom;
   }
-  try {
-    return normalizeCustomCategoryLabel(decodeURIComponent(raw));
-  } catch {
-    return normalizeCustomCategoryLabel(raw);
-  }
+  return normalizeCustomCategoryLabel(decodeCustomCategoryRawLabel(raw));
 }
 
 export function buildCustomCategory(label: string): CustomAppCategory {
@@ -131,6 +143,10 @@ export function buildCustomCategory(label: string): CustomAppCategory {
 
 export function isCustomCategory(category: string): category is CustomAppCategory {
   return category.startsWith(CUSTOM_CATEGORY_PREFIX) && category.length > CUSTOM_CATEGORY_PREFIX.length;
+}
+
+export function normalizeCustomCategory(category: CustomAppCategory): CustomAppCategory {
+  return buildCustomCategory(resolveCustomCategoryLabel(category));
 }
 
 export function isBuiltinCategory(category: string): category is BuiltinAppCategory {
