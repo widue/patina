@@ -86,6 +86,14 @@ These instructions apply to all UI work unless the user gives an explicit task-s
 - The default minimum frontend validation bar is `npm test`, `npm run test:replay`, and `npm run build`.
 - Treat code quality, software performance, and reliability/validation as related but different concerns; do not optimize one by accidentally damaging the others.
 
+## GitHub Push And Issue Rules
+
+- This is a personal repository. When the user asks to push changes to the repository, default to committing the confirmed scope and pushing directly to `origin/main`.
+- Do not create a branch or pull request unless the user explicitly asks for one.
+- Do not use issue-closing keywords such as `Closes`, `Fixes`, or `Resolves` in commits, changelog entries, pull request descriptions, or GitHub comments unless the user explicitly asks to close the issue.
+- When a change relates to an issue, reference it without changing its state, for example with `Refs #3` or a Markdown issue link.
+- Do not close, reopen, label, or otherwise mutate GitHub issues unless the user explicitly requests that issue action.
+
 ## Documentation Hygiene
 
 - Top-level `docs/` is for active long-lived reference documents only.
