@@ -295,14 +295,24 @@ pub async fn start_session(
     continuity_group_start_time: i64,
 ) -> Result<bool, sqlx::Error> {
     if let Some(existing_session) = load_active_session(pool).await? {
-        if existing_session.exe_name.eq_ignore_ascii_case(exe_name)
-            && existing_session.window_title == window_title
-        {
-            return Ok(false);
-        }
+        let _ = (&existing_session.exe_name, &existing_session.window_title);
+        return Ok(false);
     }
 
     let mut tx = pool.begin().await?;
+    let active_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)
+         FROM sessions
+         WHERE end_time IS NULL",
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if active_count > 0 {
+        tx.rollback().await?;
+        return Ok(false);
+    }
+
     let result = sqlx::query(
         "INSERT INTO sessions (
             app_name,
@@ -318,7 +328,18 @@ pub async fn start_session(
     .bind(start_time)
     .bind(continuity_group_start_time)
     .execute(&mut *tx)
-    .await?;
+    .await;
+
+    let result = match result {
+        Ok(result) => result,
+        Err(error) => {
+            if is_single_active_session_conflict(&error) {
+                tx.rollback().await?;
+                return Ok(false);
+            }
+            return Err(error);
+        }
+    };
     let session_id = result.last_insert_rowid();
 
     session_title_samples::start_title_sample_tx(&mut tx, session_id, window_title, start_time)
@@ -326,4 +347,125 @@ pub async fn start_session(
 
     tx.commit().await?;
     Ok(true)
+}
+
+fn is_single_active_session_conflict(error: &sqlx::Error) -> bool {
+    let sqlx::Error::Database(error) = error else {
+        return false;
+    };
+
+    if error.constraint() == Some("idx_sessions_single_active") {
+        return true;
+    }
+
+    error.message().contains("idx_sessions_single_active")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::schema as db_schema;
+    use sqlx::{Executor, SqlitePool};
+
+    async fn setup_test_db() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+            .await
+            .unwrap();
+        pool
+    }
+
+    #[test]
+    fn start_session_is_noop_when_any_active_session_exists() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+
+            assert!(
+                start_session(&pool, "Code", "Code.exe", "Editor", 1_000, 1_000)
+                    .await
+                    .unwrap()
+            );
+            assert!(
+                !start_session(&pool, "Edge", "msedge.exe", "Browser", 2_000, 2_000)
+                    .await
+                    .unwrap()
+            );
+
+            let active_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM sessions WHERE end_time IS NULL")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            let first_session: (String, String) =
+                sqlx::query_as("SELECT exe_name, window_title FROM sessions LIMIT 1")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+
+            assert_eq!(active_count, 1);
+            assert_eq!(
+                first_session,
+                ("Code.exe".to_string(), "Editor".to_string())
+            );
+        });
+    }
+
+    #[test]
+    fn start_session_treats_single_active_index_conflict_as_noop() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+            let mut tx = pool.begin().await.unwrap();
+
+            let result = sqlx::query(
+                "INSERT INTO sessions (
+                    app_name,
+                    exe_name,
+                    window_title,
+                    start_time,
+                    continuity_group_start_time
+                 ) VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind("Code")
+            .bind("Code.exe")
+            .bind("Editor")
+            .bind(1_000)
+            .bind(1_000)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+            let session_id = result.last_insert_rowid();
+
+            let insert = sqlx::query(
+                "INSERT INTO sessions (
+                    app_name,
+                    exe_name,
+                    window_title,
+                    start_time,
+                    continuity_group_start_time
+                 ) VALUES (?, ?, ?, ?, ?)",
+            )
+            .bind("Edge")
+            .bind("msedge.exe")
+            .bind("Browser")
+            .bind(2_000)
+            .bind(2_000)
+            .execute(&mut *tx)
+            .await;
+
+            assert!(insert
+                .as_ref()
+                .err()
+                .is_some_and(is_single_active_session_conflict));
+            tx.rollback().await.unwrap();
+
+            let active: Option<i64> =
+                sqlx::query_scalar("SELECT id FROM sessions WHERE end_time IS NULL")
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+
+            assert_eq!(active, None);
+            assert!(session_id > 0);
+        });
+    }
 }

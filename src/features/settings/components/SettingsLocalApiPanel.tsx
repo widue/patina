@@ -69,46 +69,46 @@ export default function SettingsLocalApiPanel({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
-          <div>
-            <label
-              htmlFor="settings-local-api-port"
-              className="text-[11px] font-semibold text-[var(--qp-text-tertiary)] uppercase tracking-[0.06em]"
-            >
-              {UI_TEXT.settings.localApiPortLabel}
-            </label>
-            <p className="mt-2 text-sm text-[var(--qp-text-secondary)] leading-relaxed">
+        <div>
+          <label
+            htmlFor="settings-local-api-port"
+            className="text-[11px] font-semibold text-[var(--qp-text-tertiary)] uppercase tracking-[0.06em]"
+          >
+            {UI_TEXT.settings.localApiPortLabel}
+          </label>
+          <div className="mt-2 flex flex-col gap-3 md:flex-row md:items-center md:justify-between md:gap-4">
+            <p className="text-sm text-[var(--qp-text-secondary)] leading-relaxed">
               {UI_TEXT.settings.localApiPortHint}
             </p>
+            <input
+              id="settings-local-api-port"
+              type="number"
+              min={LOCAL_API_PORT_MIN}
+              max={LOCAL_API_PORT_MAX}
+              step={1}
+              value={portDraft}
+              onChange={(event) => {
+                const nextDraft = event.target.value;
+                setPortDraft(nextDraft);
+                const normalized = normalizePort(nextDraft);
+                if (normalized) {
+                  onPortChange(Number(normalized));
+                }
+              }}
+              onBlur={() => {
+                const normalized = normalizePort(portDraft);
+                if (normalized) {
+                  setPortDraft(normalized);
+                  onPortChange(Number(normalized));
+                } else {
+                  setPortDraft(String(port));
+                }
+              }}
+              className="h-9 w-full rounded-[8px] border border-[var(--qp-border-subtle)] bg-[var(--qp-bg-panel)] px-3 text-sm font-medium tabular-nums text-[var(--qp-text-primary)] outline-none focus:border-[var(--qp-accent-default)] disabled:cursor-not-allowed disabled:opacity-50 md:w-[180px]"
+              disabled={!enabled}
+              inputMode="numeric"
+            />
           </div>
-          <input
-            id="settings-local-api-port"
-            type="number"
-            min={LOCAL_API_PORT_MIN}
-            max={LOCAL_API_PORT_MAX}
-            step={1}
-            value={portDraft}
-            onChange={(event) => {
-              const nextDraft = event.target.value;
-              setPortDraft(nextDraft);
-              const normalized = normalizePort(nextDraft);
-              if (normalized) {
-                onPortChange(Number(normalized));
-              }
-            }}
-            onBlur={() => {
-              const normalized = normalizePort(portDraft);
-              if (normalized) {
-                setPortDraft(normalized);
-                onPortChange(Number(normalized));
-              } else {
-                setPortDraft(String(port));
-              }
-            }}
-            className="h-9 rounded-[8px] border border-[var(--qp-border-subtle)] bg-[var(--qp-bg-panel)] px-3 text-sm font-medium tabular-nums text-[var(--qp-text-primary)] outline-none focus:border-[var(--qp-accent-default)] disabled:cursor-not-allowed disabled:opacity-50"
-            disabled={!enabled}
-            inputMode="numeric"
-          />
         </div>
 
         <div>
