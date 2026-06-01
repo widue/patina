@@ -20,6 +20,21 @@ interface RawTitleSampleRow {
   end_time: number | null;
 }
 
+export interface RawAggregateSessionCandidateRow {
+  app_name: string;
+  exe_name: string;
+  window_title: string;
+  start_time: number;
+  effective_end_time: number;
+}
+
+export interface AggregateSessionRecord {
+  appName: string;
+  exeName: string;
+  startTime: number;
+  endTime: number;
+}
+
 function mapRawTitleSample(row: RawTitleSampleRow): TitleSampleDetail {
   return {
     title: row.title,
@@ -43,6 +58,22 @@ function mapRawHistorySession(
     continuityGroupStartTime: row.continuity_group_start_time,
     titleSampleDetails,
   };
+}
+
+export function mapRawAggregateSessionCandidates(
+  rows: RawAggregateSessionCandidateRow[],
+): AggregateSessionRecord[] {
+  return rows
+    .filter((row) => AppClassification.shouldTrackProcess(row.exe_name, {
+      appName: row.app_name,
+      windowTitle: row.window_title,
+    }))
+    .map((row) => ({
+      appName: row.app_name,
+      exeName: row.exe_name,
+      startTime: row.start_time,
+      endTime: Math.max(row.start_time, row.effective_end_time),
+    }));
 }
 
 export async function getIconMap(): Promise<Record<string, string>> {
@@ -103,6 +134,16 @@ export async function getSessionsInRange(startMs: number, endMs: number): Promis
   }
 
   return rows.map((row) => mapRawHistorySession(row, samplesBySessionId.get(row.id) ?? []));
+}
+
+export async function getSessionSummariesInRange(startMs: number, endMs: number): Promise<AggregateSessionRecord[]> {
+  const db = await getDB();
+  const now = Date.now();
+  const rows = await db.select<RawAggregateSessionCandidateRow[]>(
+    "SELECT app_name, exe_name, window_title, start_time, COALESCE(end_time, ?) AS effective_end_time FROM sessions WHERE start_time < ? AND COALESCE(end_time, ?) > ? ORDER BY start_time ASC",
+    [now, endMs, now, startMs],
+  );
+  return mapRawAggregateSessionCandidates(rows);
 }
 
 export async function getEarliestSessionStartTime(): Promise<number | null> {

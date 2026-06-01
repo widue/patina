@@ -1,20 +1,22 @@
-import type { HistorySession } from "../../../shared/types/sessions.ts";
-import {
-  compileSessions,
-  buildDailySummaries,
-  buildNormalizedAppStats,
-  getRollingDayRanges,
-  type SessionRange,
-} from "../../../shared/lib/sessionReadCompiler.ts";
+import { AppClassification } from "../../../shared/classification/appClassification.ts";
+import type { SessionRange } from "../../../shared/lib/sessionReadCompiler.ts";
 import { getUiLocale, UI_TEXT } from "../../../shared/copy/uiText.ts";
 import {
   getEarliestSessionStartTime,
-  getSessionsInRange,
+  getSessionSummariesInRange,
+  type AggregateSessionRecord,
 } from "../../../platform/persistence/sessionReadRepository.ts";
+import {
+  buildDataDayRanges,
+  buildDataMonthRanges,
+  resolveDataTrendRange,
+  type DataRollingTrendRange,
+  type ResolvedDataTrendRange,
+} from "./dataTrendRange.ts";
 
-export type { HistorySession };
+export type { AggregateSessionRecord };
 
-export type DataTrendRange = 7 | 30 | 365;
+export type DataTrendRange = DataRollingTrendRange;
 
 export interface DataTrendPoint {
   label: string;
@@ -69,7 +71,7 @@ export interface DataAppDayRow {
 }
 
 export interface DataAppTrendViewModel {
-  range: DataTrendRange;
+  range: ResolvedDataTrendRange;
   rangeLabel: string;
   granularity: "day" | "month";
   appOptions: DataAppOption[];
@@ -106,19 +108,25 @@ export interface HeatmapRange {
 
 export interface DataHeatmapSnapshot {
   earliestStartTime: number | null;
-  sessions: HistorySession[];
+  sessions: AggregateSessionRecord[];
   range: HeatmapRange;
   cacheKey: string;
 }
 
 export interface DataHeatmapDependencies {
   getEarliestSessionStartTime: () => Promise<number | null>;
-  getSessionsInRange: (startMs: number, endMs: number) => Promise<HistorySession[]>;
+  getSessionsInRange: (startMs: number, endMs: number) => Promise<AggregateSessionRecord[]>;
 }
 
 const RECENT_HEATMAP_WEEK_COUNT = 53;
-const heatmapSessionCache = new Map<string, HistorySession[]>();
+const heatmapSessionCache = new Map<string, AggregateSessionRecord[]>();
 let earliestSessionStartTimeCache: number | null | undefined;
+
+interface CompiledDataSession extends AggregateSessionRecord {
+  appKey: string;
+  displayName: string;
+}
+
 function startOfLocalDay(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
@@ -184,23 +192,6 @@ function formatAppDayLabel(dateKey: string) {
   return date.toLocaleDateString(getUiLocale(), { month: "2-digit", day: "2-digit", weekday: "short" });
 }
 
-function getRecentMonthRanges(nowMs: number, monthCount: number): SessionRange[] {
-  const now = new Date(nowMs);
-  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-
-  return Array.from({ length: monthCount }, (_, index) => {
-    const monthStart = new Date(currentMonthStart);
-    monthStart.setMonth(currentMonthStart.getMonth() - (monthCount - 1 - index));
-    const monthEnd = new Date(monthStart);
-    monthEnd.setMonth(monthStart.getMonth() + 1);
-
-    return {
-      startMs: monthStart.getTime(),
-      endMs: Math.min(monthEnd.getTime(), nowMs),
-    };
-  });
-}
-
 function getRangeBounds(ranges: SessionRange[]) {
   const firstRange = ranges[0];
   const lastRange = ranges[ranges.length - 1];
@@ -211,17 +202,118 @@ function getRangeBounds(ranges: SessionRange[]) {
 }
 
 function getClippedSessionDuration(
-  session: { startTime: number; endTime: number | null },
+  session: { startTime: number; endTime: number },
   rangeStartMs: number,
   rangeEndMs: number,
 ) {
   const clippedStart = Math.max(session.startTime, rangeStartMs);
-  const clippedEnd = Math.min(session.endTime ?? session.startTime, rangeEndMs);
+  const clippedEnd = Math.min(session.endTime, rangeEndMs);
   return Math.max(0, clippedEnd - clippedStart);
 }
 
+function containsCjkCharacters(value: string) {
+  return /[\u3400-\u9fff]/.test(value);
+}
+
+function scoreDisplayNameForStats(name: string) {
+  const normalized = name.trim();
+  if (!normalized) return 0;
+
+  const lower = normalized.toLowerCase();
+  if (lower.includes("tray") || lower.includes("widget")) return 1;
+  if (containsCjkCharacters(normalized)) return 4;
+  if (lower.includes("_") || lower.includes("-")) return 2;
+  return 3;
+}
+
+function pickPreferredAppName(current: string, next: string) {
+  return scoreDisplayNameForStats(next) > scoreDisplayNameForStats(current) ? next : current;
+}
+
+function resolveDataDisplayName(session: AggregateSessionRecord, appKey: string) {
+  const overrideDisplayName = AppClassification.getUserOverride(appKey)?.displayName?.trim();
+  if (overrideDisplayName) return overrideDisplayName;
+
+  const canonicalName = AppClassification.resolveCanonicalDisplayName(appKey);
+  if (canonicalName) return canonicalName;
+
+  const rawExeKey = AppClassification.normalizeExecutable(session.exeName);
+  if (appKey !== rawExeKey) {
+    return AppClassification.mapApp(appKey).name;
+  }
+
+  const appName = session.appName.trim();
+  return appName || AppClassification.mapApp(appKey).name;
+}
+
+function compileDataSessions(
+  sessions: AggregateSessionRecord[],
+  range: SessionRange,
+): CompiledDataSession[] {
+  return sessions
+    .filter((session) => AppClassification.shouldTrackProcess(session.exeName, {
+      appName: session.appName,
+    }))
+    .map((session) => ({
+      ...session,
+      appKey: AppClassification.resolveCanonicalExecutable(session.exeName),
+    }))
+    .filter((session) => session.appKey && AppClassification.shouldTrackApp(session.appKey))
+    .map((session) => ({
+      ...session,
+      displayName: resolveDataDisplayName(session, session.appKey),
+      startTime: Math.max(session.startTime, range.startMs),
+      endTime: Math.min(session.endTime, range.endMs),
+    }))
+    .filter((session) => session.endTime > session.startTime);
+}
+
+function buildDataAppStats(sessions: CompiledDataSession[]) {
+  const totals = new Map<string, {
+    appName: string;
+    exeName: string;
+    totalDuration: number;
+  }>();
+
+  for (const session of sessions) {
+    const duration = Math.max(0, session.endTime - session.startTime);
+    const existing = totals.get(session.appKey);
+
+    if (existing) {
+      existing.totalDuration += duration;
+      existing.appName = pickPreferredAppName(existing.appName, session.displayName);
+      continue;
+    }
+
+    const rawExeKey = AppClassification.normalizeExecutable(session.exeName);
+    totals.set(session.appKey, {
+      appName: session.displayName,
+      exeName: session.appKey === rawExeKey ? session.exeName : session.appKey,
+      totalDuration: duration,
+    });
+  }
+
+  return Array.from(totals.values()).sort((a, b) => b.totalDuration - a.totalDuration);
+}
+
+function buildDataSummaries(
+  sessions: AggregateSessionRecord[],
+  ranges: SessionRange[],
+) {
+  const bounds = getRangeBounds(ranges);
+  const compiledSessions = compileDataSessions(sessions, bounds);
+
+  return ranges.map((range) => ({
+    date: toDateKey(new Date(range.startMs)),
+    totalDuration: compiledSessions.reduce(
+      (sum, session) => sum + getClippedSessionDuration(session, range.startMs, range.endMs),
+      0,
+    ),
+  }));
+}
+
 function buildAppDayRows(
-  sessions: ReturnType<typeof compileSessions>,
+  sessions: CompiledDataSession[],
   dayRanges: SessionRange[],
 ) {
   const rows = dayRanges.map((range) => {
@@ -245,7 +337,7 @@ function buildAppDayRows(
 }
 
 function countActiveRanges(
-  sessions: ReturnType<typeof compileSessions>,
+  sessions: CompiledDataSession[],
   ranges: SessionRange[],
 ) {
   return ranges.reduce((count, range) => (
@@ -258,7 +350,7 @@ function countActiveRanges(
 function resolveAppKeyByStats(
   appName: string,
   exeName: string,
-  sessions: ReturnType<typeof compileSessions>,
+  sessions: CompiledDataSession[],
 ) {
   return sessions.find((session) => (
     session.appKey === exeName
@@ -267,8 +359,8 @@ function resolveAppKeyByStats(
   ))?.appKey ?? exeName;
 }
 
-function groupSessionsByAppKey(sessions: ReturnType<typeof compileSessions>) {
-  const sessionsByAppKey = new Map<string, ReturnType<typeof compileSessions>>();
+function groupSessionsByAppKey(sessions: CompiledDataSession[]) {
+  const sessionsByAppKey = new Map<string, CompiledDataSession[]>();
 
   for (const session of sessions) {
     const appSessions = sessionsByAppKey.get(session.appKey);
@@ -293,14 +385,17 @@ export function getDataTrendRangeLabel(range: DataTrendRange) {
 }
 
 export function buildDataTrendViewModel(
-  sessions: HistorySession[],
-  range: DataTrendRange,
+  sessions: AggregateSessionRecord[],
+  selection: DataTrendRange | ResolvedDataTrendRange,
   nowMs: number,
 ): DataTrendViewModel {
-  const dayRanges = getRollingDayRanges(range, nowMs);
-  const shouldGroupByMonth = range === 365;
-  const summaryRanges = shouldGroupByMonth ? getRecentMonthRanges(nowMs, 12) : dayRanges;
-  const summaries = buildDailySummaries(sessions, summaryRanges, 0);
+  const range = typeof selection === "number"
+    ? resolveDataTrendRange({ kind: "rolling", days: selection }, nowMs)
+    : selection;
+  const dayRanges = buildDataDayRanges(range);
+  const shouldGroupByMonth = range.granularity === "month";
+  const summaryRanges = shouldGroupByMonth ? buildDataMonthRanges(range) : dayRanges;
+  const summaries = buildDataSummaries(sessions, summaryRanges);
   const totalDuration = summaries.reduce((sum, item) => sum + item.totalDuration, 0);
   const averageDivisor = Math.max(1, shouldGroupByMonth ? summaries.length : dayRanges.length);
   const chartData = summaries.map((item) => ({
@@ -308,12 +403,12 @@ export function buildDataTrendViewModel(
     date: shouldGroupByMonth ? null : item.date,
     hours: Math.max(0, item.totalDuration) / 3600000,
   }));
-  const rangeLabel = getDataTrendRangeLabel(range);
+  const rangeLabel = range.label;
 
   return {
     title: rangeLabel,
     rangeLabel,
-    rangeDays: range,
+    rangeDays: range.dayCount,
     granularity: shouldGroupByMonth ? "month" : "day",
     totalDuration,
     averageDuration: Math.round(totalDuration / averageDivisor),
@@ -321,7 +416,7 @@ export function buildDataTrendViewModel(
     chartData,
     chartAxis: buildChartAxis(chartData),
     metricLabels: {
-      total: UI_TEXT.data.trendTotal(range),
+      total: UI_TEXT.data.rangeTotal(rangeLabel),
       average: shouldGroupByMonth ? UI_TEXT.data.yearlyAverage : UI_TEXT.data.dailyAverage,
       averageHint: shouldGroupByMonth ? UI_TEXT.data.yearlyAverageHint : UI_TEXT.data.rangeAverageHint(rangeLabel),
     },
@@ -329,23 +424,26 @@ export function buildDataTrendViewModel(
 }
 
 export function buildDataAppTrendViewModel(
-  sessions: HistorySession[],
-  range: DataTrendRange,
+  sessions: AggregateSessionRecord[],
+  selection: DataTrendRange | ResolvedDataTrendRange,
   nowMs: number,
   selectedAppKey: string | null,
 ): DataAppTrendViewModel {
-  const dayRanges = getRollingDayRanges(range, nowMs);
-  const shouldGroupByMonth = range === 365;
-  const averageDivisor = Math.max(1, shouldGroupByMonth ? getRecentMonthRanges(nowMs, 12).length : dayRanges.length);
+  const range = typeof selection === "number"
+    ? resolveDataTrendRange({ kind: "rolling", days: selection }, nowMs)
+    : selection;
+  const dayRanges = buildDataDayRanges(range);
+  const shouldGroupByMonth = range.granularity === "month";
+  const chartRanges = shouldGroupByMonth ? buildDataMonthRanges(range) : dayRanges;
+  const averageDivisor = Math.max(1, chartRanges.length);
   const { startMs, endMs } = getRangeBounds(dayRanges);
-  const compiledSessions = compileSessions(sessions, {
+  const compiledSessions = compileDataSessions(sessions, {
     startMs,
     endMs,
-    minSessionSecs: 0,
   });
   const sessionsByAppKey = groupSessionsByAppKey(compiledSessions);
   const activeDayCountsByAppKey = new Map<string, number>();
-  const appStats = buildNormalizedAppStats(compiledSessions);
+  const appStats = buildDataAppStats(compiledSessions);
   const totalAppDuration = appStats.reduce((sum, item) => sum + item.totalDuration, 0);
   const mergedAppStats = new Map<string, {
     appKey: string;
@@ -420,7 +518,6 @@ export function buildDataAppTrendViewModel(
     ? selectedMergedApp.sourceAppKeys.flatMap((appKey) => sessionsByAppKey.get(appKey) ?? [])
     : [];
   const selectedDayRows = selectedApp ? buildAppDayRows(selectedSessions, dayRanges) : [];
-  const chartRanges = shouldGroupByMonth ? getRecentMonthRanges(nowMs, 12) : dayRanges;
   const chartData = chartRanges.map((rangeItem) => {
     const date = toDateKey(new Date(rangeItem.startMs));
     const duration = selectedSessions.reduce(
@@ -443,7 +540,7 @@ export function buildDataAppTrendViewModel(
 
   return {
     range,
-    rangeLabel: getDataTrendRangeLabel(range),
+    rangeLabel: range.label,
     granularity: shouldGroupByMonth ? "month" : "day",
     appOptions,
     selectedApp,
@@ -457,7 +554,7 @@ export function buildDataAppTrendViewModel(
 async function resolveDefaultDataHeatmapDependencies(): Promise<DataHeatmapDependencies> {
   return {
     getEarliestSessionStartTime,
-    getSessionsInRange,
+    getSessionsInRange: getSessionSummariesInRange,
   };
 }
 
@@ -521,7 +618,7 @@ export function buildYearOptions(earliestStartTime: number | null, currentYear: 
 }
 
 export function buildActivityHeatmap(
-  sessions: HistorySession[],
+  sessions: AggregateSessionRecord[],
   selection: HeatmapSelection,
   nowMs: number,
 ): HeatmapWeek[] {

@@ -977,7 +977,10 @@
   border-color: color-mix(in srgb, var(--qp-accent-default) 58%, var(--qp-border-subtle));
 }
 
-.data-heatmap-cell-future,
+.data-heatmap-cell-future {
+  opacity: 0.36;
+}
+
 .data-heatmap-cell-outside {
   border-color: transparent;
   background: transparent;

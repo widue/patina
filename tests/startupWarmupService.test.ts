@@ -75,6 +75,7 @@ function createWarmupDeps(events: string[], options: {
 
   return {
     getDashboardSnapshotCache: () => dashboardCached ? { ready: true } : null,
+    getCachedDataTrendSnapshot: () => null,
     getHistorySnapshotCache: () => historyCached ? { ready: true } : null,
     loadDashboardRuntimeSnapshot: async () => {
       events.push("dashboard-snapshot");
@@ -85,6 +86,9 @@ function createWarmupDeps(events: string[], options: {
       events.push("history-snapshot");
       maybeFail("history-today-snapshot");
       historyCached = true;
+    },
+    loadDataTrendRuntimeSnapshot: async () => {
+      events.push("data-trend-refresh");
     },
     preloadLazyViewChunk: async (view: PreloadableView) => {
       events.push(`chunk:${view}`);
@@ -97,6 +101,10 @@ function createWarmupDeps(events: string[], options: {
     prewarmRecentDataHeatmapCache: async () => {
       events.push("data-heatmap");
       maybeFail("data-recent-heatmap");
+    },
+    prewarmDefaultDataTrendSnapshot: async () => {
+      events.push("data-default-snapshot");
+      maybeFail("data-default-snapshot");
     },
     prewarmSettingsBootstrapCache: async () => {
       events.push("settings-bootstrap");
@@ -141,11 +149,12 @@ await runTest("startup warmup runs default tasks in a stable order", async () =>
     "mapping-bootstrap",
     "dashboard-snapshot",
     "history-snapshot",
+    "data-default-snapshot",
     "data-heatmap",
     "settings-bootstrap",
   ]);
   assert.deepEqual(warnings, []);
-  assert.equal(controller.snapshot().tasks["data-default-snapshot"].status, "skipped");
+  assert.equal(controller.snapshot().tasks["data-default-snapshot"].status, "fulfilled");
 });
 
 await runTest("startup warmup keeps later tasks running after a failure", async () => {
@@ -255,6 +264,7 @@ await runTest("startup warmup refresh debounces repeated tracking changes", asyn
   assert.deepEqual(events, [
     "dashboard-snapshot",
     "history-snapshot",
+    "data-trend-refresh",
     "data-heatmap",
   ]);
   assert.deepEqual(warnings, []);

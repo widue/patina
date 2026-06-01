@@ -18,15 +18,15 @@ App note en: TBD.
 
 ### Added
 
-- 暂无。
+- 数据页活动趋势与应用趋势的中间范围标签现在可以打开日历弹层，选择自然周、自然月、自然年或任意自定义历史区间（[#6](https://github.com/Ceceliaee/time-tracking/issues/6)）。
 
 ### Changed
 
-- 暂无。
+- 数据页保留近 7 天、近 30 天和近一年的快捷切换；应用特殊范围后，任一外侧箭头可快速恢复近 7 天（[#6](https://github.com/Ceceliaee/time-tracking/issues/6)）。
 
 ### Fixed
 
-- 暂无。
+- 修复少数窗口切换场景下，活动计时可能无法及时更新的问题。
 
 ### Removed
 
@@ -34,7 +34,8 @@ App note en: TBD.
 
 ### Internal
 
-- 暂无。
+- 数据页趋势与热力图改用最小聚合 DTO，并在相同日期区间之间复用趋势快照；长区间查询不再额外读取 `session_title_samples` 标题详情或 History 时间线字段。
+- tracking runtime 启动新会话时会在同一 SQLite 事务内封口旧 active session 及其标题样本，避免触发单一 active session 唯一索引冲突。
 
 ## [1.2.0] - 2026-05-31
 

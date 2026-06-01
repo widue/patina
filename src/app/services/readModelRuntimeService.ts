@@ -3,6 +3,11 @@ import { loadHistorySnapshot, type HistorySnapshot } from "../../features/histor
 import { ensureProcessMapperRuntimeReady } from "./processMapperRuntimeGate.ts";
 import { setDashboardSnapshotCache } from "../../features/dashboard/services/dashboardSnapshotCache.ts";
 import { setHistorySnapshotCache } from "../../features/history/services/historySnapshotCache.ts";
+import {
+  loadDataTrendSnapshot,
+  type DataTrendSnapshot,
+} from "../../features/data/services/dataTrendSnapshot.ts";
+import type { DataTrendRangeSelection } from "../../features/data/services/dataTrendRange.ts";
 
 type DashboardRuntimeSnapshotDeps = {
   ensureProcessMapperRuntimeReady: () => Promise<void>;
@@ -20,6 +25,14 @@ type HistoryRuntimeSnapshotDeps = {
   ) => void;
 };
 
+type DataTrendRuntimeSnapshotDeps = {
+  ensureProcessMapperRuntimeReady: () => Promise<void>;
+  loadDataTrendSnapshot: (
+    selection: DataTrendRangeSelection,
+    nowMs?: number,
+  ) => Promise<DataTrendSnapshot>;
+};
+
 const dashboardRuntimeSnapshotDeps: DashboardRuntimeSnapshotDeps = {
   ensureProcessMapperRuntimeReady,
   loadDashboardSnapshot,
@@ -30,6 +43,11 @@ const historyRuntimeSnapshotDeps: HistoryRuntimeSnapshotDeps = {
   ensureProcessMapperRuntimeReady,
   loadHistorySnapshot,
   setHistorySnapshotCache,
+};
+
+const dataTrendRuntimeSnapshotDeps: DataTrendRuntimeSnapshotDeps = {
+  ensureProcessMapperRuntimeReady,
+  loadDataTrendSnapshot,
 };
 
 export async function loadDashboardRuntimeSnapshotWithDeps(
@@ -62,4 +80,20 @@ export async function loadHistoryRuntimeSnapshot(
   rollingDayCount: number = 7,
 ): Promise<HistorySnapshot> {
   return loadHistoryRuntimeSnapshotWithDeps(date, rollingDayCount, historyRuntimeSnapshotDeps);
+}
+
+export async function loadDataTrendRuntimeSnapshot(
+  selection: DataTrendRangeSelection,
+  nowMs: number = Date.now(),
+): Promise<DataTrendSnapshot> {
+  return loadDataTrendRuntimeSnapshotWithDeps(selection, nowMs, dataTrendRuntimeSnapshotDeps);
+}
+
+export async function loadDataTrendRuntimeSnapshotWithDeps(
+  selection: DataTrendRangeSelection,
+  nowMs: number,
+  deps: DataTrendRuntimeSnapshotDeps,
+): Promise<DataTrendSnapshot> {
+  await deps.ensureProcessMapperRuntimeReady();
+  return deps.loadDataTrendSnapshot(selection, nowMs);
 }

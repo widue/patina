@@ -23,6 +23,7 @@ import {
 } from "./services/readModelRefreshState.ts";
 import {
   loadDashboardRuntimeSnapshot,
+  loadDataTrendRuntimeSnapshot,
   loadHistoryRuntimeSnapshot,
 } from "./services/readModelRuntimeService";
 import {
@@ -30,6 +31,7 @@ import {
   startStartupWarmup,
 } from "./services/startupWarmupService";
 import { clearDataReadModelCache } from "../features/data/services/dataReadModel.ts";
+import { clearDataTrendSnapshotCache } from "../features/data/services/dataTrendSnapshot.ts";
 import { clearHistorySnapshotCache } from "../features/history/services/historySnapshotCache.ts";
 import { AppClassification } from "../shared/classification/appClassification.ts";
 import { useQuietDialogs } from "../shared/hooks/useQuietDialogs";
@@ -304,7 +306,7 @@ function AppShellContent() {
                   icons={icons}
                   refreshKey={refreshSignal}
                   trackerHealth={trackerHealth}
-                  loadHistorySnapshot={loadHistoryRuntimeSnapshot}
+                  loadDataTrendSnapshot={loadDataTrendRuntimeSnapshot}
                   mappingVersion={mappingVersion}
                   onOpenHistoryDate={openHistoryForDate}
                 />
@@ -350,6 +352,7 @@ function AppShellContent() {
                   onSessionsDeleted={() => {
                     clearHistorySnapshotCache();
                     clearDataReadModelCache();
+                    clearDataTrendSnapshotCache();
                     setReadModelRefreshState(applySessionDeletionReadModelRefresh);
                     pushToast(uiText.app.historyDeleted, "success");
                   }}

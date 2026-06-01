@@ -679,6 +679,56 @@ mod tests {
     }
 
     #[test]
+    fn start_session_seals_stale_active_session_before_inserting_next() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+            let previous = make_window(&[("exe_name", "Code.exe"), ("title", "Editor")]);
+            let next = make_window(&[("exe_name", "QQ.exe"), ("title", "Chat")]);
+
+            assert!(active_session::start_session(&pool, &previous, 1_000)
+                .await
+                .unwrap());
+            assert!(active_session::start_session(&pool, &next, 5_000)
+                .await
+                .unwrap());
+
+            let sessions: Vec<(String, i64, Option<i64>, Option<i64>)> = sqlx::query_as(
+                "SELECT exe_name, start_time, end_time, duration
+                 FROM sessions
+                 ORDER BY id ASC",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+            assert_eq!(
+                sessions,
+                vec![
+                    ("Code.exe".to_string(), 1_000, Some(5_000), Some(4_000)),
+                    ("QQ.exe".to_string(), 5_000, None, None),
+                ]
+            );
+
+            let title_samples: Vec<(String, i64, Option<i64>)> = sqlx::query_as(
+                "SELECT title, start_time, end_time
+                 FROM session_title_samples
+                 ORDER BY id ASC",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+            assert_eq!(
+                title_samples,
+                vec![
+                    ("Editor".to_string(), 1_000, Some(5_000)),
+                    ("Chat".to_string(), 5_000, None),
+                ]
+            );
+        });
+    }
+
+    #[test]
     fn missing_active_session_is_recovered_without_window_change() {
         tauri::async_runtime::block_on(async {
             let pool = setup_test_db().await;

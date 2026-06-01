@@ -15,8 +15,14 @@ import {
 } from "../../features/settings/services/settingsBootstrapService.ts";
 import {
   loadDashboardRuntimeSnapshot,
+  loadDataTrendRuntimeSnapshot,
   loadHistoryRuntimeSnapshot,
 } from "./readModelRuntimeService.ts";
+import {
+  getCachedDataTrendSnapshot,
+  prewarmDefaultDataTrendSnapshot,
+} from "../../features/data/services/dataTrendSnapshot.ts";
+import { resolveDataTrendRange } from "../../features/data/services/dataTrendRange.ts";
 import {
   preloadLazyViewChunk,
   type PreloadableView,
@@ -74,12 +80,15 @@ type StartupWarmupScheduler = (
 
 interface StartupWarmupDeps {
   getDashboardSnapshotCache: (date?: Date) => unknown | null;
+  getCachedDataTrendSnapshot: typeof getCachedDataTrendSnapshot;
   getHistorySnapshotCache: (date?: Date, rollingDayCount?: number) => unknown | null;
   loadDashboardRuntimeSnapshot: (date?: Date) => Promise<unknown>;
+  loadDataTrendRuntimeSnapshot: typeof loadDataTrendRuntimeSnapshot;
   loadHistoryRuntimeSnapshot: (date: Date, rollingDayCount?: number) => Promise<unknown>;
   preloadLazyViewChunk: (view: PreloadableView) => Promise<unknown>;
   prewarmClassificationBootstrapCache: () => Promise<unknown>;
   prewarmRecentDataHeatmapCache: () => Promise<unknown>;
+  prewarmDefaultDataTrendSnapshot: () => Promise<unknown>;
   prewarmSettingsBootstrapCache: () => Promise<unknown>;
   scheduler: StartupWarmupScheduler;
   nowMs: () => number;
@@ -111,12 +120,15 @@ const DEFAULT_REFRESH_DEBOUNCE_MS = 45_000;
 
 const defaultStartupWarmupDeps: StartupWarmupDeps = {
   getDashboardSnapshotCache,
+  getCachedDataTrendSnapshot,
   getHistorySnapshotCache,
   loadDashboardRuntimeSnapshot,
+  loadDataTrendRuntimeSnapshot,
   loadHistoryRuntimeSnapshot,
   preloadLazyViewChunk,
   prewarmClassificationBootstrapCache,
   prewarmRecentDataHeatmapCache,
+  prewarmDefaultDataTrendSnapshot,
   prewarmSettingsBootstrapCache,
   scheduler: (callback, delayMs) => {
     const handle = globalThis.setTimeout(callback, delayMs);
@@ -305,12 +317,11 @@ export function startStartupWarmup(
     });
 
     await runTask("data-default-snapshot", async () => {
-      const date = new Date();
-      if (resolvedDeps.getHistorySnapshotCache(date, 7)) {
+      const range = resolveDataTrendRange({ kind: "rolling", days: 7 });
+      if (resolvedDeps.getCachedDataTrendSnapshot(range)) {
         return "skipped";
       }
-
-      await resolvedDeps.loadHistoryRuntimeSnapshot(date, 7);
+      await resolvedDeps.prewarmDefaultDataTrendSnapshot();
     });
 
     await runTask("data-recent-heatmap", async () => {
@@ -353,6 +364,7 @@ export function scheduleStartupWarmupRefresh(
   deps: Pick<
     StartupWarmupDeps,
     | "loadDashboardRuntimeSnapshot"
+    | "loadDataTrendRuntimeSnapshot"
     | "loadHistoryRuntimeSnapshot"
     | "prewarmRecentDataHeatmapCache"
     | "scheduler"
@@ -371,6 +383,7 @@ export function scheduleStartupWarmupRefresh(
     void Promise.allSettled([
       deps.loadDashboardRuntimeSnapshot(new Date()),
       deps.loadHistoryRuntimeSnapshot(new Date(), 7),
+      deps.loadDataTrendRuntimeSnapshot({ kind: "rolling", days: 7 }),
       deps.prewarmRecentDataHeatmapCache(),
     ]).then((results) => {
       for (const result of results) {

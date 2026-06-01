@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { ProcessMapper } from "../src/shared/classification/processMapper.ts";
+import { mapRawAggregateSessionCandidates } from "../src/platform/persistence/sessionReadRepository.ts";
 import {
   buildActivityHeatmap,
   buildDataTrendViewModel,
@@ -9,8 +11,8 @@ import {
   loadDataHeatmapSnapshot,
   prewarmRecentDataHeatmapCache,
   resetDataReadModelCacheForTests,
+  type AggregateSessionRecord,
   type DataHeatmapDependencies,
-  type HistorySession,
 } from "../src/features/data/services/dataReadModel.ts";
 
 let passed = 0;
@@ -21,16 +23,12 @@ async function runTest(name: string, fn: () => Promise<void> | void) {
   console.log(`PASS ${name}`);
 }
 
-function makeSession(overrides: Partial<HistorySession>): HistorySession {
+function makeSession(overrides: Partial<AggregateSessionRecord>): AggregateSessionRecord {
   return {
-    id: 1,
     appName: "Cursor",
     exeName: "cursor.exe",
-    windowTitle: "Code",
     startTime: 0,
     endTime: 0,
-    duration: 0,
-    continuityGroupStartTime: null,
     ...overrides,
   };
 }
@@ -117,14 +115,12 @@ await runTest("app trend groups sessions by application and day", () => {
       endTime: new Date(2026, 4, 6, 12, 0, 0).getTime(),
     }),
     makeSession({
-      id: 2,
       appName: "Blender",
       exeName: "blender.exe",
       startTime: new Date(2026, 4, 7, 9, 0, 0).getTime(),
       endTime: new Date(2026, 4, 7, 10, 30, 0).getTime(),
     }),
     makeSession({
-      id: 3,
       appName: "Cursor",
       exeName: "cursor.exe",
       startTime: new Date(2026, 4, 7, 14, 0, 0).getTime(),
@@ -152,7 +148,6 @@ await runTest("app trend preserves explicit selected application", () => {
       endTime: new Date(2026, 4, 8, 11, 0, 0).getTime(),
     }),
     makeSession({
-      id: 2,
       appName: "Cursor",
       exeName: "cursor.exe",
       startTime: new Date(2026, 4, 8, 8, 0, 0).getTime(),
@@ -175,7 +170,6 @@ await runTest("app trend merges duplicate display options", () => {
       endTime: new Date(2026, 4, 8, 10, 0, 22).getTime(),
     }),
     makeSession({
-      id: 2,
       appName: "Antigravity",
       exeName: "Antigravity.exe",
       startTime: new Date(2026, 4, 8, 11, 0, 0).getTime(),
@@ -202,6 +196,82 @@ await runTest("yearly app trend averages by month", () => {
 
   assert.equal(rows.granularity, "month");
   assert.equal(rows.selectedApp?.averageDuration, 60 * 60 * 1000);
+});
+
+await runTest("aggregate repository mapping keeps a minimal effective time slice", () => {
+  const rows = mapRawAggregateSessionCandidates([{
+    app_name: "Cursor",
+    exe_name: "cursor.exe",
+    window_title: "README.md",
+    start_time: 10_000,
+    effective_end_time: 8_000,
+  }]);
+
+  assert.deepEqual(rows, [{
+    appName: "Cursor",
+    exeName: "cursor.exe",
+    startTime: 10_000,
+    endTime: 10_000,
+  }]);
+  assert.deepEqual(Object.keys(rows[0]).sort(), ["appName", "endTime", "exeName", "startTime"]);
+});
+
+await runTest("aggregate repository mapping filters legacy lifecycle noise using title metadata", () => {
+  const rows = mapRawAggregateSessionCandidates([
+    {
+      app_name: "Alma",
+      exe_name: "alma-0.0.750-win-x64.exe",
+      window_title: "Alma 安装",
+      start_time: 10_000,
+      effective_end_time: 20_000,
+    },
+    {
+      app_name: "Alma",
+      exe_name: "alma.exe",
+      window_title: "Alma",
+      start_time: 20_000,
+      effective_end_time: 30_000,
+    },
+  ]);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].exeName, "alma.exe");
+});
+
+await runTest("activity trend clips sessions at range boundaries", () => {
+  const nowMs = new Date(2026, 4, 8, 12, 0, 0).getTime();
+  const rows = buildDataTrendViewModel([
+    makeSession({
+      startTime: new Date(2026, 4, 7, 23, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 8, 1, 0, 0).getTime(),
+    }),
+  ], 7, nowMs);
+
+  assert.equal(rows.chartData.at(-2)?.hours, 1);
+  assert.equal(rows.chartData.at(-1)?.hours, 1);
+});
+
+await runTest("app trend respects user exclusions after aggregate DTO tightening", () => {
+  ProcessMapper.setUserOverride("cursor.exe", { track: false });
+  try {
+    const nowMs = new Date(2026, 4, 8, 12, 0, 0).getTime();
+    const rows = buildDataAppTrendViewModel([
+      makeSession({
+        startTime: new Date(2026, 4, 8, 9, 0, 0).getTime(),
+        endTime: new Date(2026, 4, 8, 10, 0, 0).getTime(),
+      }),
+      makeSession({
+        appName: "Blender",
+        exeName: "blender.exe",
+        startTime: new Date(2026, 4, 8, 10, 0, 0).getTime(),
+        endTime: new Date(2026, 4, 8, 11, 0, 0).getTime(),
+      }),
+    ], 7, nowMs, null);
+
+    assert.deepEqual(rows.appOptions.map((app) => app.exeName), ["blender.exe"]);
+  } finally {
+    ProcessMapper.clearUserOverrides();
+  }
 });
 
 await runTest("recent heatmap range is aligned to whole local weeks", () => {

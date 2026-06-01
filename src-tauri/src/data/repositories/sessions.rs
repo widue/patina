@@ -172,9 +172,7 @@ pub async fn load_active_session(
 ) -> Result<Option<ActiveSessionSnapshot>, sqlx::Error> {
     let row = sqlx::query(
         "SELECT start_time,
-                COALESCE(continuity_group_start_time, start_time) AS continuity_group_start_time,
-                exe_name,
-                COALESCE(window_title, '') AS window_title
+                COALESCE(continuity_group_start_time, start_time) AS continuity_group_start_time
          FROM sessions
          WHERE end_time IS NULL
          ORDER BY start_time DESC, id DESC
@@ -186,8 +184,6 @@ pub async fn load_active_session(
     Ok(row.map(|row| ActiveSessionSnapshot {
         start_time: row.get("start_time"),
         continuity_group_start_time: row.get("continuity_group_start_time"),
-        exe_name: row.get("exe_name"),
-        window_title: row.get("window_title"),
     }))
 }
 
@@ -196,13 +192,22 @@ pub async fn end_active_sessions(
     raw_end_time: i64,
 ) -> Result<bool, sqlx::Error> {
     let mut tx = pool.begin().await?;
+    let did_end = end_active_sessions_tx(&mut tx, raw_end_time).await?;
+    tx.commit().await?;
+    Ok(did_end)
+}
+
+async fn end_active_sessions_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    raw_end_time: i64,
+) -> Result<bool, sqlx::Error> {
     let active_sessions = sqlx::query(
         "SELECT id, start_time
          FROM sessions
          WHERE end_time IS NULL
          ORDER BY start_time DESC, id DESC",
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await?;
 
     if active_sessions.is_empty() {
@@ -223,13 +228,12 @@ pub async fn end_active_sessions(
         .bind(end_time)
         .bind(duration)
         .bind(id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
-        session_title_samples::finish_active_title_sample_tx(&mut tx, id, end_time).await?;
+        session_title_samples::finish_active_title_sample_tx(tx, id, end_time).await?;
     }
 
-    tx.commit().await?;
     Ok(true)
 }
 
@@ -294,15 +298,26 @@ pub async fn start_session(
     start_time: i64,
     continuity_group_start_time: i64,
 ) -> Result<bool, sqlx::Error> {
-    if let Some(existing_session) = load_active_session(pool).await? {
-        if existing_session.exe_name.eq_ignore_ascii_case(exe_name)
-            && existing_session.window_title == window_title
-        {
+    let mut tx = pool.begin().await?;
+    let active_session: Option<(String, String)> = sqlx::query_as(
+        "SELECT exe_name, COALESCE(window_title, '')
+         FROM sessions
+         WHERE end_time IS NULL
+         ORDER BY start_time DESC, id DESC
+         LIMIT 1",
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if let Some((active_exe_name, active_window_title)) = active_session {
+        if active_exe_name.eq_ignore_ascii_case(exe_name) && active_window_title == window_title {
+            tx.rollback().await?;
             return Ok(false);
         }
+
+        end_active_sessions_tx(&mut tx, start_time).await?;
     }
 
-    let mut tx = pool.begin().await?;
     let result = sqlx::query(
         "INSERT INTO sessions (
             app_name,

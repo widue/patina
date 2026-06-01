@@ -1,4 +1,4 @@
-import { type CSSProperties, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, CalendarDays, ChevronLeft, ChevronRight, Clock3, Search } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { UI_TEXT } from "../../../shared/copy/uiText.ts";
@@ -7,15 +7,13 @@ import {
   buildDataTrendViewModel,
   buildActivityHeatmap,
   buildYearOptions,
-  getDataTrendRangeLabel,
   getCachedDataHeatmapSessions,
   getCachedEarliestSessionStartTime,
   type DataAppOption,
   type DataAppTrendViewModel,
-  type DataTrendRange,
+  type AggregateSessionRecord,
   type HeatmapSelection,
   loadDataHeatmapSnapshot,
-  type HistorySession,
 } from "../services/dataReadModel.ts";
 import QuietChartTooltip from "../../../shared/components/QuietChartTooltip";
 import QuietPageHeader from "../../../shared/components/QuietPageHeader";
@@ -25,25 +23,20 @@ import {
   formatChartHours,
   formatDuration,
 } from "../../history/services/historyFormatting";
-import {
-  type HistorySnapshot,
-} from "../../history/services/historyReadModel";
-import {
-  getHistorySnapshotCache,
-  setHistorySnapshotCache,
-} from "../../history/services/historySnapshotCache";
 import { resolveTrendDateFromChartEvent } from "../services/dataChartInteraction.ts";
+import type { DataTrendSnapshot } from "../services/dataTrendSnapshot.ts";
+import type { DataTrendRangeSelection } from "../services/dataTrendRange.ts";
+import { useDataTrendSnapshot } from "../hooks/useDataTrendSnapshot.ts";
+import DataTrendRangeControl from "./DataTrendRangeControl.tsx";
 
 interface Props {
   icons: Record<string, string>;
   refreshKey?: number;
   trackerHealth: TrackerHealthSnapshot;
-  loadHistorySnapshot: (date: Date, rollingDayCount?: number) => Promise<HistorySnapshot>;
+  loadDataTrendSnapshot: (selection: DataTrendRangeSelection, nowMs?: number) => Promise<DataTrendSnapshot>;
   mappingVersion?: number;
   onOpenHistoryDate?: (dateKey: string) => void;
 }
-
-const TREND_RANGE_OPTIONS: DataTrendRange[] = [7, 30, 365];
 
 function getAppInitial(appName: string) {
   const trimmed = appName.trim();
@@ -75,173 +68,51 @@ function dedupeDataAppOptions(options: DataAppOption[]) {
   return Array.from(merged.values()).sort((left, right) => right.totalDuration - left.totalDuration);
 }
 
+const DATA_TREND_X_AXIS_MIN_TICK_GAP = 24;
+
 export default function Data({
   icons,
   refreshKey = 0,
-  loadHistorySnapshot,
+  loadDataTrendSnapshot,
   mappingVersion = 0,
   onOpenHistoryDate,
 }: Props) {
   const today = new Date();
   const currentYear = today.getFullYear();
-  const [selectedTrendRange, setSelectedTrendRange] = useState<DataTrendRange>(7);
-  const [selectedAppTrendRange, setSelectedAppTrendRange] = useState<DataTrendRange>(7);
+  const [selectedTrendRange, setSelectedTrendRange] = useState<DataTrendRangeSelection>({ kind: "rolling", days: 7 });
+  const [selectedAppTrendRange, setSelectedAppTrendRange] = useState<DataTrendRangeSelection>({ kind: "rolling", days: 7 });
   const [selectedAppKey, setSelectedAppKey] = useState<string | null>(null);
   const [appSearchQuery, setAppSearchQuery] = useState("");
-  const cachedSnapshot = getHistorySnapshotCache(today, selectedTrendRange);
-  const cachedAppSnapshot = getHistorySnapshotCache(today, selectedAppTrendRange);
   const initialCachedHeatmapSessions = getCachedDataHeatmapSessions("recent", Date.now());
-  const [rawSnapshot, setRawSnapshot] = useState<HistorySnapshot | null>(cachedSnapshot);
-  const [rawSnapshotRange, setRawSnapshotRange] = useState<DataTrendRange | null>(
-    cachedSnapshot ? selectedTrendRange : null,
-  );
-  const [rawAppSnapshot, setRawAppSnapshot] = useState<HistorySnapshot | null>(cachedAppSnapshot);
-  const [rawAppSnapshotRange, setRawAppSnapshotRange] = useState<DataTrendRange | null>(
-    cachedAppSnapshot ? selectedAppTrendRange : null,
-  );
+  const overviewTrend = useDataTrendSnapshot({
+    selection: selectedTrendRange,
+    refreshKey,
+    loadSnapshot: loadDataTrendSnapshot,
+  });
+  const appTrend = useDataTrendSnapshot({
+    selection: selectedAppTrendRange,
+    refreshKey,
+    loadSnapshot: loadDataTrendSnapshot,
+  });
   const [selectedHeatmapView, setSelectedHeatmapView] = useState<HeatmapSelection>("recent");
   const [earliestStartTime, setEarliestStartTime] = useState<number | null>(
     getCachedEarliestSessionStartTime() ?? null,
   );
-  const [yearSessions, setYearSessions] = useState<HistorySession[]>(
+  const [yearSessions, setYearSessions] = useState<AggregateSessionRecord[]>(
     () => initialCachedHeatmapSessions ?? [],
   );
   const [yearSessionsView, setYearSessionsView] = useState<HeatmapSelection | null>(
     initialCachedHeatmapSessions ? "recent" : null,
   );
   const [heatmapLoading, setHeatmapLoading] = useState(!initialCachedHeatmapSessions);
-  const [nowMs, setNowMs] = useState(() => cachedSnapshot?.fetchedAtMs ?? Date.now());
-  const [loading, setLoading] = useState(!cachedSnapshot);
-  const [appLoading, setAppLoading] = useState(!cachedAppSnapshot);
-  const [hasFetchedOverviewOnce, setHasFetchedOverviewOnce] = useState(Boolean(cachedSnapshot));
-  const [hasFetchedAppOnce, setHasFetchedAppOnce] = useState(Boolean(cachedAppSnapshot));
-  const hasLoadedRef = useRef(new Set<DataTrendRange>(cachedSnapshot ? [selectedTrendRange] : []));
-  const hasLoadedAppRef = useRef(new Set<DataTrendRange>(cachedAppSnapshot ? [selectedAppTrendRange] : []));
-  const initialRefreshKeyRef = useRef(refreshKey);
+  const nowMs = overviewTrend.nowMs;
   const lastAppTrendViewModelRef = useRef<{
     refreshKey: number;
     viewModel: DataAppTrendViewModel;
   } | null>(null);
-  const hasFetchedOverviewOnceRef = useRef(Boolean(cachedSnapshot));
-  const hasFetchedAppOnceRef = useRef(Boolean(cachedAppSnapshot));
   const hasFetchedHeatmapOnceRef = useRef(Boolean(initialCachedHeatmapSessions));
-  const snapshotLoadPromisesRef = useRef(new Map<string, Promise<HistorySnapshot>>());
   const activeTrendDateRef = useRef<string | null>(null);
   const activeAppTrendDateRef = useRef<string | null>(null);
-
-  const loadDataRangeSnapshot = useCallback((range: DataTrendRange) => {
-    const key = `${refreshKey}:${range}`;
-    const existingPromise = snapshotLoadPromisesRef.current.get(key);
-
-    if (existingPromise) {
-      return existingPromise;
-    }
-
-    const promise = loadHistorySnapshot(new Date(), range).finally(() => {
-      if (snapshotLoadPromisesRef.current.get(key) === promise) {
-        snapshotLoadPromisesRef.current.delete(key);
-      }
-    });
-
-    snapshotLoadPromisesRef.current.set(key, promise);
-    return promise;
-  }, [loadHistorySnapshot, refreshKey]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      const cached = getHistorySnapshotCache(new Date(), selectedTrendRange);
-
-      if (cached) {
-        setRawSnapshot(cached);
-        setRawSnapshotRange(selectedTrendRange);
-        setNowMs(cached.fetchedAtMs);
-        hasFetchedOverviewOnceRef.current = true;
-        setHasFetchedOverviewOnce(true);
-        setLoading(false);
-      }
-
-      if (cached && hasLoadedRef.current.has(selectedTrendRange) && refreshKey === initialRefreshKeyRef.current) {
-        return;
-      }
-
-      if (!hasLoadedRef.current.has(selectedTrendRange) && !cached) {
-        setLoading(!hasFetchedOverviewOnceRef.current);
-      }
-
-      if (!cached) {
-        setLoading(true);
-      }
-
-      try {
-        const snapshot = await loadDataRangeSnapshot(selectedTrendRange);
-        if (cancelled) return;
-        setHistorySnapshotCache(snapshot, new Date(), selectedTrendRange);
-        setRawSnapshot(snapshot);
-        setRawSnapshotRange(selectedTrendRange);
-        setNowMs(snapshot.fetchedAtMs);
-        hasFetchedOverviewOnceRef.current = true;
-        setHasFetchedOverviewOnce(true);
-        hasLoadedRef.current.add(selectedTrendRange);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [loadDataRangeSnapshot, refreshKey, selectedTrendRange]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      const cached = getHistorySnapshotCache(new Date(), selectedAppTrendRange);
-
-      if (cached) {
-        setRawAppSnapshot(cached);
-        setRawAppSnapshotRange(selectedAppTrendRange);
-        setNowMs(cached.fetchedAtMs);
-        hasFetchedAppOnceRef.current = true;
-        setHasFetchedAppOnce(true);
-        setAppLoading(false);
-      }
-
-      if (cached && hasLoadedAppRef.current.has(selectedAppTrendRange) && refreshKey === initialRefreshKeyRef.current) {
-        return;
-      }
-
-      if (!hasLoadedAppRef.current.has(selectedAppTrendRange) && !cached) {
-        setAppLoading(!hasFetchedAppOnceRef.current);
-      }
-
-      if (!cached) {
-        setAppLoading(true);
-      }
-
-      try {
-        const snapshot = await loadDataRangeSnapshot(selectedAppTrendRange);
-        if (cancelled) return;
-        setHistorySnapshotCache(snapshot, new Date(), selectedAppTrendRange);
-        setRawAppSnapshot(snapshot);
-        setRawAppSnapshotRange(selectedAppTrendRange);
-        setNowMs(snapshot.fetchedAtMs);
-        hasFetchedAppOnceRef.current = true;
-        setHasFetchedAppOnce(true);
-        hasLoadedAppRef.current.add(selectedAppTrendRange);
-      } finally {
-        if (!cancelled) {
-          setAppLoading(false);
-        }
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [loadDataRangeSnapshot, refreshKey, selectedAppTrendRange]);
 
   useEffect(() => {
     let cancelled = false;
@@ -287,13 +158,13 @@ export default function Data({
   }, [selectedHeatmapView, refreshKey]);
 
   const trendViewModel = useMemo(() => {
-    if (!rawSnapshot || rawSnapshotRange !== selectedTrendRange) return null;
-    return buildDataTrendViewModel(rawSnapshot.weeklySessions, selectedTrendRange, nowMs);
-  }, [mappingVersion, nowMs, rawSnapshot, rawSnapshotRange, selectedTrendRange]);
+    if (!overviewTrend.snapshot) return null;
+    return buildDataTrendViewModel(overviewTrend.snapshot.sessions, overviewTrend.snapshot.range, overviewTrend.nowMs);
+  }, [mappingVersion, overviewTrend.nowMs, overviewTrend.snapshot]);
   const appTrendViewModel = useMemo(() => {
-    if (!rawAppSnapshot || rawAppSnapshotRange !== selectedAppTrendRange) return null;
-    return buildDataAppTrendViewModel(rawAppSnapshot.weeklySessions, selectedAppTrendRange, nowMs, selectedAppKey);
-  }, [mappingVersion, nowMs, rawAppSnapshot, rawAppSnapshotRange, selectedAppKey, selectedAppTrendRange]);
+    if (!appTrend.snapshot) return null;
+    return buildDataAppTrendViewModel(appTrend.snapshot.sessions, appTrend.snapshot.range, appTrend.nowMs, selectedAppKey);
+  }, [appTrend.nowMs, appTrend.snapshot, mappingVersion, selectedAppKey]);
   if (appTrendViewModel) {
     lastAppTrendViewModelRef.current = { refreshKey, viewModel: appTrendViewModel };
   }
@@ -355,28 +226,6 @@ export default function Data({
   const selectedHeatmapViewLabel = selectedHeatmapView === "recent"
     ? UI_TEXT.data.recentYear
     : String(selectedHeatmapView);
-  const selectedTrendRangeIndex = TREND_RANGE_OPTIONS.indexOf(selectedTrendRange);
-  const canSelectShorterTrendRange = selectedTrendRangeIndex > 0;
-  const canSelectLongerTrendRange = selectedTrendRangeIndex >= 0
-    && selectedTrendRangeIndex < TREND_RANGE_OPTIONS.length - 1;
-  const selectAdjacentTrendRange = (delta: number) => {
-    if (selectedTrendRangeIndex < 0) return;
-    const nextRange = TREND_RANGE_OPTIONS[selectedTrendRangeIndex + delta];
-    if (nextRange !== undefined) {
-      setSelectedTrendRange(nextRange);
-    }
-  };
-  const selectedAppTrendRangeIndex = TREND_RANGE_OPTIONS.indexOf(selectedAppTrendRange);
-  const canSelectShorterAppTrendRange = selectedAppTrendRangeIndex > 0;
-  const canSelectLongerAppTrendRange = selectedAppTrendRangeIndex >= 0
-    && selectedAppTrendRangeIndex < TREND_RANGE_OPTIONS.length - 1;
-  const selectAdjacentAppTrendRange = (delta: number) => {
-    if (selectedAppTrendRangeIndex < 0) return;
-    const nextRange = TREND_RANGE_OPTIONS[selectedAppTrendRangeIndex + delta];
-    if (nextRange !== undefined) {
-      setSelectedAppTrendRange(nextRange);
-    }
-  };
   const canOpenTrendHistory = trendViewModel?.granularity === "day" && Boolean(onOpenHistoryDate);
   const canOpenAppTrendHistory = visibleAppTrendViewModel?.granularity === "day" && Boolean(onOpenHistoryDate);
   const handleTrendMouseMove = (event: unknown) => {
@@ -450,36 +299,14 @@ export default function Data({
                 <strong>{trendViewModel ? formatDuration(trendViewModel.averageDuration) : "-"}</strong>
               </div>
             </div>
-            <div className="data-heatmap-range-control" aria-label={UI_TEXT.accessibility.data.trendRange}>
-              <button
-                type="button"
-                onClick={() => selectAdjacentTrendRange(-1)}
-                disabled={!canSelectShorterTrendRange}
-                className="qp-control data-heatmap-range-arrow"
-                aria-label={UI_TEXT.accessibility.data.shorterTrendRange}
-              >
-                <ChevronLeft size={14} />
-              </button>
-              <button
-                type="button"
-                className="qp-status data-heatmap-range-label data-trend-range-label"
-                disabled
-              >
-                {getDataTrendRangeLabel(selectedTrendRange)}
-              </button>
-              <button
-                type="button"
-                onClick={() => selectAdjacentTrendRange(1)}
-                disabled={!canSelectLongerTrendRange}
-                className="qp-control data-heatmap-range-arrow"
-                aria-label={UI_TEXT.accessibility.data.longerTrendRange}
-              >
-                <ChevronRight size={14} />
-              </button>
-            </div>
+            <DataTrendRangeControl
+              ariaLabel={UI_TEXT.accessibility.data.trendRange}
+              selection={selectedTrendRange}
+              onChange={setSelectedTrendRange}
+            />
           </div>
           <div className="pt-4">
-            {(loading && !hasFetchedOverviewOnce) || !trendViewModel ? (
+            {(overviewTrend.loading && !overviewTrend.hasFetchedOnce) || !trendViewModel ? (
               <div
                 className="data-trend-chart data-chart-placeholder flex items-center justify-center text-[var(--qp-text-tertiary)] text-xs"
                 aria-busy="true"
@@ -514,6 +341,7 @@ export default function Data({
                     axisLine={false}
                     tickLine={false}
                     interval="preserveStartEnd"
+                    minTickGap={DATA_TREND_X_AXIS_MIN_TICK_GAP}
                   />
                   <YAxis
                     tick={{ fontSize: 11, fill: "var(--qp-text-tertiary)" }}
@@ -690,37 +518,15 @@ export default function Data({
                 )}
               </div>
             ) : null}
-            <div className="data-heatmap-range-control" aria-label={UI_TEXT.accessibility.data.appTrendRange}>
-              <button
-                type="button"
-                onClick={() => selectAdjacentAppTrendRange(-1)}
-                disabled={!canSelectShorterAppTrendRange}
-                className="qp-control data-heatmap-range-arrow"
-                aria-label={UI_TEXT.accessibility.data.shorterAppTrendRange}
-              >
-                <ChevronLeft size={14} />
-              </button>
-              <button
-                type="button"
-                className="qp-status data-heatmap-range-label data-trend-range-label"
-                disabled
-              >
-                {getDataTrendRangeLabel(selectedAppTrendRange)}
-              </button>
-              <button
-                type="button"
-                onClick={() => selectAdjacentAppTrendRange(1)}
-                disabled={!canSelectLongerAppTrendRange}
-                className="qp-control data-heatmap-range-arrow"
-                aria-label={UI_TEXT.accessibility.data.longerAppTrendRange}
-              >
-                <ChevronRight size={14} />
-              </button>
-            </div>
+            <DataTrendRangeControl
+              ariaLabel={UI_TEXT.accessibility.data.appTrendRange}
+              selection={selectedAppTrendRange}
+              onChange={setSelectedAppTrendRange}
+            />
           </div>
         </div>
 
-        {(appLoading && !hasFetchedAppOnce) || !visibleAppTrendViewModel ? (
+        {(appTrend.loading && !appTrend.hasFetchedOnce) || !visibleAppTrendViewModel ? (
           <div className="data-app-loading text-[var(--qp-text-tertiary)] text-xs">
             {UI_TEXT.history.loading}
           </div>
@@ -782,7 +588,7 @@ export default function Data({
                   <strong>{formatDuration(visibleAppTrendViewModel.selectedApp?.totalDuration ?? 0)}</strong>
                 </div>
                 <div className="data-app-metric">
-                  <span>{visibleAppTrendViewModel.range === 365 ? UI_TEXT.data.monthlyAverage : UI_TEXT.data.appTrendAverage}</span>
+                  <span>{visibleAppTrendViewModel.granularity === "month" ? UI_TEXT.data.monthlyAverage : UI_TEXT.data.appTrendAverage}</span>
                   <strong>{formatDuration(visibleAppTrendViewModel.selectedApp?.averageDuration ?? 0)}</strong>
                 </div>
                 <div className="data-app-metric">
@@ -821,6 +627,7 @@ export default function Data({
                       axisLine={false}
                       tickLine={false}
                       interval="preserveStartEnd"
+                      minTickGap={DATA_TREND_X_AXIS_MIN_TICK_GAP}
                     />
                     <YAxis
                       tick={{ fontSize: 10, fill: "var(--qp-text-tertiary)" }}

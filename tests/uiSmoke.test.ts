@@ -165,6 +165,17 @@ await runTest("Chinese and English copy packages keep the same key structure", (
   );
 });
 
+await runTest("app shell keeps History and Data snapshot loaders on their owning views", () => {
+  const shell = readUtf8("src/app/AppShell.tsx");
+  const historyBranch = shell.slice(shell.indexOf('currentView === "history"'), shell.indexOf('currentView === "data"'));
+  const dataBranch = shell.slice(shell.indexOf('currentView === "data"'), shell.indexOf('currentView === "settings"'));
+
+  assert.match(historyBranch, /loadHistorySnapshot=\{loadHistoryRuntimeSnapshot\}/);
+  assert.doesNotMatch(historyBranch, /loadDataTrendSnapshot=/);
+  assert.match(dataBranch, /loadDataTrendSnapshot=\{loadDataTrendRuntimeSnapshot\}/);
+  assert.doesNotMatch(dataBranch, /loadHistorySnapshot=/);
+});
+
 await runTest("app shell renders dashboard and primary navigation without Tauri runtime", async () => {
   const entry = `
     import React from "react";

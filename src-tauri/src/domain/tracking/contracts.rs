@@ -284,8 +284,6 @@ impl WindowTransitionDecision {
 pub struct ActiveSessionSnapshot {
     pub start_time: i64,
     pub continuity_group_start_time: i64,
-    pub exe_name: String,
-    pub window_title: String,
 }
 
 #[cfg(test)]
