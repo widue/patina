@@ -148,10 +148,17 @@ export default function HourlyActivityChart({
                 stackedDataKeys.slice(index + 1),
               )}
               barSize={8}
+              isAnimationActive={false}
             />
           ))
         ) : (
-          <Bar dataKey="minutes" fill="var(--qp-accent-default)" radius={BAR_TOP_RADIUS} barSize={8} />
+          <Bar
+            dataKey="minutes"
+            fill="var(--qp-accent-default)"
+            radius={BAR_TOP_RADIUS}
+            barSize={8}
+            isAnimationActive={false}
+          />
         )}
         </BarChart>
       </ResponsiveContainer>

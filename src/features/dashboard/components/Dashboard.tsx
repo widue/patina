@@ -125,6 +125,7 @@ export default function Dashboard({
                       startAngle={90}
                       endAngle={-270}
                       stroke="none"
+                      isAnimationActive={false}
                     >
                       {visibleCategoryDist.map((item, index) => (
                         <Cell key={`cell-${index}`} fill={item.color || "var(--qp-accent-default)"} />
