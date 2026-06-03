@@ -4,6 +4,7 @@ use crate::platform::credentials;
 use crate::platform::webdav::{normalize_remote_dir, WebDavClient, WebDavConfig};
 use chrono::Local;
 use serde::{Deserialize, Serialize};
+use std::cmp::Reverse;
 use std::fs;
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
@@ -262,7 +263,7 @@ pub async fn upload_webdav_backup(
         Ok(mut index) => {
             index.backups.retain(|item| item.id != entry.id);
             index.backups.insert(0, entry.clone());
-            index.backups.sort_by(|left, right| right.created_at_ms.cmp(&left.created_at_ms));
+            index.backups.sort_by_key(|entry| Reverse(entry.created_at_ms));
             index.updated_at_ms = now_ms();
             save_index(&client, &config.remote_dir, &index).await?;
             Ok(RemoteBackupUploadResult {
@@ -284,7 +285,7 @@ pub async fn list_webdav_backups(
 ) -> Result<Vec<RemoteBackupEntry>, String> {
     let (config, client) = webdav_client(config)?;
     let mut index = load_index(&client, &config.remote_dir).await?;
-    index.backups.sort_by(|left, right| right.created_at_ms.cmp(&left.created_at_ms));
+    index.backups.sort_by_key(|entry| Reverse(entry.created_at_ms));
     index.backups.truncate(MAX_BACKUP_LIST_ITEMS);
     Ok(index.backups)
 }
