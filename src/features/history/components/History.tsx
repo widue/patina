@@ -41,6 +41,7 @@ interface Props {
   } | null;
   hourlyActivityChartMode: HourlyActivityChartMode;
   onHourlyActivityChartModeChange: (mode: HourlyActivityChartMode) => void;
+  refreshEnabled?: boolean;
 }
 
 const TIMELINE_MIN_SESSION_MINUTES_RANGE = { min: 1, max: 10 } as const;
@@ -50,6 +51,14 @@ const startOfMonth = (date: Date) => new Date(date.getFullYear(), date.getMonth(
 const addMonths = (date: Date, delta: number) => new Date(date.getFullYear(), date.getMonth() + delta, 1);
 const isSameDay = (left: Date, right: Date) => left.toDateString() === right.toDateString();
 const formatCalendarMonth = (date: Date) => UI_TEXT.date.yearMonthLabel(date.getFullYear(), date.getMonth() + 1);
+const formatHistoryDateCacheKey = (date: Date) => {
+  const localDate = startOfDay(date);
+  return [
+    localDate.getFullYear(),
+    String(localDate.getMonth() + 1).padStart(2, "0"),
+    String(localDate.getDate()).padStart(2, "0"),
+  ].join("-");
+};
 
 function parseLocalDateKey(dateKey: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
@@ -161,6 +170,7 @@ export default function History({
   selectedDateRequest = null,
   hourlyActivityChartMode,
   onHourlyActivityChartModeChange,
+  refreshEnabled = true,
 }: Props) {
   const requestedInitialDate = selectedDateRequest ? parseLocalDateKey(selectedDateRequest.dateKey) : null;
   const initialDate = requestedInitialDate ?? new Date();
@@ -180,7 +190,9 @@ export default function History({
   );
   const [nowMs, setNowMs] = useState(() => initialCachedSnapshot?.fetchedAtMs ?? Date.now());
   const [loading, setLoading] = useState(!initialCachedSnapshot);
-  const [hasFetchedOnce, setHasFetchedOnce] = useState(Boolean(initialCachedSnapshot));
+  const [visibleDateKey, setVisibleDateKey] = useState(() => (
+    initialCachedSnapshot ? formatHistoryDateCacheKey(initialDate) : null
+  ));
   const [timelineDetailsPopover, setTimelineDetailsPopover] = useState<TimelineDetailsPopover | null>(null);
   const timelineDetailsPopoverRef = useRef<HTMLDivElement | null>(null);
   const timelineDetailsTriggerRef = useRef<HTMLElement | null>(null);
@@ -286,20 +298,26 @@ export default function History({
   }, [timelineDetailsPopover, updateTimelineDetailsPopoverPosition]);
 
   useEffect(() => {
+    if (!refreshEnabled) return undefined;
+
     let cancelled = false;
     const requestDate = new Date(selectedDate);
-    const showLoading = !hasLoadedRef.current;
     const cachedSnapshot = getHistorySnapshotCache(requestDate);
+    const requestDateKey = formatHistoryDateCacheKey(requestDate);
 
     if (cachedSnapshot) {
       setRawDaySessions(cachedSnapshot.daySessions);
       setRawWeeklySessions(cachedSnapshot.weeklySessions);
       setNowMs(cachedSnapshot.fetchedAtMs);
-      setHasFetchedOnce(true);
+      setVisibleDateKey(requestDateKey);
       setLoading(false);
+    } else if (visibleDateKey !== requestDateKey) {
+      setRawDaySessions([]);
+      setRawWeeklySessions([]);
+      setVisibleDateKey(null);
     }
 
-    if (showLoading) {
+    if (!cachedSnapshot) {
       setLoading(!cachedSnapshot);
     }
 
@@ -313,10 +331,10 @@ export default function History({
         setRawDaySessions(snapshot.daySessions);
         setRawWeeklySessions(snapshot.weeklySessions);
         setNowMs(snapshot.fetchedAtMs);
-        setHasFetchedOnce(true);
+        setVisibleDateKey(requestDateKey);
         hasLoadedRef.current = true;
       } finally {
-        if (!cancelled && showLoading) {
+        if (!cancelled) {
           setLoading(false);
         }
       }
@@ -326,13 +344,13 @@ export default function History({
     return () => {
       cancelled = true;
     };
-  }, [loadHistorySnapshot, refreshKey, selectedDate]);
+  }, [loadHistorySnapshot, refreshEnabled, refreshKey, selectedDate]);
 
   useEffect(() => {
     const hasLiveSession = rawDaySessions.some((session) => session.endTime === null)
       || rawWeeklySessions.some((session) => session.endTime === null);
 
-    if (!hasLiveSession || trackerHealth.status !== "healthy") {
+    if (!refreshEnabled || !hasLiveSession || trackerHealth.status !== "healthy") {
       return;
     }
 
@@ -345,7 +363,7 @@ export default function History({
     return () => {
       window.clearInterval(timer);
     };
-  }, [rawDaySessions, rawWeeklySessions, refreshIntervalSecs, trackerHealth.status]);
+  }, [rawDaySessions, rawWeeklySessions, refreshEnabled, refreshIntervalSecs, trackerHealth.status]);
 
   const changeDate = (delta: number) => {
     const nextDate = new Date(selectedDate);
@@ -447,7 +465,7 @@ export default function History({
   }, [timelineDetailsPopover, updateTimelineDetailsPopoverPosition]);
 
   const isToday = selectedDate.toDateString() === today.toDateString();
-  const showInitialLoading = loading && !hasFetchedOnce;
+  const showQuietPlaceholder = loading;
   const historyView = useMemo(
     () => buildHistoryReadModel({
       daySessions: rawDaySessions,
@@ -610,12 +628,10 @@ export default function History({
                 )}
               />
             </div>
-            {showInitialLoading ? (
-              <div className="h-[120px] pt-3 flex items-center justify-center text-[var(--qp-text-tertiary)] text-xs">
-                {UI_TEXT.history.loading}
-              </div>
-            ) : (
-              <div className="pt-3 history-pulse-chart">
+            <div
+              className="pt-3 history-pulse-chart"
+              aria-hidden={showQuietPlaceholder ? "true" : undefined}
+            >
                 <HourlyActivityChart
                   mode={hourlyActivityChartMode}
                   hourlyActivity={hourlyActivity}
@@ -624,7 +640,6 @@ export default function History({
                   padding={{ left: 10, right: 10 }}
                 />
               </div>
-            )}
           </div>
 
           <div className="qp-panel p-5 flex-1 min-h-0 flex flex-col history-app-distribution-card">
@@ -632,8 +647,8 @@ export default function History({
               <h3 className="font-semibold text-[var(--qp-text-primary)] text-sm">{UI_TEXT.history.appDistribution}</h3>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-1 pt-2">
-              {showInitialLoading ? (
-                <p className="text-[var(--qp-text-tertiary)] text-xs text-center mt-8">{UI_TEXT.history.loading}</p>
+              {showQuietPlaceholder ? (
+                <div className="h-24" aria-hidden="true" />
               ) : appSummary.length === 0 ? (
                 <p className="text-[var(--qp-text-tertiary)] text-xs text-center mt-8">{UI_TEXT.history.noData}</p>
               ) : (
@@ -698,7 +713,7 @@ export default function History({
             </div>
           </div>
           {loading ? (
-            <div className="flex-1 flex items-center justify-center text-[var(--qp-text-tertiary)] text-sm">{UI_TEXT.history.loading}</div>
+            <div className="flex-1" aria-hidden="true" />
           ) : timelineSessions.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-[var(--qp-text-tertiary)] text-sm">{UI_TEXT.history.emptyDay}</div>
           ) : (

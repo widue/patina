@@ -659,6 +659,35 @@ try {
     );
   });
 
+  await runTest("History navigation is immediate and avoids visible loading copy", async () => {
+    const clicked = await evaluate(client!, sessionId, `
+      (() => {
+        const node = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("历史"))} + ']');
+        if (!node) return false;
+        node.click();
+        return true;
+      })()
+    `);
+    assert.equal(clicked, true);
+    await delay(50);
+    assert.equal(
+      await evaluate(
+        client!,
+        sessionId,
+        `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("历史"))} + ']')?.className.includes("qp-nav-item-active")`,
+      ),
+      true,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `document.body.innerText.includes(${jsonString(APP_LOADING_VIEW)})`),
+      false,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `document.body.innerText.includes(${jsonString(HISTORY_LOADING_VIEW)})`),
+      false,
+    );
+  });
+
   await runTest("settings theme dialog opens and closes in a real browser", async () => {
     assert.equal(
       await evaluate(client!, sessionId, `

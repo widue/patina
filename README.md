@@ -8,7 +8,7 @@ Local-first time tracking for Windows desktop work.
 
 English · [简体中文](README.zh-CN.md)
 
-![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-4f6f8f)
+![Platform](https://img.shields.io/badge/platform-Windows-4f6f8f)
 ![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-4f7f8f)
 ![Local first](https://img.shields.io/badge/data-local--first-5f7f68)
 [![Downloads](https://img.shields.io/github/downloads/Ceceliaee/time-tracking/total?label=downloads&color=b07a3a)](https://github.com/Ceceliaee/time-tracking/releases)

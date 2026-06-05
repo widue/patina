@@ -88,7 +88,9 @@ interface StartupWarmupDeps {
 }
 
 export interface StartupWarmupRefreshOptions {
+  includeDashboard?: boolean;
   includeData?: boolean;
+  includeHistory?: boolean;
 }
 
 const STARTUP_WARMUP_TASKS: StartupWarmupTaskId[] = [
@@ -366,13 +368,22 @@ export function scheduleStartupWarmupRefresh(
       return;
     }
 
-    const tasks: Array<Promise<unknown>> = [
-      deps.loadDashboardRuntimeSnapshot(new Date()),
-      deps.loadHistoryRuntimeSnapshot(new Date(), 7),
-    ];
+    const tasks: Array<Promise<unknown>> = [];
+
+    if (options.includeDashboard ?? true) {
+      tasks.push(deps.loadDashboardRuntimeSnapshot(new Date()));
+    }
+
+    if (options.includeHistory ?? true) {
+      tasks.push(deps.loadHistoryRuntimeSnapshot(new Date(), 7));
+    }
 
     if (options.includeData) {
       tasks.push(deps.loadDataTrendRuntimeSnapshot({ kind: "rolling", days: 7 }));
+    }
+
+    if (tasks.length === 0) {
+      return;
     }
 
     void Promise.allSettled(tasks).then((results) => {

@@ -21,6 +21,7 @@ export function useDashboardStats(
   loadDashboardSnapshot: (date?: Date) => Promise<DashboardSnapshot>,
   mappingVersion: number = 0,
   classificationReady: boolean = true,
+  refreshEnabled: boolean = true,
 ): UseStatsResult {
   const initialSnapshot = getDashboardSnapshotCache();
   const [rawSessions, setRawSessions] = useState<HistorySession[]>(
@@ -35,7 +36,7 @@ export function useDashboardStats(
   const [nowMs, setNowMs] = useState(() => initialSnapshot?.fetchedAtMs ?? Date.now());
 
   const fetchData = useCallback(async () => {
-    if (!classificationReady) return;
+    if (!classificationReady || !refreshEnabled) return;
 
     try {
       const snapshot = await loadDashboardSnapshot(new Date());
@@ -49,20 +50,20 @@ export function useDashboardStats(
     } catch (err) {
       console.error("Failed to load stats:", err);
     }
-  }, [classificationReady, loadDashboardSnapshot]);
+  }, [classificationReady, loadDashboardSnapshot, refreshEnabled]);
 
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
 
   useEffect(() => {
-    if (refreshKey === 0) return;
+    if (refreshKey === 0 || !refreshEnabled) return;
     void fetchData();
-  }, [refreshKey, fetchData]);
+  }, [refreshKey, fetchData, refreshEnabled]);
 
   useEffect(() => {
     const hasLiveSession = rawSessions.some((session) => session.endTime === null);
-    if (!classificationReady || !hasLiveSession || trackerHealth.status !== "healthy") {
+    if (!classificationReady || !refreshEnabled || !hasLiveSession || trackerHealth.status !== "healthy") {
       return;
     }
 
@@ -87,7 +88,7 @@ export function useDashboardStats(
     return () => {
       window.clearInterval(timer);
     };
-  }, [classificationReady, icons, rawSessions, refreshIntervalSecs, trackerHealth.status]);
+  }, [classificationReady, icons, rawSessions, refreshEnabled, refreshIntervalSecs, trackerHealth.status]);
 
   const dashboard = useMemo(
     () => buildDashboardReadModel(

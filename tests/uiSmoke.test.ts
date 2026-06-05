@@ -185,6 +185,26 @@ await runTest("Data regular view avoids visible loading and skeleton branches", 
   assert.doesNotMatch(data, /aria-busy/);
 });
 
+await runTest("History regular view avoids visible loading copy", () => {
+  const history = readUtf8("src/features/history/components/History.tsx");
+
+  assert.doesNotMatch(history, /UI_TEXT\.history\.loading/);
+  assert.doesNotMatch(history, /aria-busy/);
+});
+
+await runTest("operation-oriented pages keep explicit busy feedback", () => {
+  const settings = readUtf8("src/features/settings/components/Settings.tsx");
+  const mapping = readUtf8("src/features/classification/components/AppMapping.tsx");
+  const dataSafety = readUtf8("src/features/settings/components/SettingsDataSafetyPanel.tsx");
+  const updateDialog = readUtf8("src/features/update/components/UpdateConfirmDialog.tsx");
+
+  assert.match(settings, /UI_TEXT\.settings\.loading/);
+  assert.match(mapping, /UI_TEXT\.mapping\.loading/);
+  assert.match(dataSafety, /backupExporting|backupRestoring/);
+  assert.match(updateDialog, /UpdateProgressBar/);
+  assert.match(updateDialog, /UI_TEXT\.update\.processing/);
+});
+
 await runTest("app shell uses feature-owned Data prewarm and heavy cache lifecycle exits", () => {
   const shell = readUtf8("src/app/AppShell.tsx");
 
@@ -194,6 +214,17 @@ await runTest("app shell uses feature-owned Data prewarm and heavy cache lifecyc
   assert.doesNotMatch(shell, /clearDataBootstrapSnapshot/);
   assert.doesNotMatch(shell, /buildDataTrendViewModel/);
   assert.doesNotMatch(shell, /buildActivityHeatmap/);
+});
+
+await runTest("app shell uses feature-owned page cache lifecycle exits", () => {
+  const shell = readUtf8("src/app/AppShell.tsx");
+
+  assert.match(shell, /clearDashboardSnapshotCache/);
+  assert.match(shell, /clearHistorySnapshotCache/);
+  assert.match(shell, /includeDashboard: isDashboardRefreshEnabled/);
+  assert.match(shell, /includeHistory: isHistoryRefreshEnabled/);
+  assert.doesNotMatch(shell, /DASHBOARD_SNAPSHOT_CACHE/);
+  assert.doesNotMatch(shell, /HISTORY_SNAPSHOT_CACHE/);
 });
 
 await runTest("update snapshot listener disposes if subscription resolves after unmount", () => {

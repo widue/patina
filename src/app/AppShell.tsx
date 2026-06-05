@@ -30,6 +30,9 @@ import {
   startStartupWarmup,
 } from "./services/startupWarmupService";
 import {
+  clearDashboardSnapshotCache,
+} from "../features/dashboard/services/dashboardSnapshotCache.ts";
+import {
   clearDataBootstrapCache,
   clearDataHeavyCaches,
 } from "../features/data/services/dataCacheLifecycle.ts";
@@ -52,7 +55,7 @@ import {
 import { watchCurrentWindowForegroundState, watchCurrentWindowMaximized } from "../platform/desktop/windowControlGateway";
 
 const DATA_FOREGROUND_PREWARM_DELAY_MS = 1_200;
-const DATA_BACKGROUND_CACHE_RELEASE_DELAY_MS = 10 * 60 * 1000;
+const BACKGROUND_CACHE_RELEASE_DELAY_MS = 10 * 60 * 1000;
 
 const History = createPreloadableViewComponent("history");
 const Data = createPreloadableViewComponent("data");
@@ -152,6 +155,10 @@ function AppShellContent() {
   const refreshSignal = resolveReadModelRefreshSignal(syncTick, readModelRefreshState);
   void syncedUiTextLanguage;
   const { mappingVersion } = readModelRefreshState;
+  const isForegroundReady = isDocumentVisible && isWindowForegroundLike;
+  const isDashboardRefreshEnabled = currentView === "dashboard" && isForegroundReady;
+  const isHistoryRefreshEnabled = currentView === "history" && isForegroundReady;
+  const isDataRefreshEnabled = currentView === "data" && isForegroundReady;
   const { dashboard, icons } = useDashboardStats(
     appSettings.refreshIntervalSecs,
     refreshSignal,
@@ -159,6 +166,7 @@ function AppShellContent() {
     loadDashboardRuntimeSnapshot,
     mappingVersion,
     classificationReady,
+    isDashboardRefreshEnabled,
   );
 
   const activeExeName = activeWindow?.exeName ?? null;
@@ -190,9 +198,11 @@ function AppShellContent() {
     if (!classificationReady || syncTick <= 0) return undefined;
 
     return scheduleStartupWarmupRefresh(undefined, {
-      includeData: currentView === "data" && isDocumentVisible && isWindowForegroundLike,
+      includeDashboard: isDashboardRefreshEnabled,
+      includeHistory: isHistoryRefreshEnabled,
+      includeData: isDataRefreshEnabled,
     });
-  }, [classificationReady, currentView, isDocumentVisible, isWindowForegroundLike, syncTick]);
+  }, [classificationReady, isDashboardRefreshEnabled, isDataRefreshEnabled, isHistoryRefreshEnabled, syncTick]);
 
   useEffect(() => {
     if (typeof document === "undefined") return undefined;
@@ -267,10 +277,10 @@ function AppShellContent() {
   }, []);
 
   useEffect(() => {
-    if (!classificationReady || !isDocumentVisible || !isWindowForegroundLike) return undefined;
+    if (!classificationReady || !isForegroundReady) return undefined;
 
     const timer = window.setTimeout(() => {
-      if (!classificationReady || !isDocumentVisible || !isWindowForegroundLike) return;
+      if (!classificationReady || !isForegroundReady) return;
 
       void prewarmDataFirstScreen({
         mappingVersion,
@@ -282,25 +292,27 @@ function AppShellContent() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [classificationReady, isDocumentVisible, isWindowForegroundLike, mappingVersion, uiTextLanguage]);
+  }, [classificationReady, isForegroundReady, mappingVersion, uiTextLanguage]);
 
   useEffect(() => {
-    if (isDocumentVisible && isWindowForegroundLike) return undefined;
+    if (isForegroundReady) return undefined;
 
     const timer = window.setTimeout(() => {
       if (document.visibilityState !== "hidden" && isWindowForegroundLike) return;
 
       try {
+        clearDashboardSnapshotCache();
+        clearHistorySnapshotCache();
         clearDataHeavyCaches();
       } catch (error) {
-        console.warn("clear Data heavy caches after background delay failed", error);
+        console.warn("clear page heavy caches after background delay failed", error);
       }
-    }, DATA_BACKGROUND_CACHE_RELEASE_DELAY_MS);
+    }, BACKGROUND_CACHE_RELEASE_DELAY_MS);
 
     return () => {
       window.clearTimeout(timer);
     };
-  }, [isDocumentVisible, isWindowForegroundLike]);
+  }, [isForegroundReady, isWindowForegroundLike]);
 
   const handleMinSessionSecsChange = useCallback((nextValue: number) => {
     setAppSettings((current) => ({
@@ -389,6 +401,7 @@ function AppShellContent() {
                   selectedDateRequest={historyDateRequest}
                   hourlyActivityChartMode={appSettings.hourlyActivityChartMode}
                   onHourlyActivityChartModeChange={handleHourlyActivityChartModeChange}
+                  refreshEnabled={isHistoryRefreshEnabled}
                 />
               )}
               {currentView === "data" && (
@@ -441,11 +454,14 @@ function AppShellContent() {
                   onRegisterSaveHandler={registerMappingSaveHandler}
                   onDirtyChange={setMappingDirty}
                   onOverridesChanged={() => {
+                    clearDashboardSnapshotCache();
+                    clearHistorySnapshotCache();
                     void clearDataBootstrapCache();
                     setReadModelRefreshState(applyMappingOverridesReadModelRefresh);
                     pushToast(uiText.app.mappingUpdated, "success");
                   }}
                   onSessionsDeleted={() => {
+                    clearDashboardSnapshotCache();
                     clearHistorySnapshotCache();
                     clearDataHeavyCaches();
                     void clearDataBootstrapCache();

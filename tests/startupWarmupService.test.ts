@@ -1,5 +1,17 @@
 import assert from "node:assert/strict";
 import {
+  clearDashboardSnapshotCache,
+  getDashboardSnapshotCache,
+  getDashboardSnapshotCacheSizeForTests,
+  setDashboardSnapshotCache,
+} from "../src/features/dashboard/services/dashboardSnapshotCache.ts";
+import {
+  clearHistorySnapshotCache,
+  getHistorySnapshotCache,
+  getHistorySnapshotCacheSizeForTests,
+  setHistorySnapshotCache,
+} from "../src/features/history/services/historySnapshotCache.ts";
+import {
   resetStartupWarmupForTests,
   scheduleStartupWarmupRefresh,
   startStartupWarmup,
@@ -117,10 +129,31 @@ let passed = 0;
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   resetStartupWarmupForTests();
+  clearDashboardSnapshotCache();
+  clearHistorySnapshotCache();
   await fn();
   resetStartupWarmupForTests();
+  clearDashboardSnapshotCache();
+  clearHistorySnapshotCache();
   passed += 1;
   console.log(`PASS ${name}`);
+}
+
+function makeDashboardSnapshot(fetchedAtMs: number) {
+  return {
+    fetchedAtMs,
+    icons: {},
+    sessions: [],
+    yesterdaySessions: [],
+  };
+}
+
+function makeHistorySnapshot(fetchedAtMs: number) {
+  return {
+    daySessions: [],
+    fetchedAtMs,
+    weeklySessions: [],
+  };
 }
 
 await runTest("startup warmup runs default tasks in a stable order", async () => {
@@ -283,6 +316,55 @@ await runTest("startup warmup refresh includes data only when requested", async 
     "history-snapshot",
     "data-trend-refresh",
   ]);
+});
+
+await runTest("startup warmup refresh can skip invisible page refreshes", async () => {
+  const scheduler = createTaskScheduler();
+  const events: string[] = [];
+  const deps = {
+    ...createWarmupDeps(events),
+    scheduler: scheduler.schedule,
+    warn: () => {
+      throw new Error("unexpected warning");
+    },
+  };
+
+  scheduleStartupWarmupRefresh(30, {
+    includeDashboard: false,
+    includeHistory: false,
+    includeData: false,
+  }, deps);
+  scheduler.runNext();
+  await flushPromises();
+
+  assert.deepEqual(events, []);
+});
+
+await runTest("dashboard snapshot cache keeps a small LRU set", () => {
+  for (let day = 1; day <= 4; day += 1) {
+    setDashboardSnapshotCache(
+      makeDashboardSnapshot(day),
+      new Date(2026, 0, day),
+    );
+  }
+
+  assert.equal(getDashboardSnapshotCacheSizeForTests(), 3);
+  assert.equal(getDashboardSnapshotCache(new Date(2026, 0, 1)), null);
+  assert.equal(getDashboardSnapshotCache(new Date(2026, 0, 4))?.fetchedAtMs, 4);
+});
+
+await runTest("history snapshot cache keeps a bounded LRU set", () => {
+  for (let day = 1; day <= 15; day += 1) {
+    setHistorySnapshotCache(
+      makeHistorySnapshot(day),
+      new Date(2026, 0, day),
+      7,
+    );
+  }
+
+  assert.equal(getHistorySnapshotCacheSizeForTests(), 14);
+  assert.equal(getHistorySnapshotCache(new Date(2026, 0, 1), 7), null);
+  assert.equal(getHistorySnapshotCache(new Date(2026, 0, 15), 7)?.fetchedAtMs, 15);
 });
 
 console.log(`Passed ${passed} startup warmup tests`);
