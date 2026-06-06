@@ -1,6 +1,6 @@
 use crate::domain::tracking::TrackingStatusSnapshot;
 use crate::engine::tracking::runtime_snapshot::{
-    TrackingRuntimeProbeStatus, TrackingRuntimeSnapshotState,
+    TrackingRuntimeProbeDiagnostics, TrackingRuntimeProbeStatus, TrackingRuntimeSnapshotState,
 };
 use crate::platform::windows::foreground::WindowInfo;
 use serde::Serialize;
@@ -13,6 +13,7 @@ pub struct CurrentTrackingSnapshot {
     pub sampled_at_ms: i64,
     pub probe_status: TrackingRuntimeProbeStatus,
     pub degraded_reason: Option<String>,
+    pub probe_diagnostics: TrackingRuntimeProbeDiagnostics,
 }
 
 #[tauri::command]
@@ -38,6 +39,7 @@ pub fn get_current_tracking_snapshot(
         sampled_at_ms: snapshot.sampled_at_ms,
         probe_status: snapshot.probe_status,
         degraded_reason: snapshot.degraded_reason,
+        probe_diagnostics: snapshot.probe_diagnostics,
     })
 }
 

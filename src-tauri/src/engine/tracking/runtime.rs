@@ -260,6 +260,7 @@ fn update_runtime_snapshot_state<R: Runtime>(
             sampled_at_ms,
             probe_status: poll_outcome.probe_status,
             degraded_reason: poll_outcome.degraded_reason.clone(),
+            probe_diagnostics: poll_outcome.probe_diagnostics.clone(),
         });
     }
 }

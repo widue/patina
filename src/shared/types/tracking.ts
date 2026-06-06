@@ -90,8 +90,21 @@ export type TrackingRuntimeProbeStatus =
   | "timeout-inactive"
   | "backing-off-fallback"
   | "backing-off-inactive"
+  | "recovery-attempted-fallback"
+  | "recovery-attempted-inactive"
+  | "hard-degraded-fallback"
+  | "hard-degraded-inactive"
   | "task-failed-fallback"
   | "task-failed-inactive";
+
+export interface TrackingRuntimeProbeDiagnostics {
+  lastSuccessfulSampleAtMs?: number | null;
+  fallbackStartedAtMs?: number | null;
+  fallbackCount?: number;
+  consecutiveFallbackCount?: number;
+  recoveryAttemptCount?: number;
+  lastRecoveryAttemptAtMs?: number | null;
+}
 
 export interface CurrentTrackingSnapshot {
   window: TrackingWindowSnapshot;
@@ -99,6 +112,7 @@ export interface CurrentTrackingSnapshot {
   sampledAtMs?: number;
   probeStatus?: TrackingRuntimeProbeStatus;
   degradedReason?: string | null;
+  probeDiagnostics?: TrackingRuntimeProbeDiagnostics;
 }
 
 export interface TrackingDataChangedPayload {
@@ -343,6 +357,10 @@ export function isCurrentTrackingSnapshot(value: unknown): value is CurrentTrack
         "timeout-inactive",
         "backing-off-fallback",
         "backing-off-inactive",
+        "recovery-attempted-fallback",
+        "recovery-attempted-inactive",
+        "hard-degraded-fallback",
+        "hard-degraded-inactive",
         "task-failed-fallback",
         "task-failed-inactive",
       ] as const)
@@ -351,6 +369,43 @@ export function isCurrentTrackingSnapshot(value: unknown): value is CurrentTrack
       value.degradedReason === undefined
       || value.degradedReason === null
       || typeof value.degradedReason === "string"
+    )
+    && (
+      value.probeDiagnostics === undefined
+      || isTrackingRuntimeProbeDiagnostics(value.probeDiagnostics)
+    );
+}
+
+export function isTrackingRuntimeProbeDiagnostics(
+  value: unknown,
+): value is TrackingRuntimeProbeDiagnostics {
+  return isRecord(value)
+    && (
+      value.lastSuccessfulSampleAtMs === undefined
+      || value.lastSuccessfulSampleAtMs === null
+      || typeof value.lastSuccessfulSampleAtMs === "number"
+    )
+    && (
+      value.fallbackStartedAtMs === undefined
+      || value.fallbackStartedAtMs === null
+      || typeof value.fallbackStartedAtMs === "number"
+    )
+    && (
+      value.fallbackCount === undefined
+      || typeof value.fallbackCount === "number"
+    )
+    && (
+      value.consecutiveFallbackCount === undefined
+      || typeof value.consecutiveFallbackCount === "number"
+    )
+    && (
+      value.recoveryAttemptCount === undefined
+      || typeof value.recoveryAttemptCount === "number"
+    )
+    && (
+      value.lastRecoveryAttemptAtMs === undefined
+      || value.lastRecoveryAttemptAtMs === null
+      || typeof value.lastRecoveryAttemptAtMs === "number"
     );
 }
 

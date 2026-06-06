@@ -233,6 +233,35 @@ await runTest("buildWidgetViewModel prioritizes stale tracker health as error", 
   assert.equal(viewModel.showObjectSlot, false);
 });
 
+await runTest("buildWidgetViewModel keeps short probe fallback silent", () => {
+  const viewModel = buildWidgetViewModel(
+    ACTIVE_WINDOW,
+    BASE_TRACKING_STATUS,
+    BASE_SETTINGS,
+    BASE_TRACKER_HEALTH,
+    "timeout-fallback",
+  );
+
+  assert.equal(viewModel.statusTone, "tracking");
+  assert.equal(viewModel.statusLabel, "\u8ffd\u8e2a\u4e2d");
+  assert.equal(viewModel.showObjectSlot, true);
+});
+
+await runTest("buildWidgetViewModel maps hard degraded probe to existing error lamp", () => {
+  const viewModel = buildWidgetViewModel(
+    ACTIVE_WINDOW,
+    BASE_TRACKING_STATUS,
+    BASE_SETTINGS,
+    BASE_TRACKER_HEALTH,
+    "hard-degraded-fallback",
+  );
+
+  assert.equal(viewModel.statusTone, "error");
+  assert.equal(viewModel.statusLabel, "\u5f02\u5e38");
+  assert.equal(viewModel.helperText, "\u8ffd\u8e2a\u72b6\u6001\u6682\u65f6\u672a\u540c\u6b65");
+  assert.equal(viewModel.showObjectSlot, false);
+});
+
 await runTest("isWidgetSelfWindow detects widget chrome without matching real apps", () => {
   assert.equal(isWidgetSelfWindow(WIDGET_WINDOW), true);
   assert.equal(isWidgetSelfWindow(ACTIVE_WINDOW), false);

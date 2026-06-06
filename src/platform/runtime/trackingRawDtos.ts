@@ -10,6 +10,7 @@ import type {
   SustainedParticipationState,
   SustainedParticipationStatusReason,
   TrackingDataChangedPayload,
+  TrackingRuntimeProbeDiagnostics,
   TrackingStatusSnapshot,
   TrackingRuntimeProbeStatus,
   TrackingWindowSnapshot,
@@ -69,6 +70,16 @@ export interface RawCurrentTrackingSnapshot {
   sampled_at_ms?: number;
   probe_status?: TrackingRuntimeProbeStatus;
   degraded_reason?: string | null;
+  probe_diagnostics?: RawTrackingRuntimeProbeDiagnostics;
+}
+
+export interface RawTrackingRuntimeProbeDiagnostics {
+  last_successful_sample_at_ms?: number | null;
+  fallback_started_at_ms?: number | null;
+  fallback_count?: number;
+  consecutive_fallback_count?: number;
+  recovery_attempt_count?: number;
+  last_recovery_attempt_at_ms?: number | null;
 }
 
 export interface RawTrackingDataChangedPayload {
@@ -249,6 +260,10 @@ export function isRawCurrentTrackingSnapshot(value: unknown): value is RawCurren
         "timeout-inactive",
         "backing-off-fallback",
         "backing-off-inactive",
+        "recovery-attempted-fallback",
+        "recovery-attempted-inactive",
+        "hard-degraded-fallback",
+        "hard-degraded-inactive",
         "task-failed-fallback",
         "task-failed-inactive",
       ] as const)
@@ -257,6 +272,43 @@ export function isRawCurrentTrackingSnapshot(value: unknown): value is RawCurren
       value.degraded_reason === undefined
       || value.degraded_reason === null
       || typeof value.degraded_reason === "string"
+    )
+    && (
+      value.probe_diagnostics === undefined
+      || isRawTrackingRuntimeProbeDiagnostics(value.probe_diagnostics)
+    );
+}
+
+export function isRawTrackingRuntimeProbeDiagnostics(
+  value: unknown,
+): value is RawTrackingRuntimeProbeDiagnostics {
+  return isRecord(value)
+    && (
+      value.last_successful_sample_at_ms === undefined
+      || value.last_successful_sample_at_ms === null
+      || typeof value.last_successful_sample_at_ms === "number"
+    )
+    && (
+      value.fallback_started_at_ms === undefined
+      || value.fallback_started_at_ms === null
+      || typeof value.fallback_started_at_ms === "number"
+    )
+    && (
+      value.fallback_count === undefined
+      || typeof value.fallback_count === "number"
+    )
+    && (
+      value.consecutive_fallback_count === undefined
+      || typeof value.consecutive_fallback_count === "number"
+    )
+    && (
+      value.recovery_attempt_count === undefined
+      || typeof value.recovery_attempt_count === "number"
+    )
+    && (
+      value.last_recovery_attempt_at_ms === undefined
+      || value.last_recovery_attempt_at_ms === null
+      || typeof value.last_recovery_attempt_at_ms === "number"
     );
 }
 
@@ -345,6 +397,22 @@ export function mapRawCurrentTrackingSnapshot(
     sampledAtMs: raw.sampled_at_ms,
     probeStatus: raw.probe_status,
     degradedReason: raw.degraded_reason,
+    probeDiagnostics: raw.probe_diagnostics
+      ? mapRawTrackingRuntimeProbeDiagnostics(raw.probe_diagnostics)
+      : undefined,
+  };
+}
+
+function mapRawTrackingRuntimeProbeDiagnostics(
+  raw: RawTrackingRuntimeProbeDiagnostics,
+): TrackingRuntimeProbeDiagnostics {
+  return {
+    lastSuccessfulSampleAtMs: raw.last_successful_sample_at_ms,
+    fallbackStartedAtMs: raw.fallback_started_at_ms,
+    fallbackCount: raw.fallback_count,
+    consecutiveFallbackCount: raw.consecutive_fallback_count,
+    recoveryAttemptCount: raw.recovery_attempt_count,
+    lastRecoveryAttemptAtMs: raw.last_recovery_attempt_at_ms,
   };
 }
 

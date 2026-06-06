@@ -11,8 +11,22 @@ pub enum TrackingRuntimeProbeStatus {
     TimeoutInactive,
     BackingOffFallback,
     BackingOffInactive,
+    RecoveryAttemptedFallback,
+    RecoveryAttemptedInactive,
+    HardDegradedFallback,
+    HardDegradedInactive,
     TaskFailedFallback,
     TaskFailedInactive,
+}
+
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct TrackingRuntimeProbeDiagnostics {
+    pub last_successful_sample_at_ms: Option<i64>,
+    pub fallback_started_at_ms: Option<i64>,
+    pub fallback_count: u64,
+    pub consecutive_fallback_count: u64,
+    pub recovery_attempt_count: u64,
+    pub last_recovery_attempt_at_ms: Option<i64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -22,6 +36,7 @@ pub struct TrackingRuntimeSnapshot {
     pub sampled_at_ms: i64,
     pub probe_status: TrackingRuntimeProbeStatus,
     pub degraded_reason: Option<String>,
+    pub probe_diagnostics: TrackingRuntimeProbeDiagnostics,
 }
 
 #[derive(Debug, Default)]
@@ -77,6 +92,7 @@ mod tests {
             sampled_at_ms: 123,
             probe_status: TrackingRuntimeProbeStatus::Ok,
             degraded_reason: None,
+            probe_diagnostics: TrackingRuntimeProbeDiagnostics::default(),
         };
 
         state.replace(snapshot.clone());

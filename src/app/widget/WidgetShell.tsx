@@ -33,6 +33,7 @@ export default function WidgetShell() {
     appSettings,
     classificationReady,
     trackerHealth,
+    trackingRuntimeProbeStatus,
   } = useWindowTracking({ syncDesktopLaunchBehavior: false });
   const [syncedUiTextLanguage, setSyncedUiTextLanguage] = useState(appSettings.language);
   const uiText = getUiText(appSettings.language);
@@ -72,6 +73,7 @@ export default function WidgetShell() {
       displaySnapshot.trackingStatus,
       appSettings,
       trackerHealth,
+      trackingRuntimeProbeStatus,
     )
     : {
       statusTone: "idle" as const,

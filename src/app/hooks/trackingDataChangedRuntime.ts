@@ -2,6 +2,7 @@ import type { AppSettings } from "../../shared/settings/appSettings.ts";
 import type {
   CurrentTrackingSnapshot,
   TrackingDataChangedPayload,
+  TrackingRuntimeProbeStatus,
   TrackingStatusSnapshot,
   TrackingWindowSnapshot,
 } from "../../shared/types/tracking.ts";
@@ -16,6 +17,7 @@ type TrackingDataChangedRuntimeDeps = {
   setAppSettings: (updater: (current: AppSettings) => AppSettings) => void;
   setActiveWindow?: (nextWindow: TrackingWindowSnapshot | null) => void;
   setTrackingStatus?: (nextStatus: TrackingStatusSnapshot) => void;
+  setTrackingRuntimeProbeStatus?: (nextStatus: TrackingRuntimeProbeStatus | null) => void;
   bumpSyncTick: () => void;
   warn: (message: string, error: unknown) => void;
   resolveEffects?: (reason: string) => TrackingDataChangedEffects;
@@ -32,6 +34,7 @@ export async function applyTrackingDataChangedPayload(
     setAppSettings,
     setActiveWindow,
     setTrackingStatus,
+    setTrackingRuntimeProbeStatus,
     bumpSyncTick,
     warn,
     resolveEffects = resolveTrackingDataChangedEffects,
@@ -55,6 +58,7 @@ export async function applyTrackingDataChangedPayload(
       const nextSnapshot = await loadCurrentTrackingSnapshot();
       setActiveWindow(nextSnapshot?.window ?? null);
       setTrackingStatus(nextSnapshot?.status ?? DEFAULT_TRACKING_STATUS);
+      setTrackingRuntimeProbeStatus?.(nextSnapshot?.probeStatus ?? null);
     } catch (error) {
       warn("Failed to sync tracking snapshot", error);
     }

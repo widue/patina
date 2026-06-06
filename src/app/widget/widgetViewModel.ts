@@ -3,6 +3,7 @@ import { UI_TEXT } from "../../shared/copy/uiText.ts";
 import type { AppSettings } from "../../shared/settings/appSettings.ts";
 import type {
   TrackerHealthSnapshot,
+  TrackingRuntimeProbeStatus,
   TrackingStatusSnapshot,
   TrackingWindowSnapshot,
 } from "../../shared/types/tracking.ts";
@@ -64,6 +65,10 @@ function isSustainedParticipationTracking(
   return isTrackingForegroundApp && trackingStatus.sustainedParticipationActive;
 }
 
+function isHardDegradedProbeStatus(status: TrackingRuntimeProbeStatus | null | undefined) {
+  return status === "hard-degraded-fallback" || status === "hard-degraded-inactive";
+}
+
 function buildActiveTrackingViewModel(
   activeWindow: TrackingWindowSnapshot | null,
   trackableAppName: string | null,
@@ -90,6 +95,7 @@ export function buildWidgetViewModel(
   trackingStatus: TrackingStatusSnapshot,
   appSettings: AppSettings,
   trackerHealth: TrackerHealthSnapshot,
+  trackingRuntimeProbeStatus: TrackingRuntimeProbeStatus | null = null,
 ): WidgetViewModel {
   const text = UI_TEXT.widget;
   const trackableAppName = resolveTrackableAppName(activeWindow);
@@ -102,7 +108,7 @@ export function buildWidgetViewModel(
     && trackingStatus.isTrackingActive,
   );
 
-  if (trackerHealth.status !== "healthy") {
+  if (trackerHealth.status !== "healthy" || isHardDegradedProbeStatus(trackingRuntimeProbeStatus)) {
     return {
       statusTone: "error",
       statusLabel: text.error,

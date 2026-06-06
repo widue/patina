@@ -1,5 +1,6 @@
 import type {
   TrackerHealthSnapshot,
+  TrackingRuntimeProbeStatus,
   TrackingStatusSnapshot,
   TrackingWindowSnapshot,
 } from "../../shared/types/tracking.ts";
@@ -21,6 +22,7 @@ export interface AppRuntimeBootstrapSnapshot {
   settings: AppSettings;
   activeWindow: TrackingWindowSnapshot | null;
   trackingStatus: TrackingStatusSnapshot;
+  trackingRuntimeProbeStatus: TrackingRuntimeProbeStatus | null;
   trackerHealth: TrackerHealthSnapshot;
 }
 
@@ -77,6 +79,7 @@ export async function loadAppRuntimeBootstrapSnapshotWithDeps(
     settings,
     activeWindow: trackingSnapshot?.window ?? null,
     trackingStatus: trackingSnapshot?.status ?? DEFAULT_TRACKING_STATUS,
+    trackingRuntimeProbeStatus: trackingSnapshot?.probeStatus ?? null,
     trackerHealth,
   };
 }

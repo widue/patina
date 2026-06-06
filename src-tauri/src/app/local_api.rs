@@ -3,7 +3,7 @@ use crate::data::sqlite_pool::wait_for_sqlite_pool;
 use crate::domain::settings::LocalApiSettings;
 use crate::domain::tracking::TrackingStatusSnapshot;
 use crate::engine::tracking::runtime_snapshot::{
-    TrackingRuntimeProbeStatus, TrackingRuntimeSnapshotState,
+    TrackingRuntimeProbeDiagnostics, TrackingRuntimeProbeStatus, TrackingRuntimeSnapshotState,
 };
 use crate::platform::local_api::{
     self, LocalApiRuntimeDeps, LocalApiRuntimeState, LOCAL_API_ACTIVE_WINDOW_EVENT,
@@ -23,6 +23,7 @@ struct LocalApiTrackingSnapshot {
     sampled_at_ms: i64,
     probe_status: TrackingRuntimeProbeStatus,
     degraded_reason: Option<String>,
+    probe_diagnostics: TrackingRuntimeProbeDiagnostics,
 }
 
 pub fn start<R: Runtime + 'static>(app: AppHandle<R>) {
@@ -129,6 +130,7 @@ async fn load_snapshot_message<R: Runtime>(app: AppHandle<R>) -> Option<String> 
         sampled_at_ms: snapshot.sampled_at_ms,
         probe_status: snapshot.probe_status,
         degraded_reason: snapshot.degraded_reason,
+        probe_diagnostics: snapshot.probe_diagnostics,
     };
     Some(local_api::message_json(
         "snapshot",

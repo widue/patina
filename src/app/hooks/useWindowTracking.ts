@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { DEFAULT_SETTINGS, type AppSettings } from "../../shared/settings/appSettings";
 import type {
   TrackerHealthSnapshot,
+  TrackingRuntimeProbeStatus,
   TrackingStatusSnapshot,
   TrackingWindowSnapshot,
 } from "../../shared/types/tracking";
@@ -36,6 +37,7 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
   const shouldSyncDesktopLaunchBehavior = options.syncDesktopLaunchBehavior ?? true;
   const [activeWindow, setActiveWindow] = useState<TrackingWindowSnapshot | null>(null);
   const [trackingStatus, setTrackingStatus] = useState<TrackingStatusSnapshot>(DEFAULT_TRACKING_STATUS);
+  const [trackingRuntimeProbeStatus, setTrackingRuntimeProbeStatus] = useState<TrackingRuntimeProbeStatus | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [syncTick, setSyncTick] = useState(0);
   const [classificationReady, setClassificationReady] = useState(false);
@@ -57,6 +59,7 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
         setAppSettings(bootstrap.settings);
         setActiveWindow(bootstrap.activeWindow);
         setTrackingStatus(bootstrap.trackingStatus);
+        setTrackingRuntimeProbeStatus(bootstrap.trackingRuntimeProbeStatus);
         setTrackerHealth(bootstrap.trackerHealth);
         setClassificationReady(true);
       } catch (err) {
@@ -81,6 +84,7 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
 
         setActiveWindow(snapshot.window);
         setTrackingStatus(snapshot.status);
+        setTrackingRuntimeProbeStatus(snapshot.probeStatus ?? null);
       });
       if (cancelled) {
         activeWindowUnlisten();
@@ -113,6 +117,11 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
             setTrackingStatus: (nextStatus) => {
               if (!cancelled) {
                 setTrackingStatus(nextStatus);
+              }
+            },
+            setTrackingRuntimeProbeStatus: (nextStatus) => {
+              if (!cancelled) {
+                setTrackingRuntimeProbeStatus(nextStatus);
               }
             },
             bumpSyncTick: () => {
@@ -179,5 +188,6 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
     classificationReady,
     syncTick,
     trackerHealth,
+    trackingRuntimeProbeStatus,
   };
 }

@@ -49,6 +49,7 @@ export function runRuntimeEffectsTests() {
 
     assert.equal(snapshot.settings.themeMode, "system");
     assert.equal(snapshot.settings, settings);
+    assert.equal(snapshot.trackingRuntimeProbeStatus, null);
     assert.equal(snapshot.trackerHealth, trackerHealth);
     assert.equal(warnings.length, 1);
     assert.equal(warnings[0].error, mapperError);
@@ -153,8 +154,16 @@ export function runRuntimeEffectsTests() {
     assert.equal(isRawCurrentTrackingSnapshot({
       ...validCurrentTrackingSnapshot,
       sampled_at_ms: 123,
-      probe_status: "timeout-fallback",
+      probe_status: "hard-degraded-fallback",
       degraded_reason: "active window poll timed out after 3 seconds",
+      probe_diagnostics: {
+        last_successful_sample_at_ms: 120,
+        fallback_started_at_ms: 121,
+        fallback_count: 2,
+        consecutive_fallback_count: 2,
+        recovery_attempt_count: 1,
+        last_recovery_attempt_at_ms: 122,
+      },
     }), true);
     assert.equal(isRawCurrentTrackingSnapshot({
       ...validCurrentTrackingSnapshot,
@@ -301,6 +310,7 @@ export function runRuntimeEffectsTests() {
   runTest("tracking data changed runtime prefers full tracking snapshot when available", async () => {
     let syncedWindowExeName: string | null = null;
     let syncedTrackingActive: boolean | null = null;
+    let syncedProbeStatus: string | null = null;
 
     await applyTrackingDataChangedPayload({
       reason: "passive-participation-sealed",
@@ -352,6 +362,7 @@ export function runRuntimeEffectsTests() {
             },
           },
         },
+        probeStatus: "hard-degraded-fallback",
       }),
       setAppSettings: () => {},
       setActiveWindow: (nextWindow) => {
@@ -359,6 +370,9 @@ export function runRuntimeEffectsTests() {
       },
       setTrackingStatus: (nextStatus) => {
         syncedTrackingActive = nextStatus.isTrackingActive;
+      },
+      setTrackingRuntimeProbeStatus: (nextStatus) => {
+        syncedProbeStatus = nextStatus;
       },
       bumpSyncTick: () => {},
       warn: () => {
@@ -368,6 +382,7 @@ export function runRuntimeEffectsTests() {
 
     assert.equal(syncedWindowExeName, "chrome.exe");
     assert.equal(syncedTrackingActive, false);
+    assert.equal(syncedProbeStatus, "hard-degraded-fallback");
   });
 
   runTest("tracking data changed runtime warns but still refreshes when pause sync fails", async () => {
