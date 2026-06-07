@@ -22,7 +22,7 @@
 
 截至当前发布线：
 
-- 代码版本为 `1.4.2`
+- 代码版本为 `1.4.3`
 - 稳定发布线为 `1.x`
 - 仓库已进入公开稳定阶段，后续版本按标准 `SemVer` 管理
 - 默认通过推送 `vX.Y.Z` / `vX.Y.Z-prerelease` 版本 tag 自动触发 GitHub Actions 工作流 [prepare-release.yml](../.github/workflows/prepare-release.yml) 中的 `Publish Release` 流程；必要时也可手动触发该工作流
@@ -232,7 +232,27 @@ App note: 一句话概括应用内更新提示要显示的变化。
 - `Internal` 只写对发布理解有帮助的架构、工程、验证或发布流程改进；控制在少量高价值条目，不要写成 commit 清单
 - 每个正式版本默认优先保证 `Release:`、`App note:`、`Changed`、`Fixed` 可读，再决定是否真的需要写 `Added`、`Removed`、`Internal`
 - 如果一条内容需要用户先理解仓库结构、模块名或历史执行计划才看得懂，默认应该继续改写
-## 8.5 维护规则
+
+## 8.5 发布对比基线
+
+正式版本的 changelog 必须基于“上一个已发布版本到本次发布”的完整对比来写。
+
+默认流程：
+
+1. 先确认最近一个已发布 tag，例如 `v1.4.2`。
+2. 查看完整 commit 范围：`git log v1.4.2..HEAD`。
+3. 查看完整文件范围：`git diff --stat v1.4.2..HEAD` 与必要的关键文件 diff。
+4. 用这段范围的最终交付结果整理 `Added / Changed / Fixed / Removed / Internal`。
+5. 再检查当前未提交的发布准备改动，例如版本号、文案和资源文件，确认是否也应计入本版本说明。
+
+写作判断：
+
+- 如果某个问题只在本轮开发过程中短暂出现，发布前已经被修正，且上一个已发布版本并不存在这个问题，不写进 `Fixed`。
+- 如果某个能力在上一个已发布版本没有、本次发布后用户可以使用，应写进 `Added` 或 `Changed`，即使它不是最后一轮提交。
+- 如果某项内部改动解释了本次发布的性能、稳定性或验证边界，可写进 `Internal`；否则不要把 commit 清单搬进 changelog。
+- 如果 changelog 与 `git diff vX.Y.Z..HEAD` 读出来的发布范围不一致，应先改 changelog，再继续发布。
+
+## 8.6 维护规则
 
 开发进行中：
 
