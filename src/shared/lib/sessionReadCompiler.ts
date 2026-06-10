@@ -343,6 +343,15 @@ function getClippedDuration(
   return Math.max(0, clippedEnd - clippedStart);
 }
 
+function sessionOverlapsRange(
+  session: HistorySession,
+  rangeStartMs: number,
+  rangeEndMs: number,
+) {
+  const rawEndTime = Math.max(session.startTime, getSessionRawEndTime(session));
+  return session.startTime < rangeEndMs && rawEndTime > rangeStartMs;
+}
+
 function formatDateKey(timestampMs: number) {
   const date = new Date(timestampMs);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
@@ -379,7 +388,11 @@ export function compileSessions(
   sessions: DiagnosableHistorySession[],
   options: CompileSessionsOptions,
 ): CompiledSession[] {
-  return buildCompiledSessionBase(sessions, options.minSessionSecs, options.keepLatestLiveSession)
+  const candidateSessions = sessions.filter((session) => (
+    sessionOverlapsRange(session, options.startMs, options.endMs)
+  ));
+
+  return buildCompiledSessionBase(candidateSessions, options.minSessionSecs, options.keepLatestLiveSession)
     .map((session) => clipCompiledSession(session, options.startMs, options.endMs))
     .filter((session): session is CompiledSession => Boolean(session));
 }

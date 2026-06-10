@@ -8,6 +8,11 @@ const host = process.env.TAURI_DEV_HOST;
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [tailwindcss(), react()],
+  optimizeDeps: {
+    // Keep Vite dep-scan anchored to the app entry so Tauri build artifacts
+    // under src-tauri/target are not treated as extra HTML entrypoints.
+    entries: ["index.html"],
+  },
   build: {
     rollupOptions: {
       output: {
