@@ -1,6 +1,8 @@
 use crate::app::state::{DesktopBehaviorState, MainWindowLifecycleState};
 use crate::app::widget;
+use crate::domain::settings::MinimizeBehavior;
 use crate::platform::app_paths;
+use crate::platform::windows::window_activation;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window};
 
@@ -26,8 +28,42 @@ pub(crate) fn show_main_window<R: Runtime + 'static>(app: &AppHandle<R>) {
 
     let _ = window.show();
     let _ = window.unminimize();
+    // Win+D can leave the HWND outside Tauri's normal minimized/visible path.
+    if let Err(error) = window_activation::restore_to_foreground(&window) {
+        eprintln!("[main-window] failed to restore native foreground window: {error}");
+    }
     let _ = window.set_focus();
     widget::close_widget_window(app);
+}
+
+pub(crate) fn minimize_main_window<R: Runtime + 'static>(app: &AppHandle<R>) {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return;
+    };
+
+    let settings = app.state::<DesktopBehaviorState>().snapshot();
+    if settings.minimize_behavior == MinimizeBehavior::Widget {
+        minimize_main_window_to_widget(app, &window);
+        return;
+    }
+
+    if let Err(error) = window.minimize() {
+        eprintln!("[main-window] failed to minimize main window: {error}");
+    }
+}
+
+fn minimize_main_window_to_widget<R: Runtime + 'static>(
+    app: &AppHandle<R>,
+    window: &WebviewWindow<R>,
+) {
+    let preferred_monitor = window.current_monitor().ok().flatten();
+    let _ = window.hide();
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(error) = widget::show_widget_window(&app_handle, preferred_monitor).await {
+            eprintln!("[widget] failed to show widget window: {error}");
+        }
+    });
 }
 
 pub(crate) fn hide_main_window_for_background<R: Runtime + 'static>(

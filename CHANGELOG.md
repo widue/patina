@@ -26,7 +26,7 @@ App note en: TBD.
 
 ### Fixed
 
-- 暂无。
+- 修复 Windows 上按 `Win+D` 显示桌面后，Patina 主窗口可能无法从任务栏或托盘重新打开的问题。Refs [#18](https://github.com/Ceceliaee/patina/issues/18)
 
 ### Removed
 

@@ -8,3 +8,4 @@ pub mod media;
 pub mod notifications;
 pub mod power;
 pub mod resource;
+pub mod window_activation;

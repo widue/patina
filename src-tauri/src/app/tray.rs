@@ -4,7 +4,7 @@ use crate::app::state::{AppExitState, DesktopBehaviorState};
 use crate::app::widget;
 use crate::data::repositories::tracker_settings;
 use crate::data::sqlite_pool::wait_for_sqlite_pool;
-use crate::domain::settings::{CloseBehavior, DesktopBehaviorSettings, MinimizeBehavior};
+use crate::domain::settings::{CloseBehavior, DesktopBehaviorSettings};
 use crate::engine::tracking::runtime as tracking_runtime;
 use sqlx::{Pool, Sqlite};
 use tauri::{
@@ -136,22 +136,6 @@ pub(crate) fn handle_window_event<R: Runtime>(window: &Window<R>, event: &Window
             widget::close_widget_window(app);
             main_window::hide_main_window_for_background(app, window);
         }
-        return;
-    }
-
-    if !window.is_minimized().unwrap_or(false) {
-        return;
-    }
-
-    if settings.minimize_behavior == MinimizeBehavior::Widget {
-        let preferred_monitor = window.current_monitor().ok().flatten();
-        let _ = window.hide();
-        let app_handle = app.clone();
-        tauri::async_runtime::spawn(async move {
-            if let Err(error) = widget::show_widget_window(&app_handle, preferred_monitor).await {
-                eprintln!("[widget] failed to show widget window: {error}");
-            }
-        });
     }
 }
 

@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 export interface CurrentWindowForegroundState {
@@ -7,7 +8,7 @@ export interface CurrentWindowForegroundState {
 }
 
 export async function minimizeCurrentWindow(): Promise<void> {
-  await getCurrentWindow().minimize();
+  await invoke("cmd_minimize_main_window");
 }
 
 export async function toggleCurrentWindowMaximized(): Promise<void> {
