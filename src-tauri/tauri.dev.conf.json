@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Patina Dev",
-  "version": "1.5.0",
+  "mainBinaryName": "PatinaDev",
+  "version": "1.5.1",
   "identifier": "com.timetracker.dev",
   "build": {
     "beforeDevCommand": "npm run dev",

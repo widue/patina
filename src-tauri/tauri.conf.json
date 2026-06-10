@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Patina",
-  "version": "1.5.0",
+  "mainBinaryName": "Patina",
+  "version": "1.5.1",
   "identifier": "com.timetracker",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -38,7 +39,14 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "startMenuFolder": "Patina",
+        "installerHooks": "nsis/patina-migration-hooks.nsh"
+      }
+    }
   },
   "plugins": {
     "sql": {

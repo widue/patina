@@ -1,7 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Patina Local",
-  "version": "1.5.0",
+  "mainBinaryName": "PatinaLocal",
+  "version": "1.5.1",
   "identifier": "com.timetracker.local",
   "build": {
     "beforeBuildCommand": "npm run build",

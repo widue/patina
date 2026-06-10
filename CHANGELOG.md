@@ -36,6 +36,32 @@ App note en: TBD.
 
 - 暂无。
 
+## [1.5.1] - 2026-06-10
+
+Release: 修复更名后旧 Time Tracker 自启动仍可能启动 1.4.3 的问题。
+App note: 修复旧版本自启动问题。
+App note en: Fixes legacy Time Tracker autostart after the rename.
+
+### Added
+
+- 暂无。
+
+### Changed
+
+- 新安装包主程序名从 `patina.exe` 调整为 `Patina.exe`，开始菜单目录固定为 `Patina`。
+
+### Fixed
+
+- 修复 `Time Tracker` 更名为 `Patina` 后旧安装目录、旧快捷方式和旧开机自启入口仍可能启动 1.4.3 的问题；新安装包会清理旧入口，运行时也会移除旧自启动注册值。
+
+### Removed
+
+- 暂无。
+
+### Internal
+
+- 暂无。
+
 ## [1.5.0] - 2026-06-09
 
 Release: 产品更名为 Patina，并新增轻量时间工具页面。

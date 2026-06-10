@@ -52,6 +52,8 @@ pub fn setup(
     power::start(app.handle().clone());
     audio::start_signal_source();
     media::start_signal_source();
+    #[cfg(target_os = "windows")]
+    crate::platform::windows::legacy_install::cleanup_legacy_time_tracker_autostart_entries();
     crate::app::local_api::start(app.handle().clone());
 
     let app_handle = app.handle().clone();
