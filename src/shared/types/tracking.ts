@@ -129,6 +129,12 @@ export interface TrackerHealthSnapshot {
   staleAfterMs: number;
 }
 
+export interface TrackerHealthRuntimeSnapshot {
+  lastHeartbeatMs: number | null;
+  lastSuccessfulSampleMs: number | null;
+  lastWatchdogSealSampleMs: number | null;
+}
+
 export const DEFAULT_TRACKING_STATUS: TrackingStatusSnapshot = {
   isTrackingActive: false,
   sustainedParticipationEligible: false,

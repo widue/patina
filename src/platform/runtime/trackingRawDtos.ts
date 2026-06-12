@@ -10,6 +10,7 @@ import type {
   SustainedParticipationState,
   SustainedParticipationStatusReason,
   TrackingDataChangedPayload,
+  TrackerHealthRuntimeSnapshot,
   TrackingRuntimeProbeDiagnostics,
   TrackingStatusSnapshot,
   TrackingRuntimeProbeStatus,
@@ -85,6 +86,12 @@ export interface RawTrackingRuntimeProbeDiagnostics {
 export interface RawTrackingDataChangedPayload {
   reason: string;
   changed_at_ms: number;
+}
+
+export interface RawTrackerHealthRuntimeSnapshot {
+  last_heartbeat_ms: number | null;
+  last_successful_sample_ms: number | null;
+  last_watchdog_seal_sample_ms: number | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -318,6 +325,21 @@ export function isRawTrackingDataChangedPayload(value: unknown): value is RawTra
     && typeof value.changed_at_ms === "number";
 }
 
+export function isRawTrackerHealthRuntimeSnapshot(
+  value: unknown,
+): value is RawTrackerHealthRuntimeSnapshot {
+  return isRecord(value)
+    && (value.last_heartbeat_ms === null || typeof value.last_heartbeat_ms === "number")
+    && (
+      value.last_successful_sample_ms === null
+      || typeof value.last_successful_sample_ms === "number"
+    )
+    && (
+      value.last_watchdog_seal_sample_ms === null
+      || typeof value.last_watchdog_seal_sample_ms === "number"
+    );
+}
+
 export function mapRawTrackingWindowSnapshot(
   raw: RawTrackingWindowSnapshot,
 ): TrackingWindowSnapshot {
@@ -425,6 +447,16 @@ export function mapRawTrackingDataChangedPayload(
   };
 }
 
+export function mapRawTrackerHealthRuntimeSnapshot(
+  raw: RawTrackerHealthRuntimeSnapshot,
+): TrackerHealthRuntimeSnapshot {
+  return {
+    lastHeartbeatMs: raw.last_heartbeat_ms,
+    lastSuccessfulSampleMs: raw.last_successful_sample_ms,
+    lastWatchdogSealSampleMs: raw.last_watchdog_seal_sample_ms,
+  };
+}
+
 export function parseTrackingWindowSnapshot(value: unknown): TrackingWindowSnapshot | null {
   return isRawTrackingWindowSnapshot(value) ? mapRawTrackingWindowSnapshot(value) : null;
 }
@@ -435,4 +467,10 @@ export function parseCurrentTrackingSnapshot(value: unknown): CurrentTrackingSna
 
 export function parseTrackingDataChangedPayload(value: unknown): TrackingDataChangedPayload | null {
   return isRawTrackingDataChangedPayload(value) ? mapRawTrackingDataChangedPayload(value) : null;
+}
+
+export function parseTrackerHealthRuntimeSnapshot(
+  value: unknown,
+): TrackerHealthRuntimeSnapshot | null {
+  return isRawTrackerHealthRuntimeSnapshot(value) ? mapRawTrackerHealthRuntimeSnapshot(value) : null;
 }

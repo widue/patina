@@ -34,10 +34,16 @@ export function startTrackerHealthPolling(
   options: TrackerHealthPollingOptions = {},
 ) {
   let disposed = false;
+  let refreshInFlight = false;
   const deps = resolveTrackerHealthPollingDeps(options.deps);
   const intervalMs = options.intervalMs ?? TRACKER_HEARTBEAT_POLL_MS;
 
   const refreshTrackerHealth = async () => {
+    if (refreshInFlight) {
+      return;
+    }
+
+    refreshInFlight = true;
     try {
       const snapshot = await deps.loadSnapshot(deps.now());
       if (!disposed) {
@@ -47,6 +53,8 @@ export function startTrackerHealthPolling(
       if (!disposed) {
         deps.warn("load tracker health failed", error);
       }
+    } finally {
+      refreshInFlight = false;
     }
   };
 

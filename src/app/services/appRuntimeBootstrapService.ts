@@ -1,4 +1,5 @@
 import type {
+  TrackerHealthRuntimeSnapshot,
   TrackerHealthSnapshot,
   TrackingRuntimeProbeStatus,
   TrackingStatusSnapshot,
@@ -8,6 +9,7 @@ import { DEFAULT_TRACKING_STATUS, resolveTrackerHealth } from "../../shared/type
 import type { AppSettings } from "./appSettingsRuntimeService.ts";
 import {
   getCurrentTrackingSnapshot,
+  getTrackerHealthRuntimeSnapshot,
   setAfkThreshold,
 } from "../../platform/runtime/trackingRuntimeGateway.ts";
 import {
@@ -35,6 +37,12 @@ interface AppRuntimeBootstrapDeps {
   reportWarning?: (message: string, error: unknown) => void;
 }
 
+interface TrackerHealthSnapshotDeps {
+  getTrackerHealthRuntimeSnapshot: () => Promise<TrackerHealthRuntimeSnapshot | null>;
+  loadTrackerHealthTimestampMs: () => Promise<number | null>;
+  warn: (message: string, error?: unknown) => void;
+}
+
 const appRuntimeBootstrapDeps: AppRuntimeBootstrapDeps = {
   loadCurrentAppSettings,
   setAfkThreshold,
@@ -43,12 +51,39 @@ const appRuntimeBootstrapDeps: AppRuntimeBootstrapDeps = {
   loadTrackerHealthSnapshot,
 };
 
+let warnedTrackerHealthFallback = false;
+
 export async function loadTrackerHealthSnapshot(nowMs: number = Date.now()): Promise<TrackerHealthSnapshot> {
+  return loadTrackerHealthSnapshotWithDeps(nowMs, {
+    getTrackerHealthRuntimeSnapshot,
+    loadTrackerHealthTimestampMs,
+    warn: console.warn,
+  });
+}
+
+export async function loadTrackerHealthSnapshotWithDeps(
+  nowMs: number,
+  deps: TrackerHealthSnapshotDeps,
+): Promise<TrackerHealthSnapshot> {
+  const runtimeSnapshot = await deps.getTrackerHealthRuntimeSnapshot();
+  if (runtimeSnapshot) {
+    return resolveTrackerHealth(
+      runtimeSnapshot.lastHeartbeatMs,
+      nowMs,
+      TRACKER_HEARTBEAT_STALE_AFTER_MS,
+    );
+  }
+
+  if (!warnedTrackerHealthFallback) {
+    warnedTrackerHealthFallback = true;
+    deps.warn("Falling back to stored tracker heartbeat; runtime health snapshot unavailable");
+  }
+
   try {
-    const lastHeartbeatMs = await loadTrackerHealthTimestampMs();
+    const lastHeartbeatMs = await deps.loadTrackerHealthTimestampMs();
     return resolveTrackerHealth(lastHeartbeatMs, nowMs, TRACKER_HEARTBEAT_STALE_AFTER_MS);
   } catch (error) {
-    console.warn("Failed to load tracker heartbeat", error);
+    deps.warn("Failed to load tracker heartbeat", error);
     return resolveTrackerHealth(null, nowMs, TRACKER_HEARTBEAT_STALE_AFTER_MS);
   }
 }

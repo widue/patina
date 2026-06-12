@@ -23,7 +23,11 @@ pub struct BootstrapInput {
 
 pub fn build(input: BootstrapInput) -> tauri::Builder<tauri::Wry> {
     let builder = register_single_instance_plugin(tauri::Builder::<tauri::Wry>::default());
-    let builder = register_managed_state_and_plugins(builder, &input.app_version);
+    let builder = register_managed_state_and_plugins(
+        builder,
+        &input.app_version,
+        input.runtime_health.clone(),
+    );
     let builder = register_invoke_handlers(builder);
     register_runtime_hooks(builder, input.runtime_health, input.launched_by_autostart)
 }
@@ -45,6 +49,7 @@ fn register_single_instance_plugin(
 fn register_managed_state_and_plugins(
     builder: tauri::Builder<tauri::Wry>,
     app_version: &str,
+    runtime_health: Arc<RuntimeHealthState>,
 ) -> tauri::Builder<tauri::Wry> {
     builder
         .manage(DesktopBehaviorState::default())
@@ -52,6 +57,7 @@ fn register_managed_state_and_plugins(
         .manage(MainWindowLifecycleState::default())
         .manage(WidgetWindowLifecycleState::default())
         .manage(TrackingRuntimeSnapshotState::default())
+        .manage(runtime_health)
         .manage(ToolsRuntimeState::default())
         .manage(crate::platform::local_api::LocalApiRuntimeState::default())
         .manage(UpdaterRuntimeState::new(app_version.to_string()))
@@ -71,6 +77,7 @@ fn register_invoke_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Build
         commands::apps::get_icon,
         commands::tracking::get_current_active_window,
         commands::tracking::get_current_tracking_snapshot,
+        commands::tracking::cmd_get_tracker_health_snapshot,
         commands::tracking::cmd_set_afk_threshold,
         commands::settings::cmd_set_desktop_behavior,
         commands::settings::cmd_set_launch_behavior,

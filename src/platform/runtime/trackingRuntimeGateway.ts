@@ -3,10 +3,12 @@ import { listen, type Event } from "@tauri-apps/api/event";
 import {
   parseCurrentTrackingSnapshot,
   parseTrackingDataChangedPayload,
+  parseTrackerHealthRuntimeSnapshot,
   parseTrackingWindowSnapshot,
 } from "./trackingRawDtos.ts";
 import type {
   CurrentTrackingSnapshot,
+  TrackerHealthRuntimeSnapshot,
   TrackingDataChangedPayload,
   TrackingWindowSnapshot,
 } from "../../shared/types/tracking.ts";
@@ -24,6 +26,15 @@ export async function getCurrentTrackingSnapshot(): Promise<CurrentTrackingSnaps
   try {
     const payload = await invoke<unknown>("get_current_tracking_snapshot");
     return parseCurrentTrackingSnapshot(payload);
+  } catch {
+    return null;
+  }
+}
+
+export async function getTrackerHealthRuntimeSnapshot(): Promise<TrackerHealthRuntimeSnapshot | null> {
+  try {
+    const payload = await invoke<unknown>("cmd_get_tracker_health_snapshot");
+    return parseTrackerHealthRuntimeSnapshot(payload);
   } catch {
     return null;
   }

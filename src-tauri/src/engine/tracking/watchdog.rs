@@ -20,6 +20,13 @@ pub struct RuntimeHealthState {
     last_watchdog_seal_sample_ms: AtomicI64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RuntimeHealthSnapshot {
+    pub last_heartbeat_ms: Option<i64>,
+    pub last_successful_sample_ms: Option<i64>,
+    pub last_watchdog_seal_sample_ms: Option<i64>,
+}
+
 impl RuntimeHealthState {
     pub fn note_heartbeat(&self, timestamp_ms: i64) {
         self.last_heartbeat_ms
@@ -43,6 +50,19 @@ impl RuntimeHealthState {
 
     fn last_watchdog_seal_sample_ms(&self) -> Option<i64> {
         let timestamp_ms = self.last_watchdog_seal_sample_ms.load(Ordering::Relaxed);
+        (timestamp_ms > 0).then_some(timestamp_ms)
+    }
+
+    pub fn snapshot(&self) -> RuntimeHealthSnapshot {
+        RuntimeHealthSnapshot {
+            last_heartbeat_ms: self.last_heartbeat_ms(),
+            last_successful_sample_ms: self.last_successful_sample_ms(),
+            last_watchdog_seal_sample_ms: self.last_watchdog_seal_sample_ms(),
+        }
+    }
+
+    fn last_heartbeat_ms(&self) -> Option<i64> {
+        let timestamp_ms = self.last_heartbeat_ms.load(Ordering::Relaxed);
         (timestamp_ms > 0).then_some(timestamp_ms)
     }
 }
@@ -130,4 +150,50 @@ fn now_ms() -> i64 {
 
 fn log_watchdog_error(message: impl AsRef<str>) {
     eprintln!("[tracker] {}", message.as_ref());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RuntimeHealthState;
+
+    #[test]
+    fn runtime_health_snapshot_starts_empty() {
+        let state = RuntimeHealthState::default();
+
+        assert_eq!(state.snapshot().last_heartbeat_ms, None);
+        assert_eq!(state.snapshot().last_successful_sample_ms, None);
+        assert_eq!(state.snapshot().last_watchdog_seal_sample_ms, None);
+    }
+
+    #[test]
+    fn runtime_health_snapshot_tracks_heartbeat() {
+        let state = RuntimeHealthState::default();
+
+        state.note_heartbeat(12_000);
+
+        assert_eq!(state.snapshot().last_heartbeat_ms, Some(12_000));
+        assert_eq!(state.snapshot().last_successful_sample_ms, None);
+    }
+
+    #[test]
+    fn runtime_health_snapshot_tracks_successful_sample() {
+        let state = RuntimeHealthState::default();
+
+        state.note_successful_sample(13_000);
+
+        assert_eq!(state.snapshot().last_heartbeat_ms, None);
+        assert_eq!(state.snapshot().last_successful_sample_ms, Some(13_000));
+    }
+
+    #[test]
+    fn runtime_health_snapshot_tracks_watchdog_seal_separately() {
+        let state = RuntimeHealthState::default();
+
+        state.note_successful_sample(14_000);
+        state.note_watchdog_seal(14_000);
+
+        let snapshot = state.snapshot();
+        assert_eq!(snapshot.last_successful_sample_ms, Some(14_000));
+        assert_eq!(snapshot.last_watchdog_seal_sample_ms, Some(14_000));
+    }
 }

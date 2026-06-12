@@ -521,6 +521,7 @@ await runTest("tracker health polling is foreground gated without resubscribing 
   const shell = readUtf8("src/app/AppShell.tsx");
   const hook = readUtf8("src/app/hooks/useWindowTracking.ts");
   const service = readUtf8("src/app/services/trackerHealthPollingService.ts");
+  const bootstrap = readUtf8("src/app/services/appRuntimeBootstrapService.ts");
   const initEffect = hook.slice(
     hook.indexOf("const init = async"),
     hook.indexOf("if (!trackerHealthPollingEnabled) return undefined;"),
@@ -536,6 +537,10 @@ await runTest("tracker health polling is foreground gated without resubscribing 
   assert.match(pollingEffect, /startTrackerHealthPolling/);
   assert.match(service, /refreshImmediately/);
   assert.match(service, /disposed/);
+  assert.doesNotMatch(service, /loadTrackerHealthTimestampMs/);
+  assert.doesNotMatch(service, /platform\/persistence/);
+  assert.match(bootstrap, /getTrackerHealthRuntimeSnapshot/);
+  assert.match(bootstrap, /loadTrackerHealthTimestampMs/);
 });
 
 await runTest("pomodoro alert dialog offers a pause action without changing other alerts", () => {
