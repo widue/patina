@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import {
+  readHistoryDayDistributionMode,
+  rememberHistoryDayDistributionMode,
+} from "../src/features/history/services/historyLayoutPreferenceStorage.ts";
 import { buildHistoryTimelineViewModel } from "../src/features/history/services/historyTimelineViewModel.ts";
 import { ProcessMapper } from "../src/shared/classification/processMapper.ts";
 import type { CompiledSession } from "../src/shared/lib/sessionReadCompiler.ts";
@@ -6,6 +10,52 @@ import { createTestHarness } from "./helpers/trackingTestHarness.ts";
 
 const harness = createTestHarness();
 const runTest = harness.run;
+
+class MemoryStorage {
+  private values = new Map<string, string>();
+
+  get length() {
+    return this.values.size;
+  }
+
+  clear() {
+    this.values.clear();
+  }
+
+  getItem(key: string) {
+    return this.values.get(key) ?? null;
+  }
+
+  key(index: number) {
+    return Array.from(this.values.keys())[index] ?? null;
+  }
+
+  removeItem(key: string) {
+    this.values.delete(key);
+  }
+
+  setItem(key: string, value: string) {
+    this.values.set(key, value);
+  }
+}
+
+function withWindowStorage(storage: MemoryStorage, fn: () => void) {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage },
+  });
+
+  try {
+    fn();
+  } finally {
+    if (descriptor) {
+      Object.defineProperty(globalThis, "window", descriptor);
+    } else {
+      delete (globalThis as { window?: unknown }).window;
+    }
+  }
+}
 
 function makeCompiledSession(overrides: Partial<CompiledSession> = {}): CompiledSession {
   const startTime = overrides.startTime ?? new Date(2026, 0, 2, 9, 0, 0, 0).getTime();
@@ -54,6 +104,28 @@ runTest("empty timeline keeps a stable axis", () => {
     viewModel.axisTicks.map((tick) => tick.label),
     ["00:00", "06:00", "12:00", "18:00", "24:00"],
   );
+});
+
+runTest("day distribution mode persists locally", () => {
+  assert.equal(readHistoryDayDistributionMode(), "app");
+
+  withWindowStorage(new MemoryStorage(), () => {
+    assert.equal(readHistoryDayDistributionMode(), "app");
+
+    rememberHistoryDayDistributionMode("category");
+    assert.equal(readHistoryDayDistributionMode(), "category");
+    assert.equal(window.localStorage.getItem("patina:history-day-distribution-mode"), "category");
+
+    window.localStorage.removeItem("patina:history-day-distribution-mode");
+    window.localStorage.setItem("time-tracker:history-day-distribution-mode", "category");
+
+    assert.equal(readHistoryDayDistributionMode(), "category");
+    assert.equal(window.localStorage.getItem("patina:history-day-distribution-mode"), "category");
+    assert.equal(window.localStorage.getItem("time-tracker:history-day-distribution-mode"), null);
+
+    window.localStorage.setItem("patina:history-day-distribution-mode", "timeline");
+    assert.equal(readHistoryDayDistributionMode(), "app");
+  });
 });
 
 runTest("timeline ratios use the full local day", () => {

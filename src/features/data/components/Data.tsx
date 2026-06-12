@@ -1,4 +1,4 @@
-import { type CSSProperties, type MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, type MouseEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, CalendarDays, ChevronLeft, ChevronRight, Clock3, Search } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { UI_TEXT } from "../../../shared/copy/uiText.ts";
@@ -79,6 +79,88 @@ function dedupeDataAppOptions(options: DataAppOption[]) {
 }
 
 const DATA_TREND_X_AXIS_MIN_TICK_GAP = 24;
+type DataChartDimension = { width: number; height: number };
+type DataChartDimensionKey = "overviewTrend" | "appTrend";
+const dataChartDimensionCache: Partial<Record<DataChartDimensionKey, DataChartDimension>> = {};
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getDataViewportSize() {
+  if (typeof window === "undefined") {
+    return { width: 1366, height: 768 };
+  }
+
+  return { width: window.innerWidth, height: window.innerHeight };
+}
+
+function getOverviewTrendChartInitialDimension(): DataChartDimension {
+  const viewport = getDataViewportSize();
+  const isWideReferenceLayout = viewport.width >= 1900;
+  const width = isWideReferenceLayout
+    ? 852
+    : clampNumber(viewport.width - 296, 560, 1280);
+  const height = viewport.width >= 1536 && viewport.height >= 900 ? 214 : viewport.width <= 900 ? 140 : 168;
+
+  return { width, height };
+}
+
+function getAppTrendChartInitialDimension(): DataChartDimension {
+  const viewport = getDataViewportSize();
+  const width = viewport.width >= 1900
+    ? 852
+    : clampNumber(viewport.width - 520, 420, 860);
+  const height = viewport.width >= 1900 ? 150 : 172;
+
+  return { width, height };
+}
+
+function useDataChartInitialDimension(
+  key: DataChartDimensionKey,
+  getFallbackDimension: () => DataChartDimension,
+) {
+  const chartRef = useRef<HTMLDivElement | null>(null);
+  const [initialDimension, setInitialDimension] = useState<DataChartDimension>(
+    () => dataChartDimensionCache[key] ?? getFallbackDimension(),
+  );
+
+  useIsomorphicLayoutEffect(() => {
+    const element = chartRef.current;
+    if (!element) {
+      return undefined;
+    }
+
+    const syncDimension = () => {
+      const rect = element.getBoundingClientRect();
+      const width = Math.round(rect.width);
+      const height = Math.round(rect.height);
+      if (width <= 0 || height <= 0) {
+        return;
+      }
+
+      const next = { width, height };
+      dataChartDimensionCache[key] = next;
+      setInitialDimension((previous) => (
+        previous.width === width && previous.height === height ? previous : next
+      ));
+    };
+
+    syncDimension();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", syncDimension);
+      return () => window.removeEventListener("resize", syncDimension);
+    }
+
+    const observer = new ResizeObserver(syncDimension);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [key]);
+
+  return { chartRef, initialDimension };
+}
 
 export default function Data({
   icons,
@@ -119,6 +201,14 @@ export default function Data({
     initialCachedHeatmapSessions ? "recent" : null,
   );
   const [heatmapLoading, setHeatmapLoading] = useState(!initialCachedHeatmapSessions);
+  const overviewTrendChart = useDataChartInitialDimension(
+    "overviewTrend",
+    getOverviewTrendChartInitialDimension,
+  );
+  const appTrendChart = useDataChartInitialDimension(
+    "appTrend",
+    getAppTrendChartInitialDimension,
+  );
   const nowMs = overviewTrend.nowMs;
   const lastTrendViewModelRef = useRef<{
     rangeCacheKey: string;
@@ -433,6 +523,7 @@ export default function Data({
               />
             ) : (
               <div
+                ref={overviewTrendChart.chartRef}
                 className={`data-trend-chart ${canOpenTrendHistory ? "data-chart-openable" : ""}`}
                 onMouseDownCapture={(event) => {
                   preventChartTextSelection(event, canOpenTrendHistory);
@@ -442,51 +533,51 @@ export default function Data({
                 <ResponsiveContainer
                   width="100%"
                   height="100%"
-                  initialDimension={{ width: 760, height: 168 }}
+                  initialDimension={overviewTrendChart.initialDimension}
                 >
-                <AreaChart
+                  <AreaChart
                     data={visibleTrendViewModel.chartData}
-                  margin={{ top: 8, right: 22, left: -18, bottom: 0 }}
-                  onMouseMove={handleTrendMouseMove}
-                  onMouseLeave={() => {
-                    activeTrendDateRef.current = null;
-                  }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="var(--qp-chart-grid)" />
-                  <XAxis
-                    dataKey="label"
-                    tick={{ fontSize: 11, fill: "var(--qp-text-tertiary)" }}
-                    axisLine={false}
-                    tickLine={false}
-                    interval="preserveStartEnd"
-                    minTickGap={DATA_TREND_X_AXIS_MIN_TICK_GAP}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: "var(--qp-text-tertiary)" }}
-                    axisLine={false}
-                    tickLine={false}
-                    interval={0}
-                    ticks={visibleTrendViewModel.chartAxis.ticks}
-                    domain={[0, visibleTrendViewModel.chartAxis.domainMax]}
-                    tickFormatter={(value) => formatChartHours(Number(value))}
-                  />
-                  <QuietChartTooltip
-                    formatter={(value) => [
-                      formatDuration(Number(value) * 3600000),
-                      UI_TEXT.data.duration,
-                    ]}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="hours"
-                    stroke="var(--qp-accent-default)"
-                    strokeWidth={2}
-                    fill="var(--qp-accent-default)"
-                    fillOpacity={0.12}
-                    dot={{ fill: "var(--qp-accent-default)", r: 3 }}
-                  isAnimationActive={false}
-                />
-              </AreaChart>
+                    margin={{ top: 8, right: 22, left: -18, bottom: 0 }}
+                    onMouseMove={handleTrendMouseMove}
+                    onMouseLeave={() => {
+                      activeTrendDateRef.current = null;
+                    }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--qp-chart-grid)" />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 11, fill: "var(--qp-text-tertiary)" }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={DATA_TREND_X_AXIS_MIN_TICK_GAP}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: "var(--qp-text-tertiary)" }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval={0}
+                      ticks={visibleTrendViewModel.chartAxis.ticks}
+                      domain={[0, visibleTrendViewModel.chartAxis.domainMax]}
+                      tickFormatter={(value) => formatChartHours(Number(value))}
+                    />
+                    <QuietChartTooltip
+                      formatter={(value) => [
+                        formatDuration(Number(value) * 3600000),
+                        UI_TEXT.data.duration,
+                      ]}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="hours"
+                      stroke="var(--qp-accent-default)"
+                      strokeWidth={2}
+                      fill="var(--qp-accent-default)"
+                      fillOpacity={0.12}
+                      dot={{ fill: "var(--qp-accent-default)", r: 3 }}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
             )}
@@ -708,6 +799,7 @@ export default function Data({
                 </div>
               </div>
               <div
+                ref={appTrendChart.chartRef}
                 className={`data-app-chart ${canOpenAppTrendHistory ? "data-chart-openable" : ""}`}
                 onMouseDownCapture={(event) => {
                   preventChartTextSelection(event, canOpenAppTrendHistory);
@@ -717,7 +809,7 @@ export default function Data({
                 <ResponsiveContainer
                   width="100%"
                   height="100%"
-                  initialDimension={{ width: 620, height: 172 }}
+                  initialDimension={appTrendChart.initialDimension}
                 >
                   <AreaChart
                     data={visibleAppTrendViewModel.chartData}

@@ -32,6 +32,11 @@ import {
   buildHistoryTimelineViewModel,
   type HistoryTimelineDisplayMode,
 } from "../services/historyTimelineViewModel.ts";
+import {
+  readHistoryDayDistributionMode,
+  rememberHistoryDayDistributionMode,
+  type DayDistributionMode,
+} from "../services/historyLayoutPreferenceStorage.ts";
 
 interface Props {
   icons: Record<string, string>;
@@ -53,7 +58,6 @@ interface Props {
 }
 
 const TIMELINE_MIN_SESSION_MINUTES_RANGE = { min: 1, max: 10 } as const;
-type DayDistributionMode = "app" | "category";
 interface DayDistributionItem {
   key: string;
   label: string;
@@ -262,7 +266,9 @@ export default function History({
   ));
   const [timelineDialogOpen, setTimelineDialogOpen] = useState(false);
   const [historyTimelineMode, setHistoryTimelineMode] = useState<HistoryTimelineDisplayMode>("app");
-  const [dayDistributionMode, setDayDistributionMode] = useState<DayDistributionMode>("app");
+  const [dayDistributionMode, setDayDistributionMode] = useState<DayDistributionMode>(
+    readHistoryDayDistributionMode,
+  );
   const [timelineDetailsPopover, setTimelineDetailsPopover] = useState<TimelineDetailsPopover | null>(null);
   const timelineDetailsPopoverRef = useRef<HTMLDivElement | null>(null);
   const timelineDetailsTriggerRef = useRef<HTMLElement | null>(null);
@@ -714,6 +720,10 @@ export default function History({
     setTimelineDetailsPopover(null);
     setTimelineDialogOpen(false);
   };
+  const handleDayDistributionModeChange = (mode: DayDistributionMode) => {
+    setDayDistributionMode(mode);
+    rememberHistoryDayDistributionMode(mode);
+  };
   const renderTimelineModeAction = (className = "") => (
     <QuietIconAction
       icon={<Tags size={15} />}
@@ -873,7 +883,7 @@ export default function History({
         <QuietSegmentedFilter
           value={dayDistributionMode}
           options={dayDistributionOptions}
-          onChange={setDayDistributionMode}
+          onChange={handleDayDistributionModeChange}
           className="history-day-distribution-mode-switch"
         />
       </div>
