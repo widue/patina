@@ -11,6 +11,7 @@ const TAURI_CONFIG_PATH = path.join(ROOT, "src-tauri", "tauri.conf.json");
 const TAURI_DEV_CONFIG_PATH = path.join(ROOT, "src-tauri", "tauri.dev.conf.json");
 const TAURI_LOCAL_CONFIG_PATH = path.join(ROOT, "src-tauri", "tauri.local.conf.json");
 const CARGO_TOML_PATH = path.join(ROOT, "src-tauri", "Cargo.toml");
+const CARGO_LOCK_PATH = path.join(ROOT, "src-tauri", "Cargo.lock");
 const VERSION_POLICY_PATH = path.join(ROOT, "docs", "versioning-and-release-policy.md");
 
 const VERSION_PATTERN =
@@ -116,6 +117,178 @@ export function validateVersionPolicyCurrentCodeVersionText(content, version) {
   }
 
   return null;
+}
+
+function jsonValue(content, filePath, selector) {
+  try {
+    return selector(JSON.parse(content)) ?? null;
+  } catch (error) {
+    return {
+      error: `${filePath} could not be parsed as JSON: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+export function readPackageJsonVersionText(content) {
+  return jsonValue(content, "package.json", (json) => json.version);
+}
+
+export function readPackageLockVersionsText(content) {
+  const parsed = jsonValue(content, "package-lock.json", (json) => ({
+    version: json.version ?? null,
+    rootPackageVersion: json.packages?.[""]?.version ?? null,
+  }));
+
+  if (parsed && typeof parsed === "object" && "error" in parsed) {
+    return parsed;
+  }
+
+  return parsed ?? {
+    version: null,
+    rootPackageVersion: null,
+  };
+}
+
+export function readTauriConfigVersionText(content, filePath = "src-tauri/tauri.conf.json") {
+  return jsonValue(content, filePath, (json) => json.version);
+}
+
+export function readCargoTomlPackageVersionText(content) {
+  const match = /^\[package\][\s\S]*?^version\s*=\s*"([^"]+)"/m.exec(content);
+  return match?.[1] ?? null;
+}
+
+export function readCargoLockPackageVersionText(content, packageName = "patina") {
+  const blocks = content.split(/\r?\n(?=\[\[package\]\])/);
+  for (const block of blocks) {
+    const name = /^name\s*=\s*"([^"]+)"/m.exec(block)?.[1];
+    if (name === packageName) {
+      return /^version\s*=\s*"([^"]+)"/m.exec(block)?.[1] ?? null;
+    }
+  }
+
+  return null;
+}
+
+export function hasChangelogVersionSectionText(content, version) {
+  const headingPattern = new RegExp(
+    `^## \\[${escapeRegExp(version)}\\] - \\d{4}-\\d{2}-\\d{2}\\s*$`,
+    "m",
+  );
+  return headingPattern.test(content);
+}
+
+function versionFileError(filePath, actual, expected, label = "version") {
+  if (actual && typeof actual === "object" && "error" in actual) {
+    return actual.error;
+  }
+
+  if (!actual) {
+    return `${filePath} is missing ${label}`;
+  }
+
+  if (actual !== expected) {
+    return `${filePath} ${label} is ${actual}, expected ${expected}`;
+  }
+
+  return null;
+}
+
+export function validateReleaseVersionFilesText(files, version) {
+  const errors = [];
+
+  if (!version) {
+    return ["missing version"];
+  }
+
+  if (!VERSION_PATTERN.test(version)) {
+    return [`invalid SemVer version "${version}"`];
+  }
+
+  const packageLockVersions = readPackageLockVersionsText(files.packageLockJson ?? "");
+  const versionPolicyError = validateVersionPolicyCurrentCodeVersionText(files.versionPolicy ?? "", version);
+
+  const checks = [
+    versionFileError(
+      "package.json",
+      readPackageJsonVersionText(files.packageJson ?? ""),
+      version,
+    ),
+    versionFileError(
+      "package-lock.json",
+      packageLockVersions && typeof packageLockVersions === "object" && "error" in packageLockVersions
+        ? packageLockVersions
+        : packageLockVersions.version,
+      version,
+      "version",
+    ),
+    versionFileError(
+      'package-lock.json packages[""]',
+      packageLockVersions && typeof packageLockVersions === "object" && "error" in packageLockVersions
+        ? packageLockVersions
+        : packageLockVersions.rootPackageVersion,
+      version,
+      "version",
+    ),
+    versionFileError(
+      "src-tauri/tauri.conf.json",
+      readTauriConfigVersionText(files.tauriConfig ?? "", "src-tauri/tauri.conf.json"),
+      version,
+    ),
+    versionFileError(
+      "src-tauri/tauri.dev.conf.json",
+      readTauriConfigVersionText(files.tauriDevConfig ?? "", "src-tauri/tauri.dev.conf.json"),
+      version,
+    ),
+    versionFileError(
+      "src-tauri/tauri.local.conf.json",
+      readTauriConfigVersionText(files.tauriLocalConfig ?? "", "src-tauri/tauri.local.conf.json"),
+      version,
+    ),
+    versionFileError(
+      "src-tauri/Cargo.toml",
+      readCargoTomlPackageVersionText(files.cargoToml ?? ""),
+      version,
+      "[package].version",
+    ),
+    versionFileError(
+      "src-tauri/Cargo.lock package patina",
+      readCargoLockPackageVersionText(files.cargoLock ?? "", "patina"),
+      version,
+    ),
+    versionPolicyError,
+    hasChangelogVersionSectionText(files.changelog ?? "", version)
+      ? null
+      : `CHANGELOG.md is missing "## [${version}] - YYYY-MM-DD"`,
+  ];
+
+  for (const error of checks) {
+    if (error) {
+      errors.push(error);
+    }
+  }
+
+  return errors;
+}
+
+async function validateReleaseVersionFiles(version) {
+  assertVersion(version);
+
+  const errors = validateReleaseVersionFilesText({
+    packageJson: await readText(PACKAGE_JSON_PATH),
+    packageLockJson: await readText(PACKAGE_LOCK_PATH),
+    tauriConfig: await readText(TAURI_CONFIG_PATH),
+    tauriDevConfig: await readText(TAURI_DEV_CONFIG_PATH),
+    tauriLocalConfig: await readText(TAURI_LOCAL_CONFIG_PATH),
+    cargoToml: await readText(CARGO_TOML_PATH),
+    cargoLock: await readText(CARGO_LOCK_PATH),
+    versionPolicy: await readText(VERSION_POLICY_PATH),
+    changelog: await readText(CHANGELOG_PATH),
+  }, version);
+
+  if (errors.length > 0) {
+    fail(`version files are not ready for ${version}:\n- ${errors.join("\n- ")}`);
+  }
 }
 
 async function updateVersionPolicyCurrentCodeVersion(version) {
@@ -423,6 +596,7 @@ async function prepareReleaseAssets(
 function help() {
   console.log(`Usage:
   node --experimental-strip-types scripts/release.ts sync-version <version>
+  node --experimental-strip-types scripts/release.ts validate-version-files <version>
   node --experimental-strip-types scripts/release.ts validate-changelog <version>
   node --experimental-strip-types scripts/release.ts print-release-notes <version>
   node --experimental-strip-types scripts/release.ts write-release-notes <version> <output>
@@ -437,6 +611,9 @@ async function main() {
   switch (command) {
     case "sync-version":
       await syncVersion(args[0]);
+      break;
+    case "validate-version-files":
+      await validateReleaseVersionFiles(args[0]);
       break;
     case "validate-changelog":
       await validateChangelog(args[0]);

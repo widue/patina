@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to release, for example 0.1.1"
+        description: "Existing version tag to publish, for example 1.6.1"
         required: true
         type: string
   push:
@@ -56,36 +56,49 @@ jobs:
           }
 
           "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=v$version" >> $env:GITHUB_OUTPUT
           "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
           Write-Host "Resolved release version: $version"
 
-      - name: Check tag
-        id: tag
+      - name: Checkout release tag
         shell: pwsh
         run: |
           $version = "${{ steps.release.outputs.version }}"
-          $existingTag = git ls-remote --tags origin "refs/tags/v$version"
-          if ($existingTag) {
-            "TAG_EXISTS=true" >> $env:GITHUB_ENV
-            Write-Host "Tag v$version already exists. The workflow will publish from the existing tag."
+          $tag = "v$version"
+
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $existingTag = git ls-remote --tags origin "refs/tags/$tag"
+            if (-not $existingTag) {
+              throw "Tag $tag does not exist. Prepare the release commit and push the tag first."
+            }
+            Write-Host "Tag $tag exists. The workflow will publish from that tag."
           } else {
-            "TAG_EXISTS=false" >> $env:GITHUB_ENV
-            Write-Host "Tag v$version does not exist. The workflow will create it."
+            Write-Host "Release was triggered by pushed tag $tag."
           }
 
-      - name: Checkout existing tag
-        if: env.TAG_EXISTS == 'true'
-        shell: pwsh
-        run: |
-          git fetch --force origin "refs/tags/v${{ steps.release.outputs.version }}:refs/tags/v${{ steps.release.outputs.version }}"
-          git checkout "v${{ steps.release.outputs.version }}"
+          git fetch --force origin "refs/tags/$tag:refs/tags/$tag"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to fetch $tag from origin."
+          }
+
+          git checkout $tag
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to checkout $tag."
+          }
+
+          $tagCommit = git rev-list -n 1 $tag
+          $headCommit = git rev-parse HEAD
+          if ($tagCommit -ne $headCommit) {
+            throw "HEAD ($headCommit) does not match $tag ($tagCommit)."
+          }
+
+          Write-Host "Publishing $tag from $headCommit"
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Sync version files
-        if: env.TAG_EXISTS != 'true'
-        run: node --experimental-strip-types scripts/release.ts sync-version ${{ steps.release.outputs.version }}
+      - name: Validate version files
+        run: node --experimental-strip-types scripts/release.ts validate-version-files ${{ steps.release.outputs.version }}
 
       - name: Validate changelog
         run: node --experimental-strip-types scripts/release.ts validate-changelog ${{ steps.release.outputs.version }}
@@ -94,26 +107,7 @@ jobs:
         run: node --experimental-strip-types scripts/release.ts write-release-notes ${{ steps.release.outputs.version }} dist-release/release-notes.md
 
       - name: Run release quality gate
-        if: env.TAG_EXISTS != 'true' || github.event_name == 'push'
         run: npm run check:full
-
-      - name: Commit version changes and tag
-        if: env.TAG_EXISTS != 'true'
-        shell: pwsh
-        run: |
-          $version = "${{ steps.release.outputs.version }}"
-          git config user.name "Zoe"
-          git config user.email "1815842281@qq.com"
-          git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/tauri.dev.conf.json src-tauri/tauri.local.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock CHANGELOG.md docs/versioning-and-release-policy.md
-          git diff --cached --quiet
-          if ($LASTEXITCODE -ne 0) {
-            git commit -m "release: v$version"
-          } else {
-            Write-Host "No version file changes to commit; tagging current commit."
-          }
-          git tag "v$version"
-          git push origin HEAD:${{ github.ref_name }}
-          git push origin "v$version"
 
       - name: Ensure updater signing key exists
         shell: pwsh

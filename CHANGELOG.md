@@ -34,7 +34,7 @@ App note en: TBD.
 
 ### Internal
 
-- 暂无。
+- 收口 GitHub Actions 发布 workflow：版本文件和 changelog 由发布准备提交承担，Actions 只从已有 tag 校验、构建和发布，避免自动生成 release commit。
 
 ## [1.6.0] - 2026-06-13
 

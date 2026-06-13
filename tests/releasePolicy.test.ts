@@ -5,6 +5,7 @@ import {
   readVersionPolicyCurrentCodeVersion,
   renderUpdaterNotes,
   syncVersionPolicyCurrentCodeVersion,
+  validateReleaseVersionFilesText,
   validateVersionPolicyCurrentCodeVersionText,
 } from "../scripts/release.ts";
 
@@ -17,6 +18,54 @@ const versionPolicyExcerpt = [
   "- 稳定发布线处于 `0.4.x`",
   "",
 ].join("\n");
+
+function versionFileFixture(version = "1.6.0") {
+  return {
+    packageJson: JSON.stringify({ version }),
+    packageLockJson: JSON.stringify({
+      version,
+      packages: {
+        "": {
+          version,
+        },
+      },
+    }),
+    tauriConfig: JSON.stringify({ version }),
+    tauriDevConfig: JSON.stringify({ version }),
+    tauriLocalConfig: JSON.stringify({ version }),
+    cargoToml: [
+      "[package]",
+      'name = "patina"',
+      `version = "${version}"`,
+      "",
+      "[dependencies]",
+    ].join("\n"),
+    cargoLock: [
+      "version = 4",
+      "",
+      "[[package]]",
+      'name = "other"',
+      'version = "0.1.0"',
+      "",
+      "[[package]]",
+      'name = "patina"',
+      `version = "${version}"`,
+      "dependencies = []",
+    ].join("\n"),
+    versionPolicy: [
+      "## 3. 当前仓库现实",
+      "",
+      `- 代码版本为 \`${version}\``,
+    ].join("\n"),
+    changelog: [
+      "# Changelog",
+      "",
+      `## [${version}] - 2026-06-13`,
+      "",
+      "Release: Ready.",
+    ].join("\n"),
+  };
+}
 
 function testSyncsCurrentCodeVersion() {
   const updated = syncVersionPolicyCurrentCodeVersion(versionPolicyExcerpt, "0.4.3");
@@ -86,6 +135,87 @@ function testUpdaterEndpointsKeepGithubFirstAndPreserveMirrors() {
   ]);
 }
 
+function testVersionFilesValidationPassesWhenAllVersionsMatch() {
+  assert.deepEqual(validateReleaseVersionFilesText(versionFileFixture(), "1.6.0"), []);
+}
+
+function testVersionFilesValidationCatchesPackageJsonMismatch() {
+  const files = versionFileFixture();
+  files.packageJson = JSON.stringify({ version: "1.5.9" });
+
+  assert.deepEqual(validateReleaseVersionFilesText(files, "1.6.0"), [
+    "package.json version is 1.5.9, expected 1.6.0",
+  ]);
+}
+
+function testVersionFilesValidationCatchesPackageLockRootMismatch() {
+  const files = versionFileFixture();
+  files.packageLockJson = JSON.stringify({
+    version: "1.6.0",
+    packages: {
+      "": {
+        version: "1.5.9",
+      },
+    },
+  });
+
+  assert.deepEqual(validateReleaseVersionFilesText(files, "1.6.0"), [
+    'package-lock.json packages[""] version is 1.5.9, expected 1.6.0',
+  ]);
+}
+
+function testVersionFilesValidationCatchesTauriConfigMismatch() {
+  const files = versionFileFixture();
+  files.tauriDevConfig = JSON.stringify({ version: "1.5.9" });
+
+  assert.deepEqual(validateReleaseVersionFilesText(files, "1.6.0"), [
+    "src-tauri/tauri.dev.conf.json version is 1.5.9, expected 1.6.0",
+  ]);
+}
+
+function testVersionFilesValidationCatchesCargoMismatch() {
+  const files = versionFileFixture();
+  files.cargoToml = [
+    "[package]",
+    'name = "patina"',
+    'version = "1.5.9"',
+  ].join("\n");
+  files.cargoLock = [
+    "[[package]]",
+    'name = "patina"',
+    'version = "1.5.8"',
+  ].join("\n");
+
+  assert.deepEqual(validateReleaseVersionFilesText(files, "1.6.0"), [
+    "src-tauri/Cargo.toml [package].version is 1.5.9, expected 1.6.0",
+    "src-tauri/Cargo.lock package patina version is 1.5.8, expected 1.6.0",
+  ]);
+}
+
+function testVersionFilesValidationCatchesPolicyMismatch() {
+  const files = versionFileFixture();
+  files.versionPolicy = versionPolicyExcerpt;
+
+  assert.deepEqual(validateReleaseVersionFilesText(files, "1.6.0"), [
+    "docs/versioning-and-release-policy.md current code version is 0.4.2, expected 1.6.0",
+  ]);
+}
+
+function testVersionFilesValidationCatchesMissingChangelogSection() {
+  const files = versionFileFixture();
+  files.changelog = "# Changelog\n\n## [1.5.9] - 2026-06-12";
+
+  assert.deepEqual(validateReleaseVersionFilesText(files, "1.6.0"), [
+    'CHANGELOG.md is missing "## [1.6.0] - YYYY-MM-DD"',
+  ]);
+}
+
+function testVersionFilesValidationRejectsInvalidVersion() {
+  assert.deepEqual(validateReleaseVersionFilesText(versionFileFixture(), "1.6"), [
+    'invalid SemVer version "1.6"',
+  ]);
+}
+
 testSyncsCurrentCodeVersion();
 testSupportsPrereleaseVersion();
 testMissingPolicyVersionIsNull();
@@ -93,5 +223,13 @@ testStalePolicyVersionFailsValidation();
 testUpdaterNotesKeepLocalizedVariants();
 testUpdaterNotesFallsBackToAppNote();
 testUpdaterEndpointsKeepGithubFirstAndPreserveMirrors();
+testVersionFilesValidationPassesWhenAllVersionsMatch();
+testVersionFilesValidationCatchesPackageJsonMismatch();
+testVersionFilesValidationCatchesPackageLockRootMismatch();
+testVersionFilesValidationCatchesTauriConfigMismatch();
+testVersionFilesValidationCatchesCargoMismatch();
+testVersionFilesValidationCatchesPolicyMismatch();
+testVersionFilesValidationCatchesMissingChangelogSection();
+testVersionFilesValidationRejectsInvalidVersion();
 
-console.log("Passed 7 release policy tests");
+console.log("Passed 15 release policy tests");
