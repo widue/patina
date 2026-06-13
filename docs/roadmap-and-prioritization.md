@@ -100,6 +100,7 @@
 - `History` 的回看效率
 - `Data` 的长期活动理解效率
 - `Classification` 的管理清晰度
+- `Tools` 的轻量主动工具体验
 - `Settings` 的行为透明度
 - `About` 的版本、更新与反馈入口清晰度
 - Quiet Pro 一致性
@@ -214,7 +215,7 @@
 
 ## 8.3 主路径严重回归
 
-- `Dashboard / History / Data / Classification / Settings / About` 的核心主路径被明显破坏
+- `Dashboard / History / Data / Classification / Tools / Settings / About` 的核心主路径被明显破坏
 - Windows 桌面行为与当前承诺不一致
 - 构建、启动、基础使用或发布流程出现阻塞
 

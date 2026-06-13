@@ -17,7 +17,7 @@ import {
 import { openExternalUrl } from "../../../platform/desktop/externalUrlGateway.ts";
 import { emitAppSettingsChanged } from "../../../platform/runtime/appSettingsEventGateway.ts";
 import { setAfkThreshold } from "../../../platform/runtime/trackingRuntimeGateway.ts";
-import { getUiLocale, getUiTextLanguage, UI_TEXT } from "../../../shared/copy/uiText.ts";
+import { getUiLocale, UI_TEXT } from "../../../shared/copy/uiText.ts";
 import type { CleanupRange } from "../types.ts";
 import {
   buildSessionCleanupPlan,
@@ -59,10 +59,6 @@ const RELEASE_NOTES_URL = "https://github.com/Ceceliaee/patina/releases";
 const REPOSITORY_URL = "https://github.com/Ceceliaee/patina";
 const FEEDBACK_URL = "https://github.com/Ceceliaee/patina/issues/new/choose";
 const KOFI_SUPPORT_URL = "https://ko-fi.com/ceceliaee";
-const SUPPORT_README_URLS = {
-  "zh-CN": "https://github.com/Ceceliaee/patina/blob/main/README.zh-CN.md#support",
-  "en-US": "https://github.com/Ceceliaee/patina/blob/main/README.md#support",
-} as const;
 
 export function buildBackupPreviewSummary(preview: BackupPreview): string {
   const exportedAt = new Date(preview.exportedAtMs).toLocaleString(getUiLocale());
@@ -173,10 +169,6 @@ export class SettingsRuntimeAdapterService {
 
   static async openKofiSupport(): Promise<void> {
     await openExternalUrl(KOFI_SUPPORT_URL);
-  }
-
-  static async openSupportReadme(): Promise<void> {
-    await openExternalUrl(SUPPORT_README_URLS[getUiTextLanguage()]);
   }
 
   static buildSettingsPatch(

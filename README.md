@@ -20,7 +20,7 @@ English · [简体中文](README.zh-CN.md)
 
 <p align="center">
 Patina records foreground apps and organizes them into today's overview, a timeline, and long-term trends.<br>
-It is not a team timesheet system, but a quiet and trustworthy personal desktop time record.
+Focused on quiet and trustworthy personal desktop time records.
 </p>
 
 ![Patina dashboard](.github/assets/readme/dashboard.png)
@@ -35,10 +35,11 @@ If you just want to use the app, open the latest release page and download the `
 
 ## Why Patina
 
-- Automatic foreground app tracking without manually starting, pausing, or stopping timers.
+- Automatic foreground app tracking without manually maintaining the main time record.
 - AFK, lock, sleep, and crash recovery boundaries designed to keep records trustworthy.
 - Local SQLite storage by default, with no account, cloud sync, or server dependency.
 - App-level controls for names, categories, colors, stats exclusions, and title capture.
+- Lightweight local tools for reminders, timers, and Pomodoro.
 - A restrained, low-interruption desktop interface for long-term daily use.
 
 ## Core Features
@@ -62,13 +63,21 @@ If you just want to use the app, open the latest release page and download the `
 - Exclude apps from statistics or disable title capture for specific apps.
 - Export local backups, restore backups, and clean up historical records.
 
+### Lightweight Tools
+
+- Create one-off reminders and app usage limit reminders.
+- Use stopwatch, countdown, and Pomodoro for active focus tasks.
+- Tool state stays local and does not replace automatic tracking records.
+
 ## Interface Preview
 
-|  |  |
-| --- | --- |
-| **Today**<br>![Today page](.github/assets/readme/dashboard.png)<br>Today's activity, app ranking, category split, hourly rhythm, and tracking status. | **History**<br>![History page](.github/assets/readme/history.png)<br>Daily timeline, merged activity segments, and title details. |
-| **Data**<br>![Data page](.github/assets/readme/data.png)<br>7-day, 30-day, yearly trends, heatmaps, and app curves. | **Apps**<br>![Apps page](.github/assets/readme/mapping.png)<br>Manage app names, categories, colors, exclusions, and title capture. |
-| **Settings**<br>![Settings page](.github/assets/readme/settings.png)<br>Adjust tracking, resident behavior, appearance, language, backup, restore, and cleanup. | **About**<br>![About page](.github/assets/readme/about.png)<br>View the version, check updates, download releases, and read release notes. |
+| Today | History |
+| :---: | :---: |
+| ![Today page](.github/assets/readme/dashboard.png) | ![History page](.github/assets/readme/history.png) |
+| Data | Apps |
+| ![Data page](.github/assets/readme/data.png) | ![Apps page](.github/assets/readme/mapping.png) |
+| Settings | About |
+| ![Settings page](.github/assets/readme/settings.png) | ![About page](.github/assets/readme/about.png) |
 
 ## Reliability And Privacy
 
@@ -90,8 +99,9 @@ Patina intentionally keeps its scope focused:
 - **Personal use first**
 - **Local-first data storage and control**
 - **Quiet, professional, long-term desktop experience**
+- **Lightweight local tools such as reminders, timers, and Pomodoro**
 
-Team collaboration, account systems, cloud sync, mobile apps, broad multi-platform parity, and heavy AI insights are not the current main direction.
+Team collaboration, account systems, cloud sync, mobile apps, broad multi-platform parity, task management platforms, gamified productivity tools, and heavy AI insights are not the current main direction.
 
 ## Build From Source
 
@@ -139,18 +149,7 @@ src-tauri/target/release/bundle/
 
 ## Project Docs
 
-If you want to contribute, adjust product direction, or review architecture boundaries, start with:
-
-- [`CONTRIBUTING.md`](CONTRIBUTING.md#english) for the contribution and pull request workflow
-- [`docs/product-principles-and-scope.md`](docs/product-principles-and-scope.md)
-- [`docs/roadmap-and-prioritization.md`](docs/roadmap-and-prioritization.md)
-- [`docs/engineering-quality.md`](docs/engineering-quality.md)
-- [`docs/architecture.md`](docs/architecture.md)
-- [`docs/quiet-pro-component-guidelines.md`](docs/quiet-pro-component-guidelines.md)
-- [`docs/issue-fix-boundary-guardrails.md`](docs/issue-fix-boundary-guardrails.md)
-- [`docs/versioning-and-release-policy.md`](docs/versioning-and-release-policy.md)
-
-Historical execution plans and stage-specific documents are usually archived under `docs/archive/`; by default, they are not the current execution basis.
+If you want to contribute, understand the product direction, or review architecture boundaries, start with [`CONTRIBUTING.md`](CONTRIBUTING.md#english).
 
 ## Support
 

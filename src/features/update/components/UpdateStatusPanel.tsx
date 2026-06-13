@@ -21,7 +21,7 @@ interface UpdateStatusPanelProps {
   onOpenUpdateDownload: () => void;
   onOpenReleaseNotes: () => void;
   onOpenFeedback: () => void;
-  onOpenSupportReadme: () => void;
+  onOpenSupport: () => void;
 }
 
 function renderActionLabel(action: UpdateActionModel) {
@@ -47,7 +47,7 @@ export default function UpdateStatusPanel({
   onOpenUpdateDownload,
   onOpenReleaseNotes,
   onOpenFeedback,
-  onOpenSupportReadme,
+  onOpenSupport,
 }: UpdateStatusPanelProps) {
   const viewModel = buildUpdateStatusPanelModel(snapshot, checking, installing);
 
@@ -158,7 +158,7 @@ export default function UpdateStatusPanel({
             <span aria-hidden>·</span>
             <button
               type="button"
-              onClick={onOpenSupportReadme}
+              onClick={onOpenSupport}
               className="text-xs text-[var(--qp-text-tertiary)] hover:text-[var(--qp-text-secondary)]"
             >
               {UI_TEXT.update.support}

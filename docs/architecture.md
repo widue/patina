@@ -190,6 +190,7 @@ src/
     dashboard/
     history/
     settings/
+    tools/
     update/
   shared/
   platform/

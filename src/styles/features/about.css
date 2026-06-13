@@ -148,16 +148,16 @@
   text-overflow: ellipsis;
 }
 
-.about-pill-action-support .about-pill-icon {
-  color: var(--qp-warning);
+.about-github-star-label {
+  color: #EAC54F;
 }
 
-.about-pill-action-support:hover {
-  border-color: color-mix(in srgb, var(--qp-warning) 30%, var(--qp-border-subtle));
+.about-support-pill-heart {
+  color: var(--qp-danger);
 }
 
-.about-pill-action-support:hover .about-pill-icon {
-  color: var(--qp-warning);
+.about-pill-action:hover .about-support-pill-heart {
+  color: var(--qp-danger);
 }
 
 .about-center-update.update-status-compact {
@@ -279,7 +279,7 @@
 }
 
 .about-support-card-heading svg {
-  color: var(--qp-warning);
+  color: var(--qp-danger);
 }
 
 .about-support-card-heading h4,

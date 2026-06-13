@@ -1,7 +1,7 @@
 import {
   FileText,
   Heart,
-  MessageCircle,
+  MessageSquare,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import appIconUrl from "../../../../src-tauri/icons/icon.png";
@@ -27,21 +27,19 @@ type AboutPanelProps = {
 
 type AboutLinkButtonProps = {
   icon: ReactNode;
-  label: string;
-  accent?: "default" | "support";
+  label: ReactNode;
   onClick: () => void;
 };
 
 function AboutLinkButton({
   icon,
   label,
-  accent = "default",
   onClick,
 }: AboutLinkButtonProps) {
   return (
     <button
       type="button"
-      className={`about-pill-action about-pill-action-${accent}`}
+      className="about-pill-action"
       onClick={onClick}
     >
       <span className="about-pill-icon" aria-hidden>
@@ -84,7 +82,11 @@ export default function AboutPanel({
         <div className="about-pill-row">
           <AboutLinkButton
             icon={<span className="about-github-mark" />}
-            label="GitHub Star"
+            label={(
+              <>
+                GitHub <span className="about-github-star-label">Star</span>
+              </>
+            )}
             onClick={onOpenRepository}
           />
           <AboutLinkButton
@@ -93,14 +95,13 @@ export default function AboutPanel({
             onClick={onOpenReleaseNotes}
           />
           <AboutLinkButton
-            icon={<MessageCircle size={14} />}
+            icon={<MessageSquare size={14} />}
             label={UI_TEXT.update.feedback}
             onClick={onOpenFeedback}
           />
           <AboutLinkButton
-            icon={<Heart size={14} />}
+            icon={<Heart className="about-support-pill-heart" size={14} />}
             label={UI_TEXT.update.support}
-            accent="support"
             onClick={onOpenSupportDialog}
           />
         </div>
@@ -119,7 +120,7 @@ export default function AboutPanel({
           onOpenUpdateDownload={() => onOpenUpdateDownload?.()}
           onOpenReleaseNotes={onOpenReleaseNotes}
           onOpenFeedback={onOpenFeedback}
-          onOpenSupportReadme={onOpenSupportDialog}
+          onOpenSupport={onOpenSupportDialog}
         />
       </section>
     </div>
