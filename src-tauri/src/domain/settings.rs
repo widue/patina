@@ -414,7 +414,12 @@ mod tests {
     #[test]
     fn remote_status_bridge_requires_url_and_token_to_enable() {
         assert_eq!(
-            RemoteStatusBridgeSettings::from_storage_values(Some("1"), Some(""), Some("secret"), Some("machine")),
+            RemoteStatusBridgeSettings::from_storage_values(
+                Some("1"),
+                Some(""),
+                Some("secret"),
+                Some("machine")
+            ),
             RemoteStatusBridgeSettings {
                 enabled: false,
                 url: String::new(),

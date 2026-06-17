@@ -446,10 +446,7 @@ fn compute_icon_hash(icon_data: Option<&str>) -> String {
     format!("png:{:08x}", hasher.finalize())
 }
 
-async fn send_snapshot<S>(
-    sink: &mut S,
-    snapshot: RemoteStatusBridgeSnapshot,
-) -> Result<(), String>
+async fn send_snapshot<S>(sink: &mut S, snapshot: RemoteStatusBridgeSnapshot) -> Result<(), String>
 where
     S: futures_util::Sink<Message, Error = WsError> + Unpin,
 {
@@ -486,12 +483,17 @@ fn parse_message_type(message: &Message) -> Result<Option<String>, String> {
     };
     let payload = serde_json::from_str::<Value>(text)
         .map_err(|error| format!("invalid worker json message: {error}"))?;
-    Ok(payload.get("type").and_then(Value::as_str).map(str::to_string))
+    Ok(payload
+        .get("type")
+        .and_then(Value::as_str)
+        .map(str::to_string))
 }
 
 fn generate_machine_id() -> String {
     let mut hasher = DefaultHasher::new();
-    std::env::var("COMPUTERNAME").unwrap_or_default().hash(&mut hasher);
+    std::env::var("COMPUTERNAME")
+        .unwrap_or_default()
+        .hash(&mut hasher);
     std::process::id().hash(&mut hasher);
     crate::app::runtime::now_ms().hash(&mut hasher);
     format!("machine-{:016x}", hasher.finish())
@@ -520,8 +522,14 @@ mod tests {
 
     #[test]
     fn compute_icon_hash_changes_when_value_changes() {
-        assert_eq!(compute_icon_hash(Some("abc")), compute_icon_hash(Some("abc")));
-        assert_ne!(compute_icon_hash(Some("abc")), compute_icon_hash(Some("def")));
+        assert_eq!(
+            compute_icon_hash(Some("abc")),
+            compute_icon_hash(Some("abc"))
+        );
+        assert_ne!(
+            compute_icon_hash(Some("abc")),
+            compute_icon_hash(Some("def"))
+        );
         assert_eq!(compute_icon_hash(None), "png:none");
     }
 
