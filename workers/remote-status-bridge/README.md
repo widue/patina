@@ -2,14 +2,12 @@
 
 Minimal Cloudflare Worker for Patina remote status bridge.
 
-It receives Patina `snapshot` messages over WebSocket, keeps the latest state in memory, and exposes a tiny read-only status page.
+It receives Patina `snapshot` messages over WebSocket and keeps the latest state in memory.
 
 ## Routes
 
 - `/ws`: WebSocket endpoint for Patina.
-- `/`: Minimal live dashboard.
 - `/state`: Current state as JSON.
-- `/events`: Server-sent events used by the dashboard.
 
 ## Setup
 

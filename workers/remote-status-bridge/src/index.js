@@ -1,7 +1,6 @@
 const HEARTBEAT_OFFLINE_AFTER_MS = 180_000;
 
 const machines = new Map();
-const eventClients = new Set();
 
 export default {
   async fetch(request, env) {
@@ -13,16 +12,6 @@ export default {
 
     if (url.pathname === "/state") {
       return jsonResponse(buildState());
-    }
-
-    if (url.pathname === "/events") {
-      return handleEvents();
-    }
-
-    if (url.pathname === "/") {
-      return new Response(renderDashboard(), {
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
     }
 
     return new Response("Not found", { status: 404 });
@@ -46,7 +35,7 @@ function handleWebSocket(request, env) {
     handleSocketMessage(server, session, event.data);
   });
   server.addEventListener("close", () => {
-    broadcastState();
+    // The bridge keeps the last received snapshot until it ages out as offline.
   });
   server.addEventListener("error", () => {
     tryClose(server, 1011, "socket error");
@@ -84,7 +73,6 @@ function handleSocketMessage(socket, session, rawData) {
       iconData: snapshot.iconData ?? previous?.iconData ?? null,
       lastReceivedAtMs: Date.now(),
     });
-    broadcastState();
     return;
   }
 
@@ -133,39 +121,6 @@ function normalizeSnapshot(message) {
   };
 }
 
-function handleEvents() {
-  let client;
-  let interval;
-  const stream = new ReadableStream({
-    start(controller) {
-      client = {
-        send(payload) {
-          controller.enqueue(encodeSse(payload));
-        },
-      };
-
-      eventClients.add(client);
-      client.send(buildState());
-
-      interval = setInterval(() => {
-        client.send(buildState());
-      }, 30_000);
-    },
-    cancel() {
-      clearInterval(interval);
-      eventClients.delete(client);
-    },
-  });
-
-  return new Response(stream, {
-    headers: {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-cache",
-      "access-control-allow-origin": "*",
-    },
-  });
-}
-
 function buildState() {
   const now = Date.now();
   return {
@@ -179,21 +134,6 @@ function buildState() {
       }))
       .sort((left, right) => left.machineId.localeCompare(right.machineId)),
   };
-}
-
-function broadcastState() {
-  const state = buildState();
-  for (const client of eventClients) {
-    try {
-      client.send(state);
-    } catch {
-      eventClients.delete(client);
-    }
-  }
-}
-
-function encodeSse(payload) {
-  return new TextEncoder().encode(`event: state\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
 function jsonResponse(payload) {
@@ -217,109 +157,4 @@ function tryClose(socket, code, reason) {
   try {
     socket.close(code, reason);
   } catch {}
-}
-
-function renderDashboard() {
-  return `<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Patina Remote Status Bridge</title>
-  <style>
-    :root {
-      color-scheme: light dark;
-      font-family: ui-sans-serif, system-ui, sans-serif;
-      background: Canvas;
-      color: CanvasText;
-    }
-    body {
-      margin: 0;
-      padding: 32px;
-    }
-    main {
-      max-width: 920px;
-      margin: 0 auto;
-    }
-    h1 {
-      margin: 0 0 20px;
-      font-size: 24px;
-    }
-    .grid {
-      display: grid;
-      gap: 12px;
-    }
-    .machine {
-      display: grid;
-      grid-template-columns: 44px 1fr auto;
-      gap: 12px;
-      align-items: center;
-      border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
-      border-radius: 8px;
-      padding: 12px;
-    }
-    img {
-      width: 36px;
-      height: 36px;
-      object-fit: contain;
-    }
-    .name {
-      font-weight: 650;
-    }
-    .meta {
-      margin-top: 4px;
-      color: color-mix(in srgb, CanvasText 62%, transparent);
-      font-size: 13px;
-    }
-    .presence {
-      border-radius: 999px;
-      padding: 4px 9px;
-      font-size: 12px;
-      background: color-mix(in srgb, CanvasText 10%, transparent);
-    }
-    .empty {
-      color: color-mix(in srgb, CanvasText 62%, transparent);
-    }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>Patina Remote Status Bridge</h1>
-    <div id="machines" class="grid"><p class="empty">Waiting for snapshots...</p></div>
-  </main>
-  <script>
-    const container = document.getElementById("machines");
-    const events = new EventSource("/events");
-    events.addEventListener("state", (event) => render(JSON.parse(event.data)));
-
-    function render(state) {
-      if (!state.machines.length) {
-        container.innerHTML = '<p class="empty">Waiting for snapshots...</p>';
-        return;
-      }
-      container.innerHTML = state.machines.map((machine) => {
-        const icon = machine.iconData
-          ? '<img alt="" src="' + escapeHtml(machine.iconData) + '">'
-          : '<div></div>';
-        return '<section class="machine">'
-          + icon
-          + '<div><div class="name">' + escapeHtml(machine.appName || "Unknown") + '</div>'
-          + '<div class="meta">' + escapeHtml(machine.machineId) + ' · ' + new Date(machine.sampledAtMs).toLocaleString() + '</div></div>'
-          + '<span class="presence">' + escapeHtml(machine.presence) + '</span>'
-          + '</section>';
-      }).join("");
-    }
-
-    function escapeHtml(value) {
-      return String(value).replace(/[&<>"']/g, (char) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#039;",
-      }[char]));
-    }
-  </script>
-</body>
-</html>`;
 }
