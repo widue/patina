@@ -7,7 +7,7 @@
 快速部署：
 
 1. 点击 `Deploy to Cloudflare` 按钮，按照提示创建 Worker。
-2. 在 Worker 中把 `REMOTE_STATUS_BRIDGE_TOKEN` 改成自己的访问令牌。
+2. 在部署页面把 `REMOTE_STATUS_BRIDGE_TOKEN` 填成自己的访问令牌。
 3. 在 Patina 设置页填写 `wss://<your-worker-host>/ws` 和相同的访问令牌。
 
 示例 Worker 位于 `docs/examples/remote-status-bridge-worker`。默认只用内存保存当前状态，不接 `D1` 或 `KV`。
@@ -67,7 +67,7 @@ Worker 必须提供一个可升级为 `WebSocket` 的地址。这个地址可以
 wss://<your-worker-host>/ws
 ```
 
-再把 Worker 的 `REMOTE_STATUS_BRIDGE_TOKEN` 设置成和 Patina `访问令牌` 相同的值。
+再把 Worker 的 `REMOTE_STATUS_BRIDGE_TOKEN` secret 设置成和 Patina `访问令牌` 相同的值。
 
 连接建立后，Patina 会先发送鉴权消息：
 

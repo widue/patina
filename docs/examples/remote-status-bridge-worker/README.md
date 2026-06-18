@@ -12,7 +12,7 @@ It receives Patina `snapshot` messages over WebSocket and keeps the latest state
 ## Setup
 
 1. Deploy this Worker.
-2. Set `REMOTE_STATUS_BRIDGE_TOKEN` to a random value.
+2. Set the `REMOTE_STATUS_BRIDGE_TOKEN` secret to a random value.
 3. In Patina, set the Endpoint URL to `wss://<your-worker-host>/ws`.
 4. In Patina, set the access token to the same value.
 
@@ -28,6 +28,7 @@ npm run dev
 
 ```bash
 npm install
+wrangler secret put REMOTE_STATUS_BRIDGE_TOKEN
 npm run deploy
 ```
 
