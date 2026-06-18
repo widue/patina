@@ -389,6 +389,16 @@ await runTest("settings exposes local status access controls", () => {
   assert.match(settingsInterface, /UI_TEXT\.accessibility\.settings\.toggleLocalApi/);
   assert.match(settingsInterface, /buildLocalApiEnabledChange/);
   assert.match(settingsInterface, /LOCAL_API_ENDPOINT_PREFIX = "ws:\/\/127\.0\.0\.1:"/);
+
+  const webActivityIndex = settingsInterface.indexOf("UI_TEXT.settings.webActivityTitle");
+  const localApiIndex = settingsInterface.indexOf("UI_TEXT.settings.localApiGeneralTitle");
+  const remoteBridgeIndex = settingsInterface.indexOf("UI_TEXT.settings.remoteStatusBridgeTitle");
+
+  assert.ok(webActivityIndex >= 0);
+  assert.ok(localApiIndex >= 0);
+  assert.ok(remoteBridgeIndex >= 0);
+  assert.ok(webActivityIndex < localApiIndex);
+  assert.ok(localApiIndex < remoteBridgeIndex);
 });
 
 await runTest("web activity views are gated by saved web sync setting", () => {

@@ -311,74 +311,6 @@ export default function SettingsInterfacePanel({
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <p className="text-sm font-semibold text-[var(--qp-text-primary)]">
-                {UI_TEXT.settings.remoteStatusBridgeTitle}
-              </p>
-              <p className="mt-1 text-sm leading-relaxed text-[var(--qp-text-secondary)]">
-                {UI_TEXT.settings.remoteStatusBridgeEnabledHint}
-              </p>
-            </div>
-            <QuietSwitch
-              checked={remoteStatusBridgeEnabled}
-              onChange={handleRemoteStatusBridgeEnabledChange}
-              ariaLabel={UI_TEXT.accessibility.settings.toggleRemoteStatusBridge}
-            />
-          </div>
-
-          <div className={INTERFACE_FIELD_GRID_CLASS}>
-            <InterfaceInlineField
-              htmlFor="settings-remote-status-bridge-url"
-              icon={<Link2 size={14} className="text-[var(--qp-text-tertiary)]" />}
-              title={UI_TEXT.settings.remoteStatusBridgeUrlLabel}
-            >
-              <TextField
-                id="settings-remote-status-bridge-url"
-                value={remoteStatusBridgeUrl}
-                disabled={!remoteStatusBridgeEnabled}
-                spellCheck={false}
-                onChange={onRemoteStatusBridgeUrlChange}
-              />
-            </InterfaceInlineField>
-
-            <InterfaceInlineField
-              htmlFor="settings-remote-status-bridge-token"
-              icon={<KeyRound size={14} className="text-[var(--qp-text-tertiary)]" />}
-              title={UI_TEXT.settings.remoteStatusBridgeTokenLabel}
-            >
-              <TokenField
-                id="settings-remote-status-bridge-token"
-                value={remoteStatusBridgeToken}
-                visible={remoteStatusBridgeTokenVisible}
-                disabled={!remoteStatusBridgeEnabled}
-                onChange={onRemoteStatusBridgeTokenChange}
-                onGenerate={() => {
-                  onRemoteStatusBridgeTokenChange(createLocalApiToken());
-                  setRemoteStatusBridgeTokenVisible(true);
-                }}
-                onToggleVisible={() => setRemoteStatusBridgeTokenVisible((current) => !current)}
-                showLabel={UI_TEXT.accessibility.settings.showLocalApiToken}
-                hideLabel={UI_TEXT.accessibility.settings.hideLocalApiToken}
-              />
-            </InterfaceInlineField>
-
-            <InterfaceInlineField
-              htmlFor="settings-remote-status-bridge-machine-id"
-              icon={<Server size={14} className="text-[var(--qp-text-tertiary)]" />}
-              title={UI_TEXT.settings.remoteStatusBridgeMachineIdLabel}
-            >
-              <TextField
-                id="settings-remote-status-bridge-machine-id"
-                value={remoteStatusBridgeMachineId}
-                disabled={false}
-                readOnly
-              />
-            </InterfaceInlineField>
-          </div>
-        </QuietSubpanel>
-
-        <QuietSubpanel>
-          <div className="flex items-start justify-between gap-4">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-[var(--qp-text-primary)]">
                 {UI_TEXT.settings.webActivityTitle}
               </p>
               <p className="mt-1 text-sm leading-relaxed text-[var(--qp-text-secondary)]">
@@ -486,6 +418,74 @@ export default function SettingsInterfacePanel({
                 onToggleVisible={() => setLocalApiTokenVisible((current) => !current)}
                 showLabel={UI_TEXT.accessibility.settings.showLocalApiToken}
                 hideLabel={UI_TEXT.accessibility.settings.hideLocalApiToken}
+              />
+            </InterfaceInlineField>
+          </div>
+        </QuietSubpanel>
+
+        <QuietSubpanel>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[var(--qp-text-primary)]">
+                {UI_TEXT.settings.remoteStatusBridgeTitle}
+              </p>
+              <p className="mt-1 text-sm leading-relaxed text-[var(--qp-text-secondary)]">
+                {UI_TEXT.settings.remoteStatusBridgeEnabledHint}
+              </p>
+            </div>
+            <QuietSwitch
+              checked={remoteStatusBridgeEnabled}
+              onChange={handleRemoteStatusBridgeEnabledChange}
+              ariaLabel={UI_TEXT.accessibility.settings.toggleRemoteStatusBridge}
+            />
+          </div>
+
+          <div className={INTERFACE_FIELD_GRID_CLASS}>
+            <InterfaceInlineField
+              htmlFor="settings-remote-status-bridge-url"
+              icon={<Link2 size={14} className="text-[var(--qp-text-tertiary)]" />}
+              title={UI_TEXT.settings.remoteStatusBridgeUrlLabel}
+            >
+              <TextField
+                id="settings-remote-status-bridge-url"
+                value={remoteStatusBridgeUrl}
+                disabled={!remoteStatusBridgeEnabled}
+                spellCheck={false}
+                onChange={onRemoteStatusBridgeUrlChange}
+              />
+            </InterfaceInlineField>
+
+            <InterfaceInlineField
+              htmlFor="settings-remote-status-bridge-token"
+              icon={<KeyRound size={14} className="text-[var(--qp-text-tertiary)]" />}
+              title={UI_TEXT.settings.remoteStatusBridgeTokenLabel}
+            >
+              <TokenField
+                id="settings-remote-status-bridge-token"
+                value={remoteStatusBridgeToken}
+                visible={remoteStatusBridgeTokenVisible}
+                disabled={!remoteStatusBridgeEnabled}
+                onChange={onRemoteStatusBridgeTokenChange}
+                onGenerate={() => {
+                  onRemoteStatusBridgeTokenChange(createLocalApiToken());
+                  setRemoteStatusBridgeTokenVisible(true);
+                }}
+                onToggleVisible={() => setRemoteStatusBridgeTokenVisible((current) => !current)}
+                showLabel={UI_TEXT.accessibility.settings.showLocalApiToken}
+                hideLabel={UI_TEXT.accessibility.settings.hideLocalApiToken}
+              />
+            </InterfaceInlineField>
+
+            <InterfaceInlineField
+              htmlFor="settings-remote-status-bridge-machine-id"
+              icon={<Server size={14} className="text-[var(--qp-text-tertiary)]" />}
+              title={UI_TEXT.settings.remoteStatusBridgeMachineIdLabel}
+            >
+              <TextField
+                id="settings-remote-status-bridge-machine-id"
+                value={remoteStatusBridgeMachineId}
+                disabled={false}
+                readOnly
               />
             </InterfaceInlineField>
           </div>
