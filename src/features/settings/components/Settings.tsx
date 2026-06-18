@@ -212,16 +212,19 @@ export default function Settings({
           />
 
           <SettingsInterfacePanel
-            localApiEnabled={draftSettings.localApiEnabled}
             webActivityEnabled={draftSettings.webActivityEnabled}
             port={draftSettings.localApiPort}
-            localApiToken={draftSettings.localApiToken}
             webActivityToken={draftSettings.webActivityToken}
-            onLocalApiEnabledChange={(nextChecked) => handleChange("localApiEnabled", nextChecked)}
+            remoteStatusBridgeEnabled={draftSettings.remoteStatusBridgeEnabled}
+            remoteStatusBridgeUrl={draftSettings.remoteStatusBridgeUrl}
+            remoteStatusBridgeToken={draftSettings.remoteStatusBridgeToken}
+            remoteStatusBridgeMachineId={draftSettings.remoteStatusBridgeMachineId}
             onWebActivityEnabledChange={(nextChecked) => handleChange("webActivityEnabled", nextChecked)}
             onPortChange={(nextPort) => handleChange("localApiPort", nextPort)}
-            onLocalApiTokenChange={(nextToken) => handleChange("localApiToken", nextToken)}
             onWebActivityTokenChange={(nextToken) => handleChange("webActivityToken", nextToken)}
+            onRemoteStatusBridgeEnabledChange={(nextChecked) => handleChange("remoteStatusBridgeEnabled", nextChecked)}
+            onRemoteStatusBridgeUrlChange={(nextUrl) => handleChange("remoteStatusBridgeUrl", nextUrl)}
+            onRemoteStatusBridgeTokenChange={(nextToken) => handleChange("remoteStatusBridgeToken", nextToken)}
           />
 
           <SettingsDataSafetyPanel
