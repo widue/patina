@@ -3,14 +3,15 @@ import type { QuietToastTone } from "../../shared/components/QuietToast";
 import type { QuietToastItem } from "../../shared/components/QuietToastStack";
 
 const TOAST_AUTO_DISMISS_MS = 3200;
-const TOAST_ID_SALT_MAX = 1000;
 
 export function useAppShellToasts() {
   const [toasts, setToasts] = useState<QuietToastItem[]>([]);
   const toastTimerIdsRef = useRef<number[]>([]);
+  const nextToastIdRef = useRef(0);
 
   const pushToast = useCallback((message: string, tone: QuietToastTone = "info") => {
-    const id = Date.now() + Math.floor(Math.random() * TOAST_ID_SALT_MAX);
+    const id = nextToastIdRef.current;
+    nextToastIdRef.current += 1;
     setToasts((current) => [...current, { id, message, tone }]);
 
     const timerId = window.setTimeout(() => {
