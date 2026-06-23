@@ -20,14 +20,6 @@ const EXTENSION_FILES = [
   "popup.js",
   ...Object.values(REQUIRED_ICON_FILES),
 ] as const;
-const USER_GUIDE_FILES = [
-  "README.en.md",
-  "README.zh-CN.md",
-] as const;
-const REQUIRED_FILES = [
-  ...EXTENSION_FILES,
-  ...USER_GUIDE_FILES,
-] as const;
 
 type ChromeManifest = {
   manifest_version?: number;
@@ -113,7 +105,7 @@ async function ensureFile(relativePath: string) {
 }
 
 async function checkExtension() {
-  for (const file of REQUIRED_FILES) {
+  for (const file of EXTENSION_FILES) {
     await ensureFile(file);
   }
 
@@ -314,10 +306,6 @@ async function packageExtension() {
     ...extensionFiles.map((file) => ({
       sourcePath: join(BUILD_DIR, file),
       archivePath: `${packageRootName}/${file}`,
-    })),
-    ...USER_GUIDE_FILES.map((file) => ({
-      sourcePath: join(SOURCE_DIR, file),
-      archivePath: file,
     })),
   ];
   await cleanExistingPackages();

@@ -2,10 +2,9 @@
 
 Chromium MV3 extension companion for Patina.
 
-This file documents the extension project itself. User-facing setup and usage guides are kept separately:
+This file documents the extension project itself. User-facing setup instructions live in Patina Settings.
 
-- English: [`README.en.md`](./README.en.md)
-- Simplified Chinese: [`README.zh-CN.md`](./README.zh-CN.md)
+Simplified Chinese project README: [`README.zh-CN.md`](./README.zh-CN.md).
 
 ## Purpose
 
@@ -54,7 +53,7 @@ dist/extensions/chromium/patina-chromium-extension-v0.1.0.zip
 ```
 
 The version in the file name comes from `manifest.json`.
-The zip contains a versioned extension folder plus user guides at the archive root, so users can read the guides without opening the loadable extension directory.
+The zip contains a versioned extension folder. Users load that extracted folder in the browser extension page and follow the Web Sync instructions in Patina Settings.
 
 ## Scope
 
