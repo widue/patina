@@ -18,8 +18,14 @@ import {
 import type { AppSettings } from "../../../shared/settings/appSettings";
 import type { ThemeLibrary } from "../../../shared/settings/colorSchemeOptions.ts";
 import type { CleanupRange } from "../types";
-import type { BackupRestorePreparation, BackupRestoreStrategy } from "../services/settingsRuntimeAdapterService.ts";
+import type {
+  BackupRestorePreparation,
+  BackupRestoreStrategy,
+  StorageSnapshot,
+} from "../services/settingsRuntimeAdapterService.ts";
 import { useRemoteBackupState } from "./useRemoteBackupState.ts";
+import { getStorageSettingsCopy } from "../copy/storageSettingsCopy.ts";
+import { toEbwebviewCachePath } from "../../../platform/storage/storagePathDisplay.ts";
 
 const buildCleanupOptions = (): Array<{ value: CleanupRange; label: string }> => [
   { value: 180, label: UI_TEXT.settings.cleanupRangeLabels[180] },
@@ -72,6 +78,8 @@ export function useSettingsPageState({
   const [pendingRestorePreparation, setPendingRestorePreparation] = useState<BackupRestorePreparation | null>(null);
   const [isExportingBackup, setIsExportingBackup] = useState(false);
   const [isRestoringBackup, setIsRestoringBackup] = useState(false);
+  const [storageSnapshot, setStorageSnapshot] = useState<StorageSnapshot | null>(null);
+  const [isStorageBusy, setIsStorageBusy] = useState(false);
   const [appVersion, setAppVersion] = useState(() => initialBootstrap?.appVersion ?? "-");
   const hasUnsavedChangesRef = useRef(false);
   const cleanupOptions = buildCleanupOptions();
@@ -86,6 +94,18 @@ export function useSettingsPageState({
     restoreBackup: SettingsRuntimeAdapterService.restoreBackup,
     reload: () => window.location.reload(),
   });
+
+  const refreshStorageSnapshot = useCallback(async () => {
+    try {
+      setStorageSnapshot(await SettingsRuntimeAdapterService.getStorageSnapshot());
+    } catch (error) {
+      console.error("load storage snapshot failed", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStorageSnapshot();
+  }, [refreshStorageSnapshot]);
 
   useEffect(() => {
     let cancelled = false;
@@ -324,6 +344,167 @@ export function useSettingsPageState({
     setPendingRestorePreparation(null);
   }, []);
 
+  const handleScheduleWebviewCacheClear = useCallback(async () => {
+    if (isStorageBusy) return;
+    const storageText = getStorageSettingsCopy();
+
+    setIsStorageBusy(true);
+    try {
+      await SettingsRuntimeAdapterService.scheduleWebviewCacheClear();
+      await refreshStorageSnapshot();
+      notify(storageText.webviewCacheClearScheduled, "success");
+    } catch (error) {
+      console.error("schedule WebView cache clear failed", error);
+      notify(storageText.webviewCacheClearFailed, "warning");
+    } finally {
+      setIsStorageBusy(false);
+    }
+  }, [isStorageBusy, notify, refreshStorageSnapshot]);
+
+  const handleChooseDataDirectory = useCallback(async () => {
+    if (isStorageBusy) return;
+    const storageText = getStorageSettingsCopy();
+
+    setIsStorageBusy(true);
+    try {
+      const selectedPath = await SettingsRuntimeAdapterService.pickStorageDirectory();
+      if (!selectedPath) return;
+
+      const preview = await SettingsRuntimeAdapterService.previewStorageMigration(selectedPath);
+      const confirmed = await confirm({
+        title: storageText.storageDataMigrationConfirmTitle,
+        description: storageText.storageDataMigrationConfirmDetail(
+          preview.currentDataRoot,
+          preview.targetDataRoot,
+        ),
+        confirmLabel: storageText.storageMigrationConfirmAction,
+      });
+      if (!confirmed) return;
+
+      await SettingsRuntimeAdapterService.scheduleStorageMigration(selectedPath);
+      await refreshStorageSnapshot();
+      notify(storageText.storageMigrationScheduled, "success");
+    } catch (error) {
+      console.error("schedule data directory migration failed", error);
+      notify(storageText.storageMigrationFailed, "warning");
+    } finally {
+      setIsStorageBusy(false);
+    }
+  }, [confirm, isStorageBusy, notify, refreshStorageSnapshot]);
+
+  const handleChooseCacheDirectory = useCallback(async () => {
+    if (isStorageBusy) return;
+    const storageText = getStorageSettingsCopy();
+
+    setIsStorageBusy(true);
+    try {
+      const selectedPath = await SettingsRuntimeAdapterService.pickStorageDirectory();
+      if (!selectedPath) return;
+
+      const preview = await SettingsRuntimeAdapterService.previewWebviewCacheMigration(selectedPath);
+      const confirmed = await confirm({
+        title: storageText.storageCacheMigrationConfirmTitle,
+        description: storageText.storageCacheMigrationConfirmDetail(
+          toEbwebviewCachePath(preview.currentWebviewRoot),
+          toEbwebviewCachePath(preview.targetWebviewRoot),
+        ),
+        confirmLabel: storageText.storageMigrationConfirmAction,
+      });
+      if (!confirmed) return;
+
+      await SettingsRuntimeAdapterService.scheduleWebviewCacheMigration(selectedPath);
+      await refreshStorageSnapshot();
+      notify(storageText.storageMigrationScheduled, "success");
+    } catch (error) {
+      console.error("schedule cache directory migration failed", error);
+      notify(storageText.storageMigrationFailed, "warning");
+    } finally {
+      setIsStorageBusy(false);
+    }
+  }, [confirm, isStorageBusy, notify, refreshStorageSnapshot]);
+
+  const handleRestoreDefaultDataDirectory = useCallback(async () => {
+    if (isStorageBusy || !storageSnapshot?.paths.isCustomDataRoot) return;
+    const storageText = getStorageSettingsCopy();
+
+    setIsStorageBusy(true);
+    try {
+      const preview = await SettingsRuntimeAdapterService.previewRestoreDefaultStorageMigration();
+      const confirmed = await confirm({
+        title: storageText.restoreDefaultPathAction,
+        description: storageText.storageRestoreDefaultDataConfirmDetail(
+          preview.currentDataRoot,
+          preview.targetDataRoot,
+        ),
+        confirmLabel: storageText.restoreDefaultPathAction,
+      });
+      if (!confirmed) return;
+
+      await SettingsRuntimeAdapterService.scheduleRestoreDefaultStorageMigration();
+      await refreshStorageSnapshot();
+      notify(storageText.storageMigrationScheduled, "success");
+    } catch (error) {
+      console.error("schedule restore default data directory failed", error);
+      notify(storageText.storageMigrationFailed, "warning");
+    } finally {
+      setIsStorageBusy(false);
+    }
+  }, [confirm, isStorageBusy, notify, refreshStorageSnapshot, storageSnapshot?.paths.isCustomDataRoot]);
+
+  const handleRestoreDefaultCacheDirectory = useCallback(async () => {
+    if (isStorageBusy || !storageSnapshot?.paths.isCustomWebviewRoot) return;
+    const storageText = getStorageSettingsCopy();
+
+    setIsStorageBusy(true);
+    try {
+      const preview = await SettingsRuntimeAdapterService.previewRestoreDefaultWebviewCacheMigration();
+      const confirmed = await confirm({
+        title: storageText.restoreDefaultPathAction,
+        description: storageText.storageRestoreDefaultCacheConfirmDetail(
+          toEbwebviewCachePath(preview.currentWebviewRoot),
+          toEbwebviewCachePath(preview.targetWebviewRoot),
+        ),
+        confirmLabel: storageText.restoreDefaultPathAction,
+      });
+      if (!confirmed) return;
+
+      await SettingsRuntimeAdapterService.scheduleRestoreDefaultWebviewCacheMigration();
+      await refreshStorageSnapshot();
+      notify(storageText.storageMigrationScheduled, "success");
+    } catch (error) {
+      console.error("schedule restore default cache directory failed", error);
+      notify(storageText.storageMigrationFailed, "warning");
+    } finally {
+      setIsStorageBusy(false);
+    }
+  }, [confirm, isStorageBusy, notify, refreshStorageSnapshot, storageSnapshot?.paths.isCustomWebviewRoot]);
+
+  const handleCancelPendingStorageMigration = useCallback(async () => {
+    if (isStorageBusy) return;
+    const storageText = getStorageSettingsCopy();
+    setIsStorageBusy(true);
+    try {
+      await SettingsRuntimeAdapterService.cancelPendingStorageMigration();
+      await refreshStorageSnapshot();
+      notify(storageText.storageMigrationCancelled, "info");
+    } catch (error) {
+      console.error("cancel pending storage migration failed", error);
+      notify(storageText.storageMigrationCancelFailed, "warning");
+    } finally {
+      setIsStorageBusy(false);
+    }
+  }, [isStorageBusy, notify, refreshStorageSnapshot]);
+
+  const handleOpenStorageDirectory = useCallback(async (path: string) => {
+    const storageText = getStorageSettingsCopy();
+    try {
+      await SettingsRuntimeAdapterService.openStorageDirectory(path);
+    } catch (error) {
+      console.error("open storage directory failed", error);
+      notify(storageText.storageOpenDirectoryFailed, "warning");
+    }
+  }, [notify]);
+
   const handleOpenReleaseNotes = useCallback(async () => {
     try {
       await SettingsRuntimeAdapterService.openReleaseNotes();
@@ -389,6 +570,15 @@ export function useSettingsPageState({
     handleRestoreBackup,
     clearPendingRestoreBackup,
     remoteBackup,
+    storageSnapshot,
+    isStorageBusy,
+    handleScheduleWebviewCacheClear,
+    handleChooseDataDirectory,
+    handleChooseCacheDirectory,
+    handleRestoreDefaultDataDirectory,
+    handleRestoreDefaultCacheDirectory,
+    handleCancelPendingStorageMigration,
+    handleOpenStorageDirectory,
     handleOpenReleaseNotes,
     handleOpenFeedback,
     idleTimeoutMinutes,

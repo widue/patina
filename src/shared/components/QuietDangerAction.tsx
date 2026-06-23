@@ -6,6 +6,7 @@ interface Props {
   disabled?: boolean;
   title?: string;
   leadingIcon?: ReactNode;
+  className?: string;
   onClick?: () => void;
 }
 
@@ -14,6 +15,7 @@ export default function QuietDangerAction({
   disabled = false,
   title,
   leadingIcon,
+  className,
   onClick,
 }: Props) {
   const button = (
@@ -21,7 +23,7 @@ export default function QuietDangerAction({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="qp-danger-action"
+      className={`qp-danger-action ${className ?? ""}`.trim()}
     >
       {leadingIcon}
       {children}

@@ -16,6 +16,23 @@ import {
 } from "../../../platform/backup/backupRuntimeGateway.ts";
 import { copyTextToClipboard } from "../../../platform/desktop/clipboardGateway.ts";
 import { openExternalUrl } from "../../../platform/desktop/externalUrlGateway.ts";
+import {
+  cancelPendingStorageMigration,
+  getStorageSnapshot,
+  openStorageDirectory,
+  pickStorageDirectory,
+  previewRestoreDefaultStorageMigration,
+  previewRestoreDefaultWebviewCacheMigration,
+  previewStorageMigration,
+  previewWebviewCacheMigration,
+  scheduleRestoreDefaultWebviewCacheMigration,
+  scheduleRestoreDefaultStorageMigration,
+  scheduleStorageMigration,
+  scheduleWebviewCacheMigration,
+  scheduleWebviewCacheClear,
+  type StorageMigrationPreview,
+  type StorageSnapshot,
+} from "../../../platform/storage/storageRuntimeGateway.ts";
 import { emitAppSettingsChanged } from "../../../platform/runtime/appSettingsEventGateway.ts";
 import { setAfkThreshold } from "../../../platform/runtime/trackingRuntimeGateway.ts";
 import {
@@ -30,6 +47,7 @@ import {
 } from "./sessionCleanupPolicy.ts";
 
 export type { BackupPreview, BackupRestoreStrategy } from "../../../platform/backup/backupRuntimeGateway.ts";
+export type { StorageMigrationPreview, StorageSnapshot } from "../../../platform/storage/storageRuntimeGateway.ts";
 export type { WebActivityBridgeSnapshot } from "../../../platform/runtime/webActivityBridgeGateway.ts";
 
 export interface BackupRestorePreparation {
@@ -188,6 +206,58 @@ export class SettingsRuntimeAdapterService {
 
   static async copyWebActivityHelpValue(value: string): Promise<void> {
     await copyTextToClipboard(value);
+  }
+
+  static async getStorageSnapshot(): Promise<StorageSnapshot> {
+    return getStorageSnapshot();
+  }
+
+  static async pickStorageDirectory(): Promise<string | null> {
+    return pickStorageDirectory();
+  }
+
+  static async previewStorageMigration(path: string): Promise<StorageMigrationPreview> {
+    return previewStorageMigration(path);
+  }
+
+  static async previewWebviewCacheMigration(path: string): Promise<StorageMigrationPreview> {
+    return previewWebviewCacheMigration(path);
+  }
+
+  static async previewRestoreDefaultStorageMigration(): Promise<StorageMigrationPreview> {
+    return previewRestoreDefaultStorageMigration();
+  }
+
+  static async previewRestoreDefaultWebviewCacheMigration(): Promise<StorageMigrationPreview> {
+    return previewRestoreDefaultWebviewCacheMigration();
+  }
+
+  static async scheduleStorageMigration(path: string): Promise<StorageMigrationPreview> {
+    return scheduleStorageMigration(path);
+  }
+
+  static async scheduleWebviewCacheMigration(path: string): Promise<StorageMigrationPreview> {
+    return scheduleWebviewCacheMigration(path);
+  }
+
+  static async scheduleRestoreDefaultStorageMigration(): Promise<StorageMigrationPreview> {
+    return scheduleRestoreDefaultStorageMigration();
+  }
+
+  static async scheduleRestoreDefaultWebviewCacheMigration(): Promise<StorageMigrationPreview> {
+    return scheduleRestoreDefaultWebviewCacheMigration();
+  }
+
+  static async cancelPendingStorageMigration(): Promise<void> {
+    await cancelPendingStorageMigration();
+  }
+
+  static async scheduleWebviewCacheClear(): Promise<void> {
+    await scheduleWebviewCacheClear();
+  }
+
+  static async openStorageDirectory(path: string): Promise<void> {
+    await openStorageDirectory(path);
   }
 
   static async getWebActivityBridgeSnapshot(): Promise<WebActivityBridgeSnapshot> {

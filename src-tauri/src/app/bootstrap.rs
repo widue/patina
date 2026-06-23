@@ -134,6 +134,20 @@ fn register_invoke_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Build
         commands::backup::cmd_upload_webdav_backup,
         commands::backup::cmd_list_webdav_backups,
         commands::backup::cmd_download_webdav_backup,
+        commands::storage::cmd_get_storage_snapshot,
+        commands::storage::cmd_pick_storage_directory,
+        commands::storage::cmd_preview_storage_migration,
+        commands::storage::cmd_preview_webview_cache_migration,
+        commands::storage::cmd_preview_restore_default_storage_migration,
+        commands::storage::cmd_preview_restore_default_webview_cache_migration,
+        commands::storage::cmd_schedule_storage_migration,
+        commands::storage::cmd_schedule_webview_cache_migration,
+        commands::storage::cmd_schedule_restore_default_storage_migration,
+        commands::storage::cmd_schedule_restore_default_webview_cache_migration,
+        commands::storage::cmd_cancel_pending_storage_migration,
+        commands::storage::cmd_schedule_webview_cache_clear,
+        commands::storage::cmd_get_webview_cache_snapshot,
+        commands::storage::cmd_open_storage_directory,
         commands::persistence::cmd_reopen_sqlite_pool,
         commands::diagnostics::cmd_get_resource_diagnostics
     ])
@@ -149,6 +163,10 @@ fn register_runtime_hooks(
         .on_tray_icon_event(tray::handle_tray_icon_event)
         .on_window_event(tray::handle_window_event)
         .setup(move |app| {
+            tauri::async_runtime::block_on(data::storage_migration::run_pending_storage_migration(
+                app.handle(),
+            ))
+            .map_err(std::io::Error::other)?;
             tauri::async_runtime::block_on(data::sqlite_pool::initialize_app_sqlite(app.handle()))
                 .map_err(std::io::Error::other)?;
             Ok(runtime::setup(

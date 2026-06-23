@@ -33,6 +33,25 @@ impl AppProfile {
             Self::Dev => PRODUCT_FOLDER_DEV,
         }
     }
+
+    pub fn webview_product_folder(self) -> &'static str {
+        #[cfg(debug_assertions)]
+        {
+            if self == Self::Production {
+                return PRODUCT_FOLDER_DEV;
+            }
+        }
+
+        self.product_folder()
+    }
+
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Production => "production",
+            Self::Local => "local",
+            Self::Dev => "dev",
+        }
+    }
 }
 
 pub fn app_profile<R: Runtime>(app: &AppHandle<R>) -> AppProfile {
@@ -43,12 +62,8 @@ pub fn product_roaming_data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBu
     Ok(roaming_root(app)?.join(app_profile(app).product_folder()))
 }
 
-pub fn product_local_data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
-    Ok(local_root(app)?.join(app_profile(app).product_folder()))
-}
-
 pub fn product_webview_data_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
-    product_local_data_dir(app)
+    Ok(local_root(app)?.join(app_profile(app).webview_product_folder()))
 }
 
 fn roaming_root<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
@@ -107,11 +122,30 @@ mod tests {
     }
 
     #[test]
+    fn debug_production_build_uses_dev_webview_folder() {
+        #[cfg(debug_assertions)]
+        assert_eq!(
+            AppProfile::Production.webview_product_folder(),
+            "Patina Dev"
+        );
+
+        #[cfg(not(debug_assertions))]
+        assert_eq!(AppProfile::Production.webview_product_folder(), "Patina");
+    }
+
+    #[test]
     fn profile_folder_names_do_not_use_internal_identifiers() {
         for profile in [AppProfile::Production, AppProfile::Local, AppProfile::Dev] {
             let folder = profile.product_folder();
             assert!(!folder.contains("com.ceceliaee.patina"));
             assert!(!folder.contains("io.github"));
         }
+    }
+
+    #[test]
+    fn profile_keys_are_stable_anchor_identifiers() {
+        assert_eq!(AppProfile::Production.key(), "production");
+        assert_eq!(AppProfile::Local.key(), "local");
+        assert_eq!(AppProfile::Dev.key(), "dev");
     }
 }

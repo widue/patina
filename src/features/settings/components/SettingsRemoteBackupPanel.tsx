@@ -11,6 +11,13 @@ interface SettingsRemoteBackupPanelProps {
   onRestoreEntrySelected: (entry: RemoteBackupEntry) => void;
 }
 
+function stripFixedRemoteDirSuffix(url: string): string {
+  const trimmed = url.trim();
+  const suffix = DEFAULT_WEBDAV_REMOTE_DIR;
+  if (!trimmed.endsWith(suffix)) return trimmed;
+  return trimmed.slice(0, -suffix.length).replace(/\/+$/, "/");
+}
+
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB"];
@@ -21,13 +28,6 @@ function formatBytes(bytes: number): string {
     index += 1;
   }
   return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
-}
-
-function stripFixedRemoteDirSuffix(url: string): string {
-  const trimmed = url.trim();
-  const suffix = DEFAULT_WEBDAV_REMOTE_DIR;
-  if (!trimmed.endsWith(suffix)) return trimmed;
-  return trimmed.slice(0, -suffix.length).replace(/\/+$/, "/");
 }
 
 function buildInitialDraft(remoteBackup: RemoteBackupState): RemoteBackupFormDraft {

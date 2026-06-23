@@ -1,8 +1,8 @@
 use crate::app::state::{DesktopBehaviorState, MainWindowLifecycleState};
 use crate::app::widget;
 use crate::domain::settings::MinimizeBehavior;
-use crate::platform::app_paths;
 use crate::platform::windows::window_activation;
+use crate::platform::{storage_paths, webview_cache};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, Runtime, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Window};
 
@@ -96,6 +96,9 @@ pub(crate) fn ensure_main_window_with_initial_visibility<R: Runtime>(
         return Ok(window);
     }
 
+    webview_cache::trim_webview_cache_before_start(app)?;
+    let webview_root = storage_paths::resolve_storage_paths(app)?.webview_root;
+
     WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, main_window_url())
         .title(MAIN_WINDOW_TITLE)
         .inner_size(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
@@ -105,7 +108,7 @@ pub(crate) fn ensure_main_window_with_initial_visibility<R: Runtime>(
         .transparent(true)
         .center()
         .visible(visible)
-        .data_directory(app_paths::product_webview_data_dir(app)?)
+        .data_directory(webview_root)
         .build()
         .map_err(|error| format!("failed to create main window: {error}"))
 }

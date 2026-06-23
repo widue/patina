@@ -94,6 +94,7 @@ export default function QuietTooltip({
 }: Props) {
   const anchorRef = useRef<HTMLSpanElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const suppressFocusTooltipRef = useRef(false);
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<TooltipPosition | null>(null);
   const canShow = Boolean(label) && !disabled;
@@ -139,9 +140,26 @@ export default function QuietTooltip({
   }, [canShow, updatePosition, visible]);
 
   const showTooltip = () => {
+    if (canShow && !suppressFocusTooltipRef.current) {
+      setVisible(true);
+    }
+  };
+
+  const showTooltipFromPointer = () => {
+    suppressFocusTooltipRef.current = false;
     if (canShow) {
       setVisible(true);
     }
+  };
+
+  const hideTooltipAfterPointerDown = () => {
+    suppressFocusTooltipRef.current = true;
+    hideTooltip();
+  };
+
+  const hideTooltipAfterPointerLeave = () => {
+    suppressFocusTooltipRef.current = false;
+    hideTooltip();
   };
 
   return (
@@ -151,9 +169,10 @@ export default function QuietTooltip({
         className={`qp-tooltip-anchor ${className ?? ""}`.trim()}
         onFocus={showTooltip}
         onBlur={hideTooltip}
-        onMouseEnter={showTooltip}
-        onMouseLeave={hideTooltip}
-        onMouseDown={hideTooltip}
+        onMouseEnter={showTooltipFromPointer}
+        onMouseLeave={hideTooltipAfterPointerLeave}
+        onPointerDownCapture={hideTooltipAfterPointerDown}
+        onClickCapture={hideTooltipAfterPointerDown}
       >
         {children}
       </span>

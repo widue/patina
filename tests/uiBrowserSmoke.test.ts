@@ -114,6 +114,40 @@ function tauriStubFor(path: string) {
             lastActivityAtMs: null,
           };
         }
+        if (command === "cmd_get_storage_snapshot") {
+          return {
+            paths: {
+              installDir: "C:\\\\Smoke\\\\Patina Install",
+              anchorDir: "C:\\\\Smoke\\\\Patina Anchor",
+              dataRoot: "C:\\\\Smoke\\\\Patina",
+              databasePath: "C:\\\\Smoke\\\\Patina\\\\patina.db",
+              backupDir: "C:\\\\Smoke\\\\Patina\\\\backups",
+              remoteBackupTempDir: "C:\\\\Smoke\\\\Patina\\\\remote-backup-temp",
+              webviewRoot: "C:\\\\Smoke\\\\PatinaWebView",
+              isCustomDataRoot: false,
+              isCustomWebviewRoot: false,
+            },
+            sizes: {
+              installDirSizeBytes: 10485760,
+              dataSizeBytes: 4096,
+              backupDirSizeBytes: 0,
+            },
+            webviewCache: {
+              webviewRoot: "C:\\\\Smoke\\\\PatinaWebView",
+              ebwebviewPath: "C:\\\\Smoke\\\\PatinaWebView\\\\EBWebView",
+              totalSizeBytes: 0,
+              reclaimableSizeBytes: 0,
+              pendingClear: false,
+              lastTrimAtMs: null,
+              entries: [],
+            },
+            maintenance: {
+              lastError: null,
+              lastMigrationStatus: null,
+            },
+            pendingMigration: null,
+          };
+        }
         if (command === "cmd_commit_app_settings") {
           const settings = loadStoredSettings();
           for (const mutation of payload.mutations ?? []) {

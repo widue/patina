@@ -49,6 +49,15 @@ export default function Settings({
     handleRestoreBackup,
     clearPendingRestoreBackup,
     remoteBackup,
+    storageSnapshot,
+    isStorageBusy,
+    handleScheduleWebviewCacheClear,
+    handleChooseDataDirectory,
+    handleChooseCacheDirectory,
+    handleRestoreDefaultDataDirectory,
+    handleRestoreDefaultCacheDirectory,
+    handleCancelPendingStorageMigration,
+    handleOpenStorageDirectory,
     idleTimeoutMinutes,
     timelineMergeGapMinutes,
     minSessionMinutes,
@@ -248,6 +257,15 @@ export default function Settings({
             onRestoreBackup={handleRestoreBackup}
             onClearPendingRestoreBackup={clearPendingRestoreBackup}
             remoteBackup={remoteBackup}
+            storageSnapshot={storageSnapshot}
+            isStorageBusy={isStorageBusy}
+            onScheduleWebviewCacheClear={handleScheduleWebviewCacheClear}
+            onChooseDataDirectory={handleChooseDataDirectory}
+            onChooseCacheDirectory={handleChooseCacheDirectory}
+            onRestoreDefaultDataDirectory={handleRestoreDefaultDataDirectory}
+            onRestoreDefaultCacheDirectory={handleRestoreDefaultCacheDirectory}
+            onCancelPendingStorageMigration={handleCancelPendingStorageMigration}
+            onOpenStorageDirectory={handleOpenStorageDirectory}
           />
         </div>
       </div>

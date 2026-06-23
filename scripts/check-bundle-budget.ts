@@ -13,7 +13,7 @@ const CHUNK_BUDGETS = [
   { label: "index", pattern: /^index-.*\.js$/, gzipKiB: 70 },
 ] as const;
 
-const FEATURE_OTHER_CHUNKS_GZIP_BUDGET_KI_B = 70;
+const FEATURE_OTHER_CHUNKS_GZIP_BUDGET_KI_B = 71;
 const TOTAL_JS_GZIP_BUDGET_KI_B = 370;
 
 function formatKiB(bytes: number) {
