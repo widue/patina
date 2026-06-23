@@ -2,6 +2,7 @@ import type { AppStat } from "../types/app";
 import type { DailySummary, HistorySession, TitleSampleDetail } from "../types/sessions";
 import { AppClassification } from "../classification/appClassification.ts";
 import { cleanWindowTitle } from "./windowTitleCleaner.ts";
+import { pickPreferredAppName } from "./displayNameScoring.ts";
 
 const DIRECT_MERGE_GAP_MS = 5_000;
 
@@ -146,27 +147,6 @@ function resolveStatsExeName(session: CompiledSession) {
   // Keep original exeName only when it already matches the canonical key.
   // Otherwise persist the canonical executable as the stats identity.
   return session.appKey === rawExeKey ? session.exeName : session.appKey;
-}
-
-function containsCjkCharacters(value: string) {
-  return /[\u3400-\u9fff]/.test(value);
-}
-
-function scoreDisplayNameForStats(name: string) {
-  const normalized = name.trim();
-  if (!normalized) return 0;
-
-  const lower = normalized.toLowerCase();
-  if (lower.includes("tray") || lower.includes("widget")) return 1;
-  if (containsCjkCharacters(normalized)) return 4;
-  if (lower.includes("_") || lower.includes("-")) return 2;
-  return 3;
-}
-
-function pickPreferredAppName(current: string, next: string) {
-  const currentScore = scoreDisplayNameForStats(current);
-  const nextScore = scoreDisplayNameForStats(next);
-  return nextScore > currentScore ? next : current;
 }
 
 function prepareSession(

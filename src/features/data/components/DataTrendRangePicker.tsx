@@ -3,7 +3,6 @@ import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { UI_TEXT } from "../../../shared/copy/uiText.ts";
 import {
-  addLocalDays,
   selectDataTrendDraftDate,
   startOfLocalDay,
   toLocalDateKey,
@@ -11,6 +10,9 @@ import {
   type DataTrendRangeDraft,
   type DataTrendRangeSelection,
 } from "../services/dataTrendRange.ts";
+import {
+  buildMondayFirstCalendarGrid,
+} from "../../../shared/lib/localDate.ts";
 
 interface Props {
   anchor: HTMLElement;
@@ -18,12 +20,6 @@ interface Props {
   onApply: (selection: DataTrendRangeSelection) => void;
   onClose: () => void;
   onDraftLabelChange: (label: string) => void;
-}
-
-function getCalendarDays(month: Date) {
-  const first = new Date(month.getFullYear(), month.getMonth(), 1);
-  const start = addLocalDays(first, -((first.getDay() + 6) % 7));
-  return Array.from({ length: 42 }, (_, index) => addLocalDays(start, index));
 }
 
 function getPopoverPosition(anchor: HTMLElement) {
@@ -56,7 +52,7 @@ export default function DataTrendRangePicker({ anchor, mode, onApply, onClose, o
   const [calendarMonth, setCalendarMonth] = useState(() => startOfLocalDay(new Date()));
   const [position, setPosition] = useState(() => getPopoverPosition(anchor));
   const today = startOfLocalDay(new Date());
-  const calendarDays = useMemo(() => getCalendarDays(calendarMonth), [calendarMonth]);
+  const calendarDays = useMemo(() => buildMondayFirstCalendarGrid(calendarMonth), [calendarMonth]);
   const canGoNextMonth = calendarMonth.getFullYear() < today.getFullYear()
     || calendarMonth.getMonth() < today.getMonth();
 

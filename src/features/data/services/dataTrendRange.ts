@@ -1,5 +1,11 @@
 import { UI_TEXT } from "../../../shared/copy/uiText.ts";
 import type { SessionRange } from "../../../shared/lib/sessionReadCompiler.ts";
+import {
+  addLocalDays,
+  formatLocalDateKey,
+  parseLocalDateKey,
+  startOfLocalDay,
+} from "../../../shared/lib/localDate.ts";
 
 export type DataRollingTrendRange = 7 | 30 | 365;
 export type DataTrendPickerMode = "custom" | "week" | "month" | "year";
@@ -32,35 +38,13 @@ export interface DataTrendRangeDraft {
 export const DATA_ROLLING_TREND_RANGES: DataRollingTrendRange[] = [7, 30, 365];
 export const DATA_TREND_PICKER_MODES: DataTrendPickerMode[] = ["custom", "week", "month", "year"];
 
-export function parseLocalDateKey(dateKey: string): Date | null {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
-  if (!match) return null;
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(year, month - 1, day);
-  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
-    ? date
-    : null;
-}
+export {
+  addLocalDays,
+  parseLocalDateKey,
+  startOfLocalDay,
+};
 
-export function toLocalDateKey(date: Date): string {
-  return [
-    date.getFullYear(),
-    String(date.getMonth() + 1).padStart(2, "0"),
-    String(date.getDate()).padStart(2, "0"),
-  ].join("-");
-}
-
-export function startOfLocalDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-export function addLocalDays(date: Date, delta: number): Date {
-  const next = new Date(date);
-  next.setDate(next.getDate() + delta);
-  return next;
-}
+export const toLocalDateKey = formatLocalDateKey;
 
 function minDate(left: Date, right: Date): Date {
   return left.getTime() <= right.getTime() ? left : right;

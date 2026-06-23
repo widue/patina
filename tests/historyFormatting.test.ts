@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { formatTime } from "../src/features/history/services/historyFormatting.ts";
+import { formatDuration, formatTime } from "../src/features/history/services/historyFormatting.ts";
 import { setUiTextLanguage } from "../src/shared/copy/uiText.ts";
 
 let passed = 0;
@@ -25,6 +25,14 @@ await runTest("history time formatting uses midnight as 00:00", () => {
   setUiTextLanguage("en-US");
 
   assert.equal(formatTime(localTimeMs(0, 0)), "00:00");
+});
+
+await runTest("shared duration formatting keeps compact history labels", () => {
+  assert.equal(formatDuration(-1), "0m");
+  assert.equal(formatDuration(999), "0m");
+  assert.equal(formatDuration(1_000), "1s");
+  assert.equal(formatDuration(60_000), "1m");
+  assert.equal(formatDuration(3_900_000), "1h 5m");
 });
 
 setUiTextLanguage("zh-CN");

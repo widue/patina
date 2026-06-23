@@ -13,6 +13,13 @@ import {
   type DataRollingTrendRange,
   type ResolvedDataTrendRange,
 } from "./dataTrendRange.ts";
+import {
+  addLocalDays as addDays,
+  formatLocalDateKey as toDateKey,
+  startOfLocalDay,
+} from "../../../shared/lib/localDate.ts";
+import { formatDuration } from "../../../shared/lib/durationFormatting.ts";
+import { pickPreferredAppName } from "../../../shared/lib/displayNameScoring.ts";
 
 export type { AggregateSessionRecord };
 
@@ -128,39 +135,9 @@ interface CompiledDataSession extends AggregateSessionRecord {
   displayName: string;
 }
 
-function startOfLocalDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function addDays(date: Date, delta: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + delta);
-  return next;
-}
-
-function toDateKey(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function formatHeatmapDateLabel(dateKey: string) {
   const date = new Date(`${dateKey}T00:00:00`);
   return date.toLocaleDateString(getUiLocale(), { month: "2-digit", day: "2-digit" });
-}
-
-function formatDuration(durationMs: number) {
-  const safeMs = Math.max(0, durationMs);
-  const totalSeconds = Math.floor(safeMs / 1000);
-  const totalMinutes = Math.floor(safeMs / 60000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (totalMinutes > 0) return `${minutes}m`;
-  if (totalSeconds > 0) return `${totalSeconds}s`;
-  return "0m";
 }
 
 function formatHeatmapMonthLabel(date: Date) {
@@ -210,25 +187,6 @@ function getClippedSessionDuration(
   const clippedStart = Math.max(session.startTime, rangeStartMs);
   const clippedEnd = Math.min(session.endTime, rangeEndMs);
   return Math.max(0, clippedEnd - clippedStart);
-}
-
-function containsCjkCharacters(value: string) {
-  return /[\u3400-\u9fff]/.test(value);
-}
-
-function scoreDisplayNameForStats(name: string) {
-  const normalized = name.trim();
-  if (!normalized) return 0;
-
-  const lower = normalized.toLowerCase();
-  if (lower.includes("tray") || lower.includes("widget")) return 1;
-  if (containsCjkCharacters(normalized)) return 4;
-  if (lower.includes("_") || lower.includes("-")) return 2;
-  return 3;
-}
-
-function pickPreferredAppName(current: string, next: string) {
-  return scoreDisplayNameForStats(next) > scoreDisplayNameForStats(current) ? next : current;
 }
 
 function resolveDataDisplayName(session: AggregateSessionRecord, appKey: string) {

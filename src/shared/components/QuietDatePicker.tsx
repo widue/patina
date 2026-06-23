@@ -9,6 +9,15 @@ import {
 import { createPortal } from "react-dom";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
 import { UI_TEXT } from "../copy/uiText.ts";
+import {
+  addLocalMonths,
+  buildMondayFirstCalendarGrid,
+  formatLocalDateKey,
+  isSameLocalDay,
+  parseLocalDateKey,
+  startOfLocalDay,
+  startOfLocalMonth,
+} from "../lib/localDate.ts";
 
 interface QuietDatePickerProps {
   value: string;
@@ -31,71 +40,14 @@ const CALENDAR_HEIGHT = 262;
 const CALENDAR_GAP = 6;
 const VIEWPORT_PADDING = 8;
 
-function pad2(value: number) {
-  return String(value).padStart(2, "0");
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
-function startOfDay(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
-}
-
-function addMonths(date: Date, delta: number) {
-  return new Date(date.getFullYear(), date.getMonth() + delta, 1);
-}
-
-function formatDateKey(date: Date) {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
-function parseDateKey(dateKey: string) {
-  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
-  if (!match) return null;
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  const date = new Date(year, month - 1, day);
-  if (
-    date.getFullYear() !== year
-    || date.getMonth() !== month - 1
-    || date.getDate() !== day
-  ) {
-    return null;
-  }
-  return startOfDay(date);
-}
-
 function formatDateDisplay(dateKey: string) {
-  const date = parseDateKey(dateKey);
+  const date = parseLocalDateKey(dateKey);
   if (!date) return dateKey.replace(/-/g, "/");
-  return `${date.getFullYear()}/${pad2(date.getMonth() + 1)}/${pad2(date.getDate())}`;
-}
-
-function isSameDay(left: Date, right: Date) {
-  return left.getFullYear() === right.getFullYear()
-    && left.getMonth() === right.getMonth()
-    && left.getDate() === right.getDate();
-}
-
-function buildCalendarDays(month: Date) {
-  const monthStart = startOfMonth(month);
-  const mondayOffset = (monthStart.getDay() + 6) % 7;
-  const gridStart = new Date(monthStart);
-  gridStart.setDate(monthStart.getDate() - mondayOffset);
-
-  return Array.from({ length: 42 }, (_, index) => {
-    const date = new Date(gridStart);
-    date.setDate(gridStart.getDate() + index);
-    return date;
-  });
+  return formatLocalDateKey(date).replace(/-/g, "/");
 }
 
 export default function QuietDatePicker({
@@ -111,14 +63,14 @@ export default function QuietDatePicker({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const dialogId = useId();
-  const selectedDate = useMemo(() => parseDateKey(value) ?? startOfDay(new Date()), [value]);
-  const minDateValue = useMemo(() => minDate ? parseDateKey(minDate) : null, [minDate]);
-  const maxDateValue = useMemo(() => maxDate ? parseDateKey(maxDate) : null, [maxDate]);
+  const selectedDate = useMemo(() => parseLocalDateKey(value) ?? startOfLocalDay(new Date()), [value]);
+  const minDateValue = useMemo(() => minDate ? parseLocalDateKey(minDate) : null, [minDate]);
+  const maxDateValue = useMemo(() => maxDate ? parseLocalDateKey(maxDate) : null, [maxDate]);
   const [open, setOpen] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState(() => startOfMonth(selectedDate));
+  const [calendarMonth, setCalendarMonth] = useState(() => startOfLocalMonth(selectedDate));
   const [position, setPosition] = useState<CalendarPosition | null>(null);
-  const today = startOfDay(new Date());
-  const calendarDays = useMemo(() => buildCalendarDays(calendarMonth), [calendarMonth]);
+  const today = startOfLocalDay(new Date());
+  const calendarDays = useMemo(() => buildMondayFirstCalendarGrid(calendarMonth), [calendarMonth]);
 
   const resolvePosition = (): CalendarPosition | null => {
     const trigger = triggerRef.current;
@@ -159,13 +111,13 @@ export default function QuietDatePicker({
       closeCalendar();
       return;
     }
-    setCalendarMonth(startOfMonth(selectedDate));
+    setCalendarMonth(startOfLocalMonth(selectedDate));
     updatePosition();
     setOpen(true);
   };
 
   const selectDate = (date: Date) => {
-    onChange(formatDateKey(date));
+    onChange(formatLocalDateKey(date));
     closeCalendar();
     requestAnimationFrame(() => triggerRef.current?.focus());
   };
@@ -202,7 +154,7 @@ export default function QuietDatePicker({
 
   useEffect(() => {
     if (!open) return;
-    setCalendarMonth(startOfMonth(selectedDate));
+    setCalendarMonth(startOfLocalMonth(selectedDate));
   }, [selectedDate, open]);
 
   const popoverStyle: CSSProperties | undefined = position
@@ -224,7 +176,7 @@ export default function QuietDatePicker({
       <header className="qp-calendar-header">
         <button
           type="button"
-          onClick={() => setCalendarMonth((month) => addMonths(month, -1))}
+          onClick={() => setCalendarMonth((month) => addLocalMonths(month, -1))}
           className="qp-calendar-nav"
           aria-label={UI_TEXT.accessibility.date.previousMonth}
         >
@@ -235,7 +187,7 @@ export default function QuietDatePicker({
         </div>
         <button
           type="button"
-          onClick={() => setCalendarMonth((month) => addMonths(month, 1))}
+          onClick={() => setCalendarMonth((month) => addLocalMonths(month, 1))}
           className="qp-calendar-nav"
           aria-label={UI_TEXT.accessibility.date.nextMonth}
         >
@@ -250,15 +202,15 @@ export default function QuietDatePicker({
       <div className="qp-calendar-grid">
         {calendarDays.map((date) => {
           const outsideMonth = date.getMonth() !== calendarMonth.getMonth();
-          const selected = isSameDay(date, selectedDate);
-          const isToday = isSameDay(date, today);
+          const selected = isSameLocalDay(date, selectedDate);
+          const isToday = isSameLocalDay(date, today);
           const disabledDay = Boolean(
             (minDateValue && date < minDateValue)
             || (maxDateValue && date > maxDateValue),
           );
           return (
             <button
-              key={formatDateKey(date)}
+              key={formatLocalDateKey(date)}
               type="button"
               disabled={disabledDay}
               aria-pressed={selected}

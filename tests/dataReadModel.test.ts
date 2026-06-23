@@ -32,6 +32,10 @@ import {
   saveDataBootstrapSnapshot,
   type DataBootstrapSnapshot,
 } from "../src/features/data/services/dataBootstrapSnapshot.ts";
+import {
+  pickPreferredAppName,
+  scoreDisplayNameForStats,
+} from "../src/shared/lib/displayNameScoring.ts";
 
 let passed = 0;
 
@@ -243,6 +247,15 @@ await runTest("app trend merges duplicate display options", () => {
   assert.equal(rows.selectedApp?.appName, "Antigravity");
   assert.equal(rows.selectedApp?.totalDuration, 44 * 1000);
   assert.equal(rows.chartData.at(-1)?.duration, 44 * 1000);
+});
+
+await runTest("display name scoring prefers readable localized names over tray aliases", () => {
+  assert.equal(scoreDisplayNameForStats("Patina Tray"), 1);
+  assert.equal(scoreDisplayNameForStats("foo_bar"), 2);
+  assert.equal(scoreDisplayNameForStats("Visual Studio Code"), 3);
+  assert.equal(scoreDisplayNameForStats("微信"), 4);
+  assert.equal(pickPreferredAppName("Patina Widget", "微信"), "微信");
+  assert.equal(pickPreferredAppName("Visual Studio Code", "code-helper"), "Visual Studio Code");
 });
 
 await runTest("yearly app trend averages by month", () => {

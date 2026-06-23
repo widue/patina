@@ -6,6 +6,12 @@ import {
   type DataTrendRangeDraft,
 } from "../src/features/data/services/dataTrendRange.ts";
 import {
+  buildMondayFirstCalendarGrid,
+  formatLocalDateKey,
+  parseLocalDateKey,
+  startOfLocalDay,
+} from "../src/shared/lib/localDate.ts";
+import {
   clearDataTrendSnapshotCache,
   getCachedDataTrendSnapshot,
   getDataTrendSnapshotCacheSizeForTests,
@@ -75,6 +81,24 @@ await runTest("custom granularity changes after sixty-two days", () => {
   assert.equal(sixtyTwo.granularity, "day");
   assert.equal(sixtyThree.dayCount, 63);
   assert.equal(sixtyThree.granularity, "month");
+});
+
+await runTest("shared local date helpers reject invalid keys and preserve local dates", () => {
+  const leapDay = parseLocalDateKey("2024-02-29");
+  assert.ok(leapDay);
+  assert.equal(formatLocalDateKey(leapDay), "2024-02-29");
+  assert.equal(parseLocalDateKey("2023-02-29"), null);
+  assert.equal(parseLocalDateKey("2026-13-01"), null);
+  assert.equal(formatLocalDateKey(startOfLocalDay(new Date(2026, 4, 20, 23, 59))), "2026-05-20");
+});
+
+await runTest("shared local calendar grid is Monday first and stable at forty two days", () => {
+  const grid = buildMondayFirstCalendarGrid(new Date(2026, 4, 1));
+
+  assert.equal(grid.length, 42);
+  assert.equal(formatLocalDateKey(grid[0]), "2026-04-27");
+  assert.equal(grid[0].getDay(), 1);
+  assert.equal(formatLocalDateKey(grid[41]), "2026-06-07");
 });
 
 await runTest("trend snapshots dedupe matching in-flight range loads and cache the result", async () => {
