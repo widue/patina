@@ -18,6 +18,18 @@ const TRAY_ID: &str = "main";
 const TRAY_MENU_SHOW_ID: &str = "tray-show-main";
 const TRAY_MENU_TOGGLE_PAUSE_ID: &str = "tray-toggle-pause";
 const TRAY_MENU_QUIT_ID: &str = "tray-quit";
+const TRAY_MENU_SHOW_LABEL: &str = "打开主界面";
+const TRAY_MENU_PAUSE_LABEL: &str = "暂停追踪";
+const TRAY_MENU_RESUME_LABEL: &str = "恢复追踪";
+const TRAY_MENU_QUIT_LABEL: &str = "退出应用";
+
+fn tracking_pause_menu_label(tracking_paused: bool) -> &'static str {
+    if tracking_paused {
+        TRAY_MENU_RESUME_LABEL
+    } else {
+        TRAY_MENU_PAUSE_LABEL
+    }
+}
 
 fn should_redirect_close_to_tray(settings: DesktopBehaviorSettings, exit_requested: bool) -> bool {
     !exit_requested
@@ -42,9 +54,13 @@ pub(crate) fn apply_tray_visibility<R: Runtime>(
 
 pub(crate) async fn toggle_tracking_paused<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     let pool = wait_for_sqlite_pool(&app).await?;
-    let reason = toggle_tracking_paused_in_pool(&pool)
+    let (tracking_paused, reason) = toggle_tracking_paused_in_pool(&pool)
         .await
         .map_err(|error| format!("failed to toggle tracking pause setting: {error}"))?;
+
+    if let Err(error) = apply_tracking_pause_menu_label(&app, tracking_paused) {
+        eprintln!("[tray] failed to update tracking pause menu label: {error}");
+    }
 
     tracking_runtime::emit_tracking_data_changed(&app, reason, now_ms())
         .map_err(|error| format!("failed to emit tracking pause event: {error}"))?;
@@ -54,17 +70,31 @@ pub(crate) async fn toggle_tracking_paused<R: Runtime>(app: AppHandle<R>) -> Res
 
 pub(crate) async fn toggle_tracking_paused_in_pool(
     pool: &Pool<Sqlite>,
-) -> Result<&'static str, sqlx::Error> {
+) -> Result<(bool, &'static str), sqlx::Error> {
     let current = tracker_settings::load_tracking_paused_setting(pool).await?;
     let next = !current;
 
     tracker_settings::save_tracking_paused_setting(pool, next).await?;
 
-    Ok(if next {
+    let reason = if next {
         "tracking-paused"
     } else {
         "tracking-resumed"
-    })
+    };
+
+    Ok((next, reason))
+}
+
+fn apply_tracking_pause_menu_label<R: Runtime>(
+    app: &AppHandle<R>,
+    tracking_paused: bool,
+) -> tauri::Result<()> {
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let menu = build_tray_menu(app, tracking_paused)?;
+        tray.set_menu(Some(menu))?;
+    }
+
+    Ok(())
 }
 
 pub(crate) fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
@@ -140,28 +170,18 @@ pub(crate) fn handle_window_event<R: Runtime>(window: &Window<R>, event: &Window
 }
 
 pub(crate) fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
-    let open_item = MenuItem::with_id(
-        app,
-        TRAY_MENU_SHOW_ID,
-        "\u{6253}\u{5f00}\u{4e3b}\u{754c}\u{9762}",
-        true,
-        None::<&str>,
-    )?;
-    let toggle_pause_item = MenuItem::with_id(
-        app,
-        TRAY_MENU_TOGGLE_PAUSE_ID,
-        "\u{6682}\u{505c}/\u{6062}\u{590d}\u{8ffd}\u{8e2a}",
-        true,
-        None::<&str>,
-    )?;
-    let quit_item = MenuItem::with_id(
-        app,
-        TRAY_MENU_QUIT_ID,
-        "\u{9000}\u{51fa}\u{5e94}\u{7528}",
-        true,
-        None::<&str>,
-    )?;
-    let menu = Menu::with_items(app, &[&open_item, &toggle_pause_item, &quit_item])?;
+    let tracking_paused = tauri::async_runtime::block_on(async {
+        let pool = wait_for_sqlite_pool(app).await?;
+        tracker_settings::load_tracking_paused_setting(&pool)
+            .await
+            .map_err(|error| error.to_string())
+    })
+    .unwrap_or_else(|error| {
+        eprintln!("[tray] failed to initialize tracking pause menu label: {error}");
+        false
+    });
+
+    let menu = build_tray_menu(app, tracking_paused)?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
@@ -174,6 +194,34 @@ pub(crate) fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 
     builder.build(app)?;
     Ok(())
+}
+
+fn build_tray_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    tracking_paused: bool,
+) -> tauri::Result<Menu<R>> {
+    let open_item = MenuItem::with_id(
+        app,
+        TRAY_MENU_SHOW_ID,
+        TRAY_MENU_SHOW_LABEL,
+        true,
+        None::<&str>,
+    )?;
+    let toggle_pause_item = MenuItem::with_id(
+        app,
+        TRAY_MENU_TOGGLE_PAUSE_ID,
+        tracking_pause_menu_label(tracking_paused),
+        true,
+        None::<&str>,
+    )?;
+    let quit_item = MenuItem::with_id(
+        app,
+        TRAY_MENU_QUIT_ID,
+        TRAY_MENU_QUIT_LABEL,
+        true,
+        None::<&str>,
+    )?;
+    Menu::with_items(app, &[&open_item, &toggle_pause_item, &quit_item])
 }
 
 #[cfg(test)]
@@ -195,20 +243,29 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let pool = setup_test_db().await;
 
-            let first_reason = toggle_tracking_paused_in_pool(&pool).await.unwrap();
+            let (first_paused, first_reason) = toggle_tracking_paused_in_pool(&pool).await.unwrap();
             let first_value = tracker_settings::load_tracking_paused_setting(&pool)
                 .await
                 .unwrap();
-            let second_reason = toggle_tracking_paused_in_pool(&pool).await.unwrap();
+            let (second_paused, second_reason) =
+                toggle_tracking_paused_in_pool(&pool).await.unwrap();
             let second_value = tracker_settings::load_tracking_paused_setting(&pool)
                 .await
                 .unwrap();
 
             assert_eq!(first_reason, "tracking-paused");
+            assert!(first_paused);
             assert!(first_value);
             assert_eq!(second_reason, "tracking-resumed");
+            assert!(!second_paused);
             assert!(!second_value);
         });
+    }
+
+    #[test]
+    fn tracking_pause_menu_label_matches_next_available_action() {
+        assert_eq!(tracking_pause_menu_label(false), "暂停追踪");
+        assert_eq!(tracking_pause_menu_label(true), "恢复追踪");
     }
 
     #[test]
