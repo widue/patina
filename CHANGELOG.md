@@ -19,22 +19,29 @@ App note en: TBD.
 ### Added
 
 - 历史页新增独立时间轴缩放弹窗，首装默认 `24h`，之后记住上次选择的缩放倍率，并支持 `24h / 12h / 8h / 4h / 1h` 离散缩放、同一时段展开和时间窗口平移，便于细看短会话与高频切换。Refs [#6](https://github.com/Ceceliaee/patina/issues/6)
+- 设置页新增网页同步使用说明弹窗，可直接复制端口和 Token，并按下载扩展、加载本地扩展、填写扩展设置和开始同步引导用户完成 Patina Web Sync 配置。Refs [#6](https://github.com/Ceceliaee/patina/issues/6)
+- 设置页新增本机目录管理，可查看安装目录、数据目录和 WebView 缓存大小，打开对应目录，并安排下次启动迁移数据目录、迁移缓存目录、恢复默认目录或清理缓存。Refs [#20](https://github.com/Ceceliaee/patina/issues/20)
 
 ### Changed
 
 - 时间轴缩放弹窗的空态文案改为时间段语义，避免缩放窗口没有记录时误提示整天没有记录。Refs [#6](https://github.com/Ceceliaee/patina/issues/6)
+- 网页同步说明文案补充本地连接信息、扩展选项入口、隐私边界和无痕窗口行为，减少手动安装 Chromium 扩展时的来回确认。
 
 ### Fixed
 
-- 暂无。
+- 修复网页同步关闭时，历史页当日分布无法保留“分类”视图、会被强制回到“应用”的问题。
+- 修复全局提示在重复触发时缺少稳定标识，可能导致同类提示不易复用或替换的问题。
 
 ### Removed
 
-- 暂无。
+- Chromium 扩展发布 zip 不再附带单独的中英文使用说明文件；网页同步配置说明统一由 Patina 设置页承载。
 
 ### Internal
 
-- 暂无。
+- 修复发布准备 workflow 的 tag checkout 校验路径，避免 release 前验证取错引用。
+- 按当前构建产物重整 bundle budget 检查，分别约束初始 JS+CSS、懒加载 JS、页面 chunk、支持 chunk 与文案来源归因，降低后续体积增长时的定位成本。
+- 拆分 History、Data、App Mapping、Settings 文案、浏览器 smoke 测试、备份归档和工具仓储等高热点模块，并新增代码质量热点报告，降低后续维护和回归验证成本。
+- Chromium 扩展 README 改为项目维护说明，并恢复中文项目 README；发布打包脚本只校验和打包扩展运行文件。
 
 ## [1.7.0] - 2026-06-18
 
