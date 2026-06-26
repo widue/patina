@@ -1,5 +1,5 @@
 import { type MouseEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { BarChart3, Search } from "lucide-react";
+import { BarChart3, Search, Loader2 } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import type { AppLanguage } from "../../../shared/settings/appSettings.ts";
@@ -592,7 +592,7 @@ export default function Data({
             selectedHeatmapView={selectedHeatmapView}
             selectedHeatmapViewKey={selectedHeatmapViewKey}
             selectedHeatmapViewLabel={selectedHeatmapViewLabel}
-            rows={isTransitionCompleted ? visibleHeatmapRows : []}
+            rows={visibleHeatmapRows}
             granularity={heatmapGranularity}
             granularityOptions={heatmapGranularityOptions}
             canSelectOlderHeatmapView={canSelectOlderHeatmapView}
@@ -600,10 +600,11 @@ export default function Data({
             onGranularityChange={setHeatmapGranularity}
             onSelectAdjacentHeatmapView={selectAdjacentHeatmapView}
             onOpenHistoryDate={onOpenHistoryDate}
+            loading={heatmapLoading || !isTransitionCompleted}
           />
         </div>
 
-        <div className="qp-panel p-5 data-app-panel">
+        <div className="qp-panel p-5 data-app-panel relative">
           <div className="data-app-panel-header">
             <div>
               <h3 className="font-semibold text-[var(--qp-text-primary)] text-sm">
@@ -633,34 +634,39 @@ export default function Data({
           </div>
 
           {!visibleAppTrendViewModel || !isTransitionCompleted ? (
-            <div className="data-app-grid invisible pointer-events-none select-none" aria-hidden="true">
-              <div className="data-app-sidebar">
-                <div className="data-app-search" />
-                <div className="data-app-list data-app-trend-list" />
+            <div className="relative">
+              <div className="flex items-center justify-center" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
+                <Loader2 size={18} className="qp-spin text-[var(--qp-text-tertiary)]" />
               </div>
-              <div className="data-app-chart-column">
-                <div className="data-app-metric-strip">
-                  <div className="data-app-metric">
-                    <span>-</span>
-                    <strong>-</strong>
-                  </div>
-                  <div className="data-app-metric">
-                    <span>-</span>
-                    <strong>-</strong>
-                  </div>
-                  <div className="data-app-metric">
-                    <span>-</span>
-                    <strong>-</strong>
-                  </div>
-                  <div className="data-app-metric">
-                    <span>-</span>
-                    <strong>-</strong>
-                  </div>
+              <div className="data-app-grid invisible pointer-events-none select-none" aria-hidden="true">
+                <div className="data-app-sidebar">
+                  <div className="data-app-search" />
+                  <div className="data-app-list data-app-trend-list" />
                 </div>
-                <div
-                  ref={appTrendChart.chartRef}
-                  className="data-app-chart data-chart-placeholder"
-                />
+                <div className="data-app-chart-column">
+                  <div className="data-app-metric-strip">
+                    <div className="data-app-metric">
+                      <span>-</span>
+                      <strong>-</strong>
+                    </div>
+                    <div className="data-app-metric">
+                      <span>-</span>
+                      <strong>-</strong>
+                    </div>
+                    <div className="data-app-metric">
+                      <span>-</span>
+                      <strong>-</strong>
+                    </div>
+                    <div className="data-app-metric">
+                      <span>-</span>
+                      <strong>-</strong>
+                    </div>
+                  </div>
+                  <div
+                    ref={appTrendChart.chartRef}
+                    className="data-app-chart data-chart-placeholder"
+                  />
+                </div>
               </div>
             </div>
           ) : visibleAppTrendViewModel.appOptions.length === 0 ? (

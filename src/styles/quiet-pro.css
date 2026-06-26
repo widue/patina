@@ -528,6 +528,34 @@
   }
 }
 
+.qp-spin {
+  animation: qp-spin 1s linear infinite;
+}
+
+@keyframes qp-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.qp-skeleton-pulse {
+  animation: qp-skeleton-pulse 1.4s ease-in-out infinite;
+  will-change: opacity;
+}
+
+@keyframes qp-skeleton-pulse {
+  0%, 100% {
+    opacity: 0.68;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+
 .qp-nav-item {
   border: 1px solid transparent;
   background: transparent;
@@ -1339,7 +1367,9 @@
 .data-heatmap-loading-state .data-heatmap-cell,
 .data-heatmap-loading-state .data-heatmap-swatch {
   background: var(--qp-bg-elevated);
+  animation: qp-skeleton-pulse 1.4s ease-in-out infinite;
 }
+
 
 .data-heatmap-loading-state .data-heatmap-cell-future,
 .data-heatmap-loading-state .data-heatmap-cell-outside {
