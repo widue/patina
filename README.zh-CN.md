@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="src-tauri/icons/128x128.png" width="72" height="72" alt="Patina icon">
-
 # Patina
 
 面向 Windows 桌面工作的本地优先时间追踪工具。
