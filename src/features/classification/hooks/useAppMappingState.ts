@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import { useIconThemeColors } from "../../../shared/hooks/useIconThemeColors";
+import { useRequestedAppIcons } from "../../../shared/hooks/useRequestedAppIcons.ts";
 import { useQuietDialogs } from "../../../shared/hooks/useQuietDialogs";
 import type { ColorDisplayFormat } from "../../../shared/lib/colorFormatting";
 import { AppClassification } from "../../../shared/classification/appClassification.ts";
@@ -14,6 +15,7 @@ import {
   getClassificationBootstrapCache,
   setClassificationBootstrapCache,
 } from "../services/classificationBootstrapCache";
+import { loadClassificationIconsForExecutables } from "../services/classificationIconService.ts";
 import type { CandidateFilter, ObservedAppCandidate } from "../types";
 import {
   buildAppMappingCategoryOverride,
@@ -79,6 +81,9 @@ export function useAppMappingState({
   const [webDomainCandidates, setWebDomainCandidates] = useState<ObservedWebDomainCandidate[]>(
     () => cloneObservedWebDomainCandidates(initialBootstrap?.observedWebDomains ?? []),
   );
+  const [bootstrapIcons, setBootstrapIcons] = useState<Record<string, string>>(
+    () => initialBootstrap?.icons ?? {},
+  );
   const [savedState, setSavedState] = useState<ClassificationDraftState | null>(
     () => (initialBootstrap ? createAppMappingDraftState(initialBootstrap) : null),
   );
@@ -98,7 +103,23 @@ export function useAppMappingState({
   const [deletingSessionsExe, setDeletingSessionsExe] = useState<string | null>(null);
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
   const [colorFormat, setColorFormat] = useState<ColorDisplayFormat>("hex");
-  const iconThemeColors = useIconThemeColors(icons);
+  const candidateIconExeNames = useMemo(
+    () => candidates.map((candidate) => candidate.exeName),
+    [candidates],
+  );
+  const baseMappingIcons = useMemo(() => ({
+    ...icons,
+    ...bootstrapIcons,
+  }), [bootstrapIcons, icons]);
+  const mappingIcons = useRequestedAppIcons({
+    baseIcons: baseMappingIcons,
+    exeNames: candidateIconExeNames,
+    loadIcons: loadClassificationIconsForExecutables,
+    onError: (error) => {
+      console.warn("Failed to refresh classification app icons:", error);
+    },
+  });
+  const iconThemeColors = useIconThemeColors(mappingIcons);
   const skipNextNameBlurExeRef = useRef<string | null>(null);
   const skipNextWebNameBlurDomainRef = useRef<string | null>(null);
   const hasUnsavedChangesRef = useRef(false);
@@ -115,10 +136,12 @@ export function useAppMappingState({
         const nextObserved = cloneObservedCandidates(bootstrap.observed);
         const nextWebDomainCandidates = cloneObservedWebDomainCandidates(bootstrap.observedWebDomains);
         const nextState = createAppMappingDraftState(bootstrap);
+        const nextBootstrapIcons = bootstrap.icons ?? {};
         setClassificationBootstrapCache(bootstrap);
         if (cancelled) return;
         setCandidates(nextObserved);
         setWebDomainCandidates(nextWebDomainCandidates);
+        setBootstrapIcons(nextBootstrapIcons);
         if (!hasUnsavedChangesRef.current) {
           setSavedState(cloneClassificationDraftState(nextState));
           setDraftState(cloneClassificationDraftState(nextState));
@@ -211,6 +234,7 @@ export function useAppMappingState({
     if (savedState) {
       setClassificationBootstrapCache({
         observed: cloneObservedCandidates(observed),
+        icons: { ...bootstrapIcons },
         observedWebDomains: cloneObservedWebDomainCandidates(webDomainCandidates),
         loadedOverrides: { ...savedState.overrides },
         loadedWebDomainOverrides: { ...savedState.webDomainOverrides },
@@ -220,7 +244,7 @@ export function useAppMappingState({
       });
     }
     return observed;
-  }, [savedState, webDomainCandidates]);
+  }, [bootstrapIcons, savedState, webDomainCandidates]);
 
   const refreshWebDomainCandidates = useCallback(async () => {
     const observedWebDomains = await ClassificationService.loadObservedWebDomainCandidates();
@@ -228,6 +252,7 @@ export function useAppMappingState({
     if (savedState) {
       setClassificationBootstrapCache({
         observed: cloneObservedCandidates(candidates),
+        icons: { ...bootstrapIcons },
         observedWebDomains: cloneObservedWebDomainCandidates(observedWebDomains),
         loadedOverrides: { ...savedState.overrides },
         loadedWebDomainOverrides: { ...savedState.webDomainOverrides },
@@ -237,7 +262,7 @@ export function useAppMappingState({
       });
     }
     return observedWebDomains;
-  }, [candidates, savedState]);
+  }, [bootstrapIcons, candidates, savedState]);
 
   const updateOverride = useCallback((exeName: string, nextOverride: AppOverride | null) => {
     setDraftState((current) => {
@@ -606,7 +631,12 @@ export function useAppMappingState({
         setDraftState(result.nextDraftState);
       }
       if (result.nextBootstrap) {
-        setClassificationBootstrapCache(result.nextBootstrap);
+        const nextBootstrapIcons = result.nextBootstrap.icons ?? bootstrapIcons;
+        setBootstrapIcons(nextBootstrapIcons);
+        setClassificationBootstrapCache({
+          ...result.nextBootstrap,
+          icons: nextBootstrapIcons,
+        });
       }
       if (result.resetEditingState) {
         setNameEditSnapshots({});
@@ -634,7 +664,7 @@ export function useAppMappingState({
     } finally {
       setSaving(false);
     }
-  }, [candidates, draftState, hasUnsavedChanges, onOverridesChanged, savedState, saving, webDomainCandidates]);
+  }, [bootstrapIcons, candidates, draftState, hasUnsavedChanges, onOverridesChanged, savedState, saving, webDomainCandidates]);
 
   useEffect(() => {
     onRegisterSaveHandler?.(handleSave);
@@ -677,6 +707,7 @@ export function useAppMappingState({
 
   return {
     dialogs,
+    icons: mappingIcons,
     loading,
     draftState,
     savedState,

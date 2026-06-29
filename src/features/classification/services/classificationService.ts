@@ -20,11 +20,13 @@ import {
   sanitizeDeletedCategories,
   type ClassificationDraftState,
 } from "./classificationDraftState.ts";
+import { loadClassificationIconsForExecutables } from "./classificationIconService.ts";
 
 export type { AppOverride } from "../../../shared/classification/processMapper.ts";
 export type { ClassificationDraftState } from "./classificationDraftState.ts";
 
 export interface ClassificationBootstrapData {
+  icons?: Record<string, string>;
   observed: ObservedAppCandidate[];
   observedWebDomains: ObservedWebDomainCandidate[];
   loadedOverrides: Record<string, AppOverride>;
@@ -49,6 +51,7 @@ export interface ClassificationBootstrapDeps {
   loadCategoryColorOverrides: () => Promise<Record<string, string>>;
   loadCustomCategories: () => Promise<CustomAppCategory[]>;
   loadDeletedCategories: () => Promise<AppCategory[]>;
+  loadAppIconsForExecutables?: typeof loadClassificationIconsForExecutables;
 }
 
 export function createClassificationCommitDeps(
@@ -71,9 +74,32 @@ const defaultClassificationBootstrapDeps: ClassificationBootstrapDeps = {
   loadCategoryColorOverrides: () => classificationStore.loadCategoryColorOverrides(),
   loadCustomCategories: () => classificationStore.loadCustomCategories(),
   loadDeletedCategories: () => classificationStore.loadDeletedCategories(),
+  loadAppIconsForExecutables: loadClassificationIconsForExecutables,
 };
 
 let warnedWebClassificationFallback = false;
+let warnedClassificationIconFallback = false;
+
+async function loadOptionalClassificationIconMap(
+  deps: ClassificationBootstrapDeps,
+  observed: ObservedAppCandidate[],
+): Promise<Record<string, string>> {
+  if (!deps.loadAppIconsForExecutables) {
+    return {};
+  }
+
+  try {
+    return await deps.loadAppIconsForExecutables(
+      observed.map((candidate) => candidate.exeName),
+    );
+  } catch (error) {
+    if (!warnedClassificationIconFallback) {
+      warnedClassificationIconFallback = true;
+      console.warn("Classification app icon cache is unavailable; continuing with app initials.", error);
+    }
+    return {};
+  }
+}
 
 async function loadOptionalWebClassificationData(
   deps: ClassificationBootstrapDeps,
@@ -127,9 +153,13 @@ export class ClassificationService {
       loadOptionalWebClassificationData(deps),
     ]);
 
+    const [icons] = await Promise.all([
+      loadOptionalClassificationIconMap(deps, observed),
+    ]);
     const sanitizedDeletedCategories = sanitizeDeletedCategories(loadedDeletedCategories ?? []);
 
     const bootstrap = {
+      icons,
       observed,
       observedWebDomains: webClassificationData.observedWebDomains,
       loadedOverrides,

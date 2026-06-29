@@ -6,6 +6,7 @@ import {
   type DashboardReadModel,
   type DashboardSnapshot,
 } from "../services/dashboardReadModel";
+import { getRetryableMissingDashboardIconExecutables } from "../services/dashboardIconRuntimeCache";
 import { getDashboardSnapshotCache } from "../services/dashboardSnapshotCache";
 import type { TrackerHealthSnapshot } from "../../../shared/types/tracking";
 
@@ -69,16 +70,24 @@ export function useDashboardStats(
       return;
     }
 
-    const hasMissingIcons = rawSessions.some((session) => !icons[session.exeName]);
+    const iconExeNames = rawSessions.map((session) => session.exeName);
 
     const timer = window.setInterval(() => {
       setNowMs(Date.now());
 
-      if (hasMissingIcons) {
-        void loadIconSnapshot()
+      const missingIconExeNames = getRetryableMissingDashboardIconExecutables(
+        iconExeNames,
+        icons,
+      );
+
+      if (missingIconExeNames.length > 0) {
+        void loadIconSnapshot(missingIconExeNames)
           .then((snapshot) => {
             startTransition(() => {
-              setIcons(snapshot.icons);
+              setIcons((currentIcons) => ({
+                ...currentIcons,
+                ...snapshot.icons,
+              }));
             });
           })
           .catch((error) => {

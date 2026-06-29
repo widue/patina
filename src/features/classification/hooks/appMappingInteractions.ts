@@ -46,6 +46,7 @@ export interface AppMappingSaveFlowDeps {
 }
 
 export interface AppMappingBootstrapSnapshot {
+  icons?: Record<string, string>;
   observed: ObservedAppCandidate[];
   observedWebDomains: ObservedWebDomainCandidate[];
   loadedOverrides: ClassificationDraftState["overrides"];

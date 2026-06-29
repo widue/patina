@@ -1,9 +1,10 @@
-use crate::app::desktop_behavior;
 use crate::app::state::DesktopBehaviorState;
+use crate::app::{desktop_behavior, tray};
 use crate::data::app_settings_service::commit_app_setting_mutations_with_recovery;
 use crate::data::classification_service::commit_classification_setting_mutations_with_recovery;
 use crate::data::repositories::app_settings::AppSettingMutation;
 use crate::data::repositories::classification_settings::ClassificationSettingMutation;
+use crate::domain::settings::parse_boolean_setting;
 use serde_json::json;
 use tauri::{AppHandle, Emitter, State};
 
@@ -88,8 +89,20 @@ pub async fn cmd_commit_app_settings(
         .into_iter()
         .map(AppSettingMutation::from)
         .collect::<Vec<_>>();
+    let tracking_pause_setting = mutations
+        .iter()
+        .rev()
+        .find(|mutation| mutation.key == "tracking_paused")
+        .map(|mutation| parse_boolean_setting(&mutation.value, false));
 
     commit_app_setting_mutations_with_recovery(&app, &mutations).await?;
+    if let Some(tracking_paused) = tracking_pause_setting {
+        tray::apply_tracking_pause_setting_change(
+            &app,
+            tracking_paused,
+            tray::tracking_pause_event_reason(tracking_paused),
+        )?;
+    }
     app.emit("app-settings-changed", json!({}))
         .map_err(|error| format!("failed to emit settings refresh event: {error}"))?;
     Ok(())

@@ -1,10 +1,11 @@
 import type { AppStat } from "../../../shared/types/app.ts";
 import type { HistorySession } from "../../../shared/types/sessions.ts";
 import type { TrackerHealthSnapshot } from "../../../shared/types/tracking.ts";
+import { getHistoryByDate } from "../../../platform/persistence/sessionReadRepository.ts";
 import {
-  getHistoryByDate,
-  getIconMap,
-} from "../../../platform/persistence/sessionReadRepository.ts";
+  getDashboardIconRuntimeCacheSnapshot,
+  loadDashboardIconsForExecutables,
+} from "./dashboardIconRuntimeCache.ts";
 import {
   buildCategoryDistribution,
   buildTopApplications,
@@ -56,14 +57,33 @@ export interface DashboardReadModel {
   diagnostics: ReadModelDiagnostics;
 }
 
+function collectDashboardIconExecutables(...sessionGroups: HistorySession[][]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const sessions of sessionGroups) {
+    for (const session of sessions) {
+      const exeName = session.exeName.trim();
+      if (!exeName || seen.has(exeName)) continue;
+
+      seen.add(exeName);
+      result.push(exeName);
+    }
+  }
+
+  return result;
+}
+
 export async function loadDashboardSnapshot(date: Date = new Date()): Promise<DashboardSnapshot> {
   const yesterday = new Date(date);
   yesterday.setDate(yesterday.getDate() - 1);
-  const [sessions, yesterdaySessions, icons] = await Promise.all([
+  const [sessions, yesterdaySessions] = await Promise.all([
     getHistoryByDate(date),
     getHistoryByDate(yesterday),
-    getIconMap(),
   ]);
+  const icons = await loadDashboardIconsForExecutables(
+    collectDashboardIconExecutables(sessions),
+  );
 
   return {
     fetchedAtMs: Date.now(),
@@ -73,8 +93,10 @@ export async function loadDashboardSnapshot(date: Date = new Date()): Promise<Da
   };
 }
 
-export async function loadIconSnapshot(): Promise<IconSnapshot> {
-  const icons = await getIconMap();
+export async function loadIconSnapshot(exeNames: string[] = []): Promise<IconSnapshot> {
+  const icons = exeNames.length > 0
+    ? await loadDashboardIconsForExecutables(exeNames)
+    : getDashboardIconRuntimeCacheSnapshot();
 
   return {
     fetchedAtMs: Date.now(),

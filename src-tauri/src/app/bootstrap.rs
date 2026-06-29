@@ -8,8 +8,11 @@ use crate::app::{
     tray,
 };
 use crate::engine::{
-    tools::ToolsRuntimeState,
-    tracking::{runtime_snapshot::TrackingRuntimeSnapshotState, watchdog::RuntimeHealthState},
+    tools::{ToolsRuntimeState, ToolsRuntimeWakeState},
+    tracking::{
+        pause_state::TrackingPauseRuntimeState, runtime_snapshot::TrackingRuntimeSnapshotState,
+        watchdog::RuntimeHealthState,
+    },
     updater::UpdaterRuntimeState,
     web_activity::WebActivityRuntimeState,
 };
@@ -58,8 +61,10 @@ fn register_managed_state_and_plugins(
         .manage(MainWindowLifecycleState::default())
         .manage(WidgetWindowLifecycleState::default())
         .manage(TrackingRuntimeSnapshotState::default())
+        .manage(TrackingPauseRuntimeState::default())
         .manage(runtime_health)
         .manage(ToolsRuntimeState::default())
+        .manage(ToolsRuntimeWakeState::default())
         .manage(crate::platform::web_activity_bridge::WebActivityBridgeRuntimeState::default())
         .manage(crate::engine::remote_status_bridge::RemoteStatusBridgeRuntimeState::default())
         .manage(WebActivityRuntimeState::default())

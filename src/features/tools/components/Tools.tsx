@@ -1,8 +1,9 @@
 import { AlarmClock, BellRing, RefreshCw, Timer, ToolCase } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import QuietPageHeader from "../../../shared/components/QuietPageHeader.tsx";
 import type { QuietToastTone } from "../../../shared/components/QuietToast.tsx";
 import { UI_TEXT, type UiText } from "../../../shared/copy/index.ts";
+import { useRequestedAppIcons } from "../../../shared/hooks/useRequestedAppIcons.ts";
 import type { TimerMode } from "../../../shared/types/tools.ts";
 import { useToolsPageState } from "../hooks/useToolsPageState.ts";
 import {
@@ -11,6 +12,7 @@ import {
   rememberToolsSection,
   rememberToolsTimerMode,
 } from "../services/toolsLayoutPreferenceStorage.ts";
+import { loadToolsIconsForExecutables } from "../services/toolsIconService.ts";
 import type { ToolsOpenTarget, ToolsSection } from "../types.ts";
 import PomodoroToolPanel from "./PomodoroToolPanel.tsx";
 import ReminderToolPanel from "./ReminderToolPanel.tsx";
@@ -66,6 +68,19 @@ export default function Tools({
     activeSection,
     onError: handleError,
     uiText,
+  });
+  const toolsIconExeNames = useMemo(() => [
+    ...state.softwareReminderAppCandidates.map((candidate) => candidate.exeName),
+    ...state.softwareReminderRuleRows.map((row) => row.exeName),
+  ], [state.softwareReminderAppCandidates, state.softwareReminderRuleRows]);
+  const toolsIcons = useRequestedAppIcons({
+    baseIcons: icons,
+    exeNames: toolsIconExeNames,
+    loadIcons: loadToolsIconsForExecutables,
+    enabled: visitedSections.has("reminders"),
+    onError: (error) => {
+      console.warn("Failed to refresh tools app icons:", error);
+    },
   });
 
   const resolveTimerMode = useCallback((target: ToolsOpenTarget): TimerMode | null => {
@@ -174,7 +189,7 @@ export default function Tools({
                   reminderRows={state.reminderRows}
                   softwareReminderRuleRows={state.softwareReminderRuleRows}
                   softwareReminderAppCandidates={state.softwareReminderAppCandidates}
-                  icons={icons}
+                  icons={toolsIcons}
                   busyAction={state.busyAction}
                   onCreateReminder={state.createReminder}
                   onCancelReminder={state.cancelReminder}

@@ -34,6 +34,7 @@ export default function AppMapping(props: Props) {
   ];
   const {
     dialogs,
+    icons,
     loading,
     draftState,
     savedState,
@@ -295,7 +296,7 @@ export default function AppMapping(props: Props) {
                   <AppMappingCandidateCard
                     key={candidate.exeName}
                     candidate={candidate}
-                    icon={props.icons[candidate.exeName]}
+                    icon={icons[candidate.exeName]}
                     displayName={displayName}
                     displayColor={displayColor}
                     assignedCategory={assignedCategory}

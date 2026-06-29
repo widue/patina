@@ -2,6 +2,7 @@ import { type MouseEvent, useEffect, useLayoutEffect, useMemo, useRef, useState 
 import { BarChart3, Search } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
+import { useRequestedAppIcons } from "../../../shared/hooks/useRequestedAppIcons.ts";
 import type { AppLanguage } from "../../../shared/settings/appSettings.ts";
 import {
   buildDataAppTrendViewModel,
@@ -35,6 +36,7 @@ import { resolveTrendDateFromChartEvent } from "../services/dataChartInteraction
 import type { DataTrendSnapshot } from "../services/dataTrendSnapshot.ts";
 import type { DataTrendRangeSelection } from "../services/dataTrendRange.ts";
 import { useDataTrendSnapshot } from "../hooks/useDataTrendSnapshot.ts";
+import { loadDataIconsForExecutables } from "../services/dataIconService.ts";
 import DataTrendRangeControl from "./DataTrendRangeControl.tsx";
 import DataTrendPanel from "./DataTrendPanel.tsx";
 import DataHeatmapPanel, { type HeatmapGranularity } from "./DataHeatmapPanel.tsx";
@@ -347,6 +349,26 @@ export default function Data({
       ? lastAppTrendViewModelRef.current.viewModel
       : null)
     ?? bootstrapAppTrendViewModel;
+  const dataIconExeNames = useMemo(
+    () => visibleAppTrendViewModel?.appOptions.map((app) => app.exeName) ?? [],
+    [visibleAppTrendViewModel],
+  );
+  const snapshotDataIcons = useMemo(() => ({
+    ...(overviewTrend.snapshot?.icons ?? {}),
+    ...(appTrend.snapshot?.icons ?? {}),
+  }), [appTrend.snapshot, overviewTrend.snapshot]);
+  const baseDataIcons = useMemo(() => ({
+    ...icons,
+    ...snapshotDataIcons,
+  }), [icons, snapshotDataIcons]);
+  const dataIcons = useRequestedAppIcons({
+    baseIcons: baseDataIcons,
+    exeNames: dataIconExeNames,
+    loadIcons: loadDataIconsForExecutables,
+    onError: (error) => {
+      console.warn("Failed to refresh data app icons:", error);
+    },
+  });
 
   useEffect(() => {
     if (selectedAppKey !== null) return;
@@ -603,9 +625,9 @@ export default function Data({
           </div>
           <div className="data-app-header-actions">
             <div className={`data-app-selected-status ${selectedAppTrendApp ? "" : "data-app-selected-status-empty"}`}>
-              {selectedAppTrendApp && icons[selectedAppTrendApp.exeName] ? (
+              {selectedAppTrendApp && dataIcons[selectedAppTrendApp.exeName] ? (
                 <img
-                  src={icons[selectedAppTrendApp.exeName]}
+                  src={dataIcons[selectedAppTrendApp.exeName]}
                   alt=""
                   draggable={false}
                 />
@@ -691,8 +713,8 @@ export default function Data({
                       aria-pressed={isSelected}
                     >
                       <span className="data-app-option-icon" aria-hidden>
-                        {icons[app.exeName] ? (
-                          <img src={icons[app.exeName]} alt="" draggable={false} />
+                        {dataIcons[app.exeName] ? (
+                          <img src={dataIcons[app.exeName]} alt="" draggable={false} />
                         ) : (
                           getAppInitial(app.appName)
                         )}

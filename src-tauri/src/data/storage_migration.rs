@@ -549,6 +549,7 @@ async fn validate_counts(source: &Path, target_pool: &Pool<Sqlite>) -> Result<()
         "tool_daily_stats",
         "tool_software_reminder_rules",
         "web_activity_segments",
+        "web_favicon_cache",
     ] {
         let source_count = table_count_if_exists(&source_pool, table).await?;
         let target_count = table_count_if_exists(target_pool, table).await?;

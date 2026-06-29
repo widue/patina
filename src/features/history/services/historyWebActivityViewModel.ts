@@ -94,6 +94,16 @@ function preferFaviconUrl(current: string | null, candidate: string | null): str
   return current;
 }
 
+function resolveWebFaviconUrl(
+  segment: WebActivitySegment,
+  webDomainFavicons: Record<string, string>,
+): string | null {
+  return preferFaviconUrl(
+    webDomainFavicons[segment.normalizedDomain] ?? null,
+    segment.faviconUrl,
+  );
+}
+
 function getWebTimelineSubtitle(item: WebTimelineItem) {
   return (item.title || item.url || item.domain).trim();
 }
@@ -184,6 +194,7 @@ export function buildWebDomainDistribution(
   nowMs: number,
   overrides: Record<string, WebDomainOverride> = {},
   iconThemeColors: Record<string, string> = {},
+  webDomainFavicons: Record<string, string> = {},
 ): WebDomainDistributionItem[] {
   const groups = new Map<string, Omit<WebDomainDistributionItem, "percentage">>();
   let totalDuration = 0;
@@ -198,19 +209,23 @@ export function buildWebDomainDistribution(
 
     if (current) {
       current.duration += clipped.duration;
-      current.faviconUrl = preferFaviconUrl(current.faviconUrl, segment.faviconUrl);
+      current.faviconUrl = preferFaviconUrl(
+        current.faviconUrl,
+        resolveWebFaviconUrl(segment, webDomainFavicons),
+      );
       continue;
     }
 
     const category = resolveWebCategory(key, overrides);
     const label = resolveWebLabel(segment, overrides);
+    const faviconUrl = resolveWebFaviconUrl(segment, webDomainFavicons);
     groups.set(key, {
       key,
       domain: segment.domain || key,
       label,
       duration: clipped.duration,
       color: resolveWebColor(key, category, overrides, iconThemeColors),
-      faviconUrl: segment.faviconUrl,
+      faviconUrl,
       category,
     });
   }
@@ -231,6 +246,7 @@ export function buildWebTimelineItems(
   iconThemeColors: Record<string, string> = {},
   mergeThresholdSecs: number = 0,
   minSessionSecs: number = 0,
+  webDomainFavicons: Record<string, string> = {},
 ): WebTimelineItem[] {
   const items = segments
     .map((segment) => {
@@ -244,7 +260,7 @@ export function buildWebTimelineItems(
         label: resolveWebLabel(segment, overrides),
         title: segment.title,
         url: segment.url,
-        faviconUrl: segment.faviconUrl,
+        faviconUrl: resolveWebFaviconUrl(segment, webDomainFavicons),
         startTime: clipped.startTime,
         endTime: clipped.endTime,
         duration: clipped.duration,

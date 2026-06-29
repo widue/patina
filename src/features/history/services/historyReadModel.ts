@@ -9,6 +9,7 @@ import {
   getSessionsInRange,
 } from "../../../platform/persistence/sessionReadRepository.ts";
 import {
+  getWebFaviconsForDomains,
   getWebActivitySegmentsInRange,
   loadWebDomainOverrides,
 } from "../../../platform/persistence/webActivityRepository.ts";
@@ -40,12 +41,15 @@ import {
   resolveLiveCutoffMs,
   type ReadModelDiagnostics,
 } from "../../../shared/lib/readModelCore.ts";
+import { getCachedHistoryIconsForExecutables } from "./historyIconService.ts";
 
 export interface HistorySnapshot {
   fetchedAtMs: number;
+  icons: Record<string, string>;
   daySessions: HistorySession[];
   weeklySessions: HistorySession[];
   dayWebSegments: WebActivitySegment[];
+  webDomainFavicons: Record<string, string>;
   webDomainOverrides: Record<string, WebDomainOverride>;
 }
 
@@ -65,6 +69,7 @@ interface HistorySnapshotDeps {
   getHistoryByDate: typeof getHistoryByDate;
   getSessionsInRange: typeof getSessionsInRange;
   getWebActivitySegmentsInRange: typeof getWebActivitySegmentsInRange;
+  getWebFaviconsForDomains: typeof getWebFaviconsForDomains;
   loadWebDomainOverrides: typeof loadWebDomainOverrides;
 }
 
@@ -72,23 +77,70 @@ const DEFAULT_HISTORY_SNAPSHOT_DEPS: HistorySnapshotDeps = {
   getHistoryByDate,
   getSessionsInRange,
   getWebActivitySegmentsInRange,
+  getWebFaviconsForDomains,
   loadWebDomainOverrides,
 };
 
 let warnedWebHistoryFallback = false;
+let warnedWebFaviconFallback = false;
+
+function collectHistoryIconExecutables(...sessionGroups: HistorySession[][]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const sessions of sessionGroups) {
+    for (const session of sessions) {
+      const exeName = session.exeName.trim();
+      if (!exeName || seen.has(exeName)) continue;
+
+      seen.add(exeName);
+      result.push(exeName);
+    }
+  }
+
+  return result;
+}
+
+function getCachedHistoryIconMap(
+  daySessions: HistorySession[],
+  weeklySessions: HistorySession[],
+): Record<string, string> {
+  return getCachedHistoryIconsForExecutables(
+    collectHistoryIconExecutables(daySessions, weeklySessions),
+  );
+}
+
+async function loadOptionalWebFaviconMap(
+  deps: HistorySnapshotDeps,
+  dayWebSegments: WebActivitySegment[],
+): Promise<Record<string, string>> {
+  try {
+    return await deps.getWebFaviconsForDomains(
+      Array.from(new Set(dayWebSegments.map((segment) => segment.normalizedDomain))),
+    );
+  } catch (error) {
+    if (!warnedWebFaviconFallback) {
+      warnedWebFaviconFallback = true;
+      console.warn("History web favicon cache is unavailable; continuing without domain favicons.", error);
+    }
+    return {};
+  }
+}
 
 async function loadOptionalWebSnapshotPart(
   deps: HistorySnapshotDeps,
   selectedDayRange: { startMs: number; endMs: number },
-): Promise<Pick<HistorySnapshot, "dayWebSegments" | "webDomainOverrides">> {
+): Promise<Pick<HistorySnapshot, "dayWebSegments" | "webDomainFavicons" | "webDomainOverrides">> {
   try {
     const [dayWebSegments, webDomainOverrides] = await Promise.all([
       deps.getWebActivitySegmentsInRange(selectedDayRange.startMs, selectedDayRange.endMs),
       deps.loadWebDomainOverrides(),
     ]);
+    const webDomainFavicons = await loadOptionalWebFaviconMap(deps, dayWebSegments);
 
     return {
       dayWebSegments,
+      webDomainFavicons,
       webDomainOverrides,
     };
   } catch (error) {
@@ -98,6 +150,7 @@ async function loadOptionalWebSnapshotPart(
     }
     return {
       dayWebSegments: [],
+      webDomainFavicons: {},
       webDomainOverrides: {},
     };
   }
@@ -132,12 +185,15 @@ export async function loadHistorySnapshot(
     deps.getSessionsInRange(weeklyRangeStart, weeklyRangeEnd),
     loadOptionalWebSnapshotPart(deps, selectedDayRange),
   ]);
+  const icons = getCachedHistoryIconMap(daySessions, weeklySessions);
 
   return {
     fetchedAtMs: Date.now(),
+    icons,
     daySessions,
     weeklySessions,
     dayWebSegments: webSnapshotPart.dayWebSegments,
+    webDomainFavicons: webSnapshotPart.webDomainFavicons,
     webDomainOverrides: webSnapshotPart.webDomainOverrides,
   };
 }

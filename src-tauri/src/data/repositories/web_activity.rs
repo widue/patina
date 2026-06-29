@@ -85,6 +85,13 @@ pub async fn upsert_active_segment(
             .bind(active.id)
             .execute(&mut *tx)
             .await?;
+            upsert_favicon_cache_tx(
+                &mut tx,
+                &input.normalized_domain,
+                input.favicon_url.as_deref(),
+                timestamp_ms,
+            )
+            .await?;
             tx.commit().await?;
             return Ok(false);
         }
@@ -121,6 +128,14 @@ pub async fn upsert_active_segment(
     .bind(timestamp_ms)
     .bind(timestamp_ms)
     .execute(&mut *tx)
+    .await?;
+
+    upsert_favicon_cache_tx(
+        &mut tx,
+        &input.normalized_domain,
+        input.favicon_url.as_deref(),
+        timestamp_ms,
+    )
     .await?;
 
     tx.commit().await?;
@@ -180,6 +195,10 @@ pub async fn fetch_all_for_backup(
 }
 
 pub async fn clear_for_restore(tx: &mut Transaction<'_, Sqlite>) -> Result<(), String> {
+    sqlx::query("DELETE FROM web_favicon_cache")
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| format!("failed to clear web favicon cache before restore: {error}"))?;
     sqlx::query("DELETE FROM web_activity_segments")
         .execute(&mut **tx)
         .await
@@ -217,6 +236,14 @@ pub async fn insert_for_restore(
         .execute(&mut **tx)
         .await
         .map_err(|error| format!("failed to restore web activity: {error}"))?;
+        upsert_favicon_cache_tx(
+            tx,
+            &segment.normalized_domain,
+            segment.favicon_url.as_deref(),
+            segment.updated_at,
+        )
+        .await
+        .map_err(|error| format!("failed to restore web favicon cache: {error}"))?;
     }
 
     Ok(())
@@ -272,6 +299,14 @@ pub async fn insert_missing_for_restore(
         .execute(&mut **tx)
         .await
         .map_err(|error| format!("failed to merge restore web activity: {error}"))?;
+        upsert_favicon_cache_tx(
+            tx,
+            &segment.normalized_domain,
+            segment.favicon_url.as_deref(),
+            segment.updated_at,
+        )
+        .await
+        .map_err(|error| format!("failed to merge restore web favicon cache: {error}"))?;
     }
 
     Ok(())
@@ -327,6 +362,35 @@ async fn finish_segment_tx(
     Ok(())
 }
 
+async fn upsert_favicon_cache_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    normalized_domain: &str,
+    favicon_url: Option<&str>,
+    timestamp_ms: i64,
+) -> Result<(), sqlx::Error> {
+    let domain = normalized_domain.trim();
+    let favicon = favicon_url.unwrap_or("").trim();
+    if domain.is_empty() || favicon.is_empty() {
+        return Ok(());
+    }
+
+    sqlx::query(
+        "INSERT INTO web_favicon_cache (normalized_domain, favicon_url, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(normalized_domain) DO UPDATE SET
+             favicon_url = excluded.favicon_url,
+             updated_at = excluded.updated_at
+         WHERE web_favicon_cache.favicon_url <> excluded.favicon_url",
+    )
+    .bind(domain)
+    .bind(favicon)
+    .bind(timestamp_ms)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
 fn is_same_segment_identity(
     active: &ActiveWebActivitySegment,
     input: &WebActivitySegmentInput,
@@ -355,6 +419,9 @@ mod tests {
         pool.execute(db_schema::WEB_ACTIVITY_SCHEMA_SQL)
             .await
             .unwrap();
+        pool.execute(db_schema::WEB_FAVICON_CACHE_SCHEMA_SQL)
+            .await
+            .unwrap();
         pool
     }
 
@@ -368,6 +435,13 @@ mod tests {
             url: None,
             title: Some(title.into()),
             favicon_url: None,
+        }
+    }
+
+    fn input_with_favicon(domain: &str, title: &str, favicon_url: &str) -> WebActivitySegmentInput {
+        WebActivitySegmentInput {
+            favicon_url: Some(favicon_url.into()),
+            ..input(domain, title)
         }
     }
 
@@ -428,6 +502,56 @@ mod tests {
             assert!(!load_domain_recording_enabled(&pool, "github.com")
                 .await
                 .unwrap());
+        });
+    }
+
+    #[test]
+    fn active_segment_upsert_maintains_domain_favicon_cache() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+
+            upsert_active_segment(
+                &pool,
+                &input_with_favicon("github.com", "Issue", "data:image/png;base64,one"),
+                1_000,
+            )
+            .await
+            .unwrap();
+            upsert_active_segment(
+                &pool,
+                &input_with_favicon("github.com", "Issue", "data:image/png;base64,one"),
+                2_000,
+            )
+            .await
+            .unwrap();
+
+            let first: (String, i64) = sqlx::query_as(
+                "SELECT favicon_url, updated_at
+                 FROM web_favicon_cache
+                 WHERE normalized_domain = 'github.com'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(first, ("data:image/png;base64,one".to_string(), 1_000));
+
+            upsert_active_segment(
+                &pool,
+                &input_with_favicon("github.com", "Issue", "data:image/png;base64,two"),
+                3_000,
+            )
+            .await
+            .unwrap();
+
+            let second: (String, i64) = sqlx::query_as(
+                "SELECT favicon_url, updated_at
+                 FROM web_favicon_cache
+                 WHERE normalized_domain = 'github.com'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(second, ("data:image/png;base64,two".to_string(), 3_000));
         });
     }
 }

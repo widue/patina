@@ -112,6 +112,54 @@ runTest("web colors prefer favicon theme colors before category colors", () => {
   assert.equal(timelineItems[0].color, "#24292e");
 });
 
+runTest("web favicon view models prefer domain cache with segment fallback", () => {
+  const segments = [
+    makeSegment({
+      id: 1,
+      domain: "github.com",
+      normalizedDomain: "github.com",
+      faviconUrl: "https://segment.test/favicon.ico",
+      startTime: 0,
+      endTime: 10_000,
+    }),
+    makeSegment({
+      id: 2,
+      domain: "docs.rs",
+      normalizedDomain: "docs.rs",
+      faviconUrl: "https://docs.rs/favicon.ico",
+      startTime: 12_000,
+      endTime: 15_000,
+    }),
+  ];
+  const faviconMap = {
+    "github.com": "data:image/png;base64,github",
+  };
+
+  const distributionItems = buildWebDomainDistribution(
+    segments,
+    { startMs: 0, endMs: 20_000 },
+    20_000,
+    {},
+    {},
+    faviconMap,
+  );
+  const timelineItems = buildWebTimelineItems(
+    segments,
+    { startMs: 0, endMs: 20_000 },
+    20_000,
+    {},
+    {},
+    0,
+    0,
+    faviconMap,
+  );
+
+  assert.equal(distributionItems.find((item) => item.key === "github.com")?.faviconUrl, "data:image/png;base64,github");
+  assert.equal(distributionItems.find((item) => item.key === "docs.rs")?.faviconUrl, "https://docs.rs/favicon.ico");
+  assert.equal(timelineItems.find((item) => item.normalizedDomain === "github.com")?.faviconUrl, "data:image/png;base64,github");
+  assert.equal(timelineItems.find((item) => item.normalizedDomain === "docs.rs")?.faviconUrl, "https://docs.rs/favicon.ico");
+});
+
 runTest("web timeline merges same-domain rows with matching visible titles within threshold", () => {
   const items = buildWebTimelineItems([
     makeSegment({

@@ -10,6 +10,7 @@ import {
   formatTime,
 } from "../services/historyFormatting";
 import { useIconThemeColors } from "../../../shared/hooks/useIconThemeColors";
+import { useRequestedAppIcons } from "../../../shared/hooks/useRequestedAppIcons.ts";
 import {
   buildHistoryReadModel,
   type HistorySnapshot,
@@ -49,6 +50,7 @@ import {
   buildWebDomainDistribution,
   buildWebTimelineItems,
 } from "../services/historyWebActivityViewModel.ts";
+import { loadHistoryIconsForExecutables } from "../services/historyIconService.ts";
 import {
   buildMondayFirstCalendarGrid,
   formatLocalDateKey,
@@ -184,7 +186,6 @@ export default function History({
   const requestedInitialDate = selectedDateRequest ? parseLocalDateKey(selectedDateRequest.dateKey) : null;
   const initialDate = requestedInitialDate ?? new Date();
   const initialCachedSnapshot = getHistorySnapshotCache(initialDate);
-  const iconThemeColors = useIconThemeColors(icons);
   const datePickerRef = useRef<HTMLDivElement | null>(null);
   const calendarPopoverRef = useRef<HTMLDivElement | null>(null);
   const [selectedDate, setSelectedDate] = useState(initialDate);
@@ -197,16 +198,49 @@ export default function History({
   const [rawWeeklySessions, setRawWeeklySessions] = useState<HistorySession[]>(
     () => initialCachedSnapshot?.weeklySessions ?? [],
   );
+  const [snapshotIcons, setSnapshotIcons] = useState<Record<string, string>>(
+    () => initialCachedSnapshot?.icons ?? {},
+  );
   const [rawDayWebSegments, setRawDayWebSegments] = useState<WebActivitySegment[]>(
     () => initialCachedSnapshot?.dayWebSegments ?? [],
+  );
+  const [webDomainFavicons, setWebDomainFavicons] = useState<Record<string, string>>(
+    () => initialCachedSnapshot?.webDomainFavicons ?? {},
   );
   const [webDomainOverrides, setWebDomainOverrides] = useState<Record<string, WebDomainOverride>>(
     () => initialCachedSnapshot?.webDomainOverrides ?? {},
   );
+  const historyIconExeNames = useMemo(() => {
+    const seen = new Set<string>();
+    const result: string[] = [];
+
+    for (const session of [...rawDaySessions, ...rawWeeklySessions]) {
+      const exeName = session.exeName.trim();
+      if (!exeName || seen.has(exeName)) continue;
+
+      seen.add(exeName);
+      result.push(exeName);
+    }
+
+    return result;
+  }, [rawDaySessions, rawWeeklySessions]);
+  const baseHistoryIcons = useMemo(() => ({
+    ...icons,
+    ...snapshotIcons,
+  }), [icons, snapshotIcons]);
+  const historyIcons = useRequestedAppIcons({
+    baseIcons: baseHistoryIcons,
+    exeNames: historyIconExeNames,
+    loadIcons: loadHistoryIconsForExecutables,
+    onError: (error) => {
+      console.warn("Failed to refresh history app icons:", error);
+    },
+  });
+  const iconThemeColors = useIconThemeColors(historyIcons);
   const webDomainIcons = useMemo(() => {
     if (!webActivityEnabled) return {};
 
-    const next: Record<string, string> = {};
+    const next: Record<string, string> = { ...webDomainFavicons };
     for (const segment of rawDayWebSegments) {
       const faviconUrl = segment.faviconUrl?.trim();
       if (!faviconUrl) continue;
@@ -217,7 +251,7 @@ export default function History({
       }
     }
     return next;
-  }, [rawDayWebSegments, webActivityEnabled]);
+  }, [rawDayWebSegments, webActivityEnabled, webDomainFavicons]);
   const webDomainIconThemeColors = useIconThemeColors(webDomainIcons);
   const [nowMs, setNowMs] = useState(() => initialCachedSnapshot?.fetchedAtMs ?? Date.now());
   const [loading, setLoading] = useState(!initialCachedSnapshot);
@@ -384,7 +418,9 @@ export default function History({
     if (cachedSnapshot) {
       setRawDaySessions(cachedSnapshot.daySessions);
       setRawWeeklySessions(cachedSnapshot.weeklySessions);
+      setSnapshotIcons(cachedSnapshot.icons);
       setRawDayWebSegments(cachedSnapshot.dayWebSegments);
+      setWebDomainFavicons(cachedSnapshot.webDomainFavicons);
       setWebDomainOverrides(cachedSnapshot.webDomainOverrides);
       setNowMs(cachedSnapshot.fetchedAtMs);
       setVisibleDateKey(requestDateKey);
@@ -392,7 +428,9 @@ export default function History({
     } else if (visibleDateKey !== requestDateKey) {
       setRawDaySessions([]);
       setRawWeeklySessions([]);
+      setSnapshotIcons({});
       setRawDayWebSegments([]);
+      setWebDomainFavicons({});
       setWebDomainOverrides({});
       setVisibleDateKey(null);
     }
@@ -410,7 +448,9 @@ export default function History({
 
         setRawDaySessions(snapshot.daySessions);
         setRawWeeklySessions(snapshot.weeklySessions);
+        setSnapshotIcons(snapshot.icons);
         setRawDayWebSegments(snapshot.dayWebSegments);
+        setWebDomainFavicons(snapshot.webDomainFavicons);
         setWebDomainOverrides(snapshot.webDomainOverrides);
         setNowMs(snapshot.fetchedAtMs);
         setVisibleDateKey(requestDateKey);
@@ -648,11 +688,11 @@ export default function History({
         duration: app.duration,
         percentage: app.percentage,
         color: accentColor,
-        iconSrc: icons[app.exeName],
+        iconSrc: historyIcons[app.exeName],
         kind: "app",
       };
     }),
-    [appSummary, iconThemeColors, icons],
+    [appSummary, historyIcons, iconThemeColors],
   );
   const categoryDistributionItems = useMemo<HistoryDayDistributionItem[]>(() => {
     const summaries = new Map<string, Omit<HistoryDayDistributionItem, "key" | "percentage">>();
@@ -699,6 +739,7 @@ export default function History({
         nowMs,
         webDomainOverrides,
         webDomainIconThemeColors,
+        webDomainFavicons,
       )
         .map((item) => ({
           key: item.key,
@@ -711,7 +752,15 @@ export default function History({
           kind: "web" as const,
         }));
     },
-    [nowMs, rawDayWebSegments, selectedDayRange, webActivityEnabled, webDomainIconThemeColors, webDomainOverrides],
+    [
+      nowMs,
+      rawDayWebSegments,
+      selectedDayRange,
+      webActivityEnabled,
+      webDomainFavicons,
+      webDomainIconThemeColors,
+      webDomainOverrides,
+    ],
   );
   const webTimelineItems = useMemo(
     () => {
@@ -725,6 +774,7 @@ export default function History({
         webDomainIconThemeColors,
         mergeThresholdSecs,
         minSessionSecs,
+        webDomainFavicons,
       );
     },
     [
@@ -734,6 +784,7 @@ export default function History({
       rawDayWebSegments,
       selectedDayRange,
       webActivityEnabled,
+      webDomainFavicons,
       webDomainIconThemeColors,
       webDomainOverrides,
     ],
@@ -1032,7 +1083,7 @@ export default function History({
     <HistoryTimelineList
       loading={loading}
       timelineSessions={timelineSessions}
-      icons={icons}
+      icons={historyIcons}
       iconThemeColors={iconThemeColors}
       detailsPopover={timelineDetailsPopover}
       className={className}

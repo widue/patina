@@ -8,6 +8,8 @@ pub const SOFTWARE_REMINDER_RULES_MIGRATION_VERSION: i64 = 3;
 pub const SOFTWARE_REMINDER_RULES_MIGRATION_DESCRIPTION: &str = "create_software_reminder_rules";
 pub const WEB_ACTIVITY_MIGRATION_VERSION: i64 = 4;
 pub const WEB_ACTIVITY_MIGRATION_DESCRIPTION: &str = "create_web_activity_segments";
+pub const WEB_FAVICON_CACHE_MIGRATION_VERSION: i64 = 5;
+pub const WEB_FAVICON_CACHE_MIGRATION_DESCRIPTION: &str = "create_web_favicon_cache";
 
 pub const CURRENT_BASELINE_SCHEMA_SQL: &str = "
     CREATE TABLE IF NOT EXISTS sessions (
@@ -197,6 +199,56 @@ pub const WEB_ACTIVITY_SCHEMA_SQL: &str = "
     WHERE end_time IS NULL;
 ";
 
+pub const WEB_FAVICON_CACHE_SCHEMA_SQL: &str = "
+    CREATE TABLE IF NOT EXISTS web_favicon_cache (
+        normalized_domain TEXT PRIMARY KEY,
+        favicon_url TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+    );
+
+    INSERT INTO web_favicon_cache (normalized_domain, favicon_url, updated_at)
+    SELECT domain.normalized_domain,
+           (
+             SELECT icon.favicon_url
+             FROM web_activity_segments AS icon
+             WHERE icon.normalized_domain = domain.normalized_domain
+               AND icon.favicon_url IS NOT NULL
+               AND TRIM(icon.favicon_url) <> ''
+             ORDER BY CASE WHEN icon.favicon_url LIKE 'data:%' THEN 0 ELSE 1 END,
+                      icon.start_time DESC,
+                      icon.id DESC
+             LIMIT 1
+           ) AS favicon_url,
+           COALESCE((
+             SELECT icon.updated_at
+             FROM web_activity_segments AS icon
+             WHERE icon.normalized_domain = domain.normalized_domain
+               AND icon.favicon_url IS NOT NULL
+               AND TRIM(icon.favicon_url) <> ''
+             ORDER BY CASE WHEN icon.favicon_url LIKE 'data:%' THEN 0 ELSE 1 END,
+                      icon.start_time DESC,
+                      icon.id DESC
+             LIMIT 1
+           ), 0) AS updated_at
+    FROM (
+        SELECT DISTINCT normalized_domain
+        FROM web_activity_segments
+        WHERE normalized_domain IS NOT NULL
+          AND TRIM(normalized_domain) <> ''
+    ) AS domain
+    WHERE EXISTS (
+        SELECT 1
+        FROM web_activity_segments AS icon
+        WHERE icon.normalized_domain = domain.normalized_domain
+          AND icon.favicon_url IS NOT NULL
+          AND TRIM(icon.favicon_url) <> ''
+    )
+    ON CONFLICT(normalized_domain) DO UPDATE SET
+        favicon_url = excluded.favicon_url,
+        updated_at = excluded.updated_at
+    WHERE web_favicon_cache.favicon_url <> excluded.favicon_url;
+";
+
 pub fn tracker_migrations() -> Vec<Migration> {
     vec![
         Migration {
@@ -221,6 +273,12 @@ pub fn tracker_migrations() -> Vec<Migration> {
             version: WEB_ACTIVITY_MIGRATION_VERSION,
             description: WEB_ACTIVITY_MIGRATION_DESCRIPTION,
             sql: WEB_ACTIVITY_SCHEMA_SQL,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: WEB_FAVICON_CACHE_MIGRATION_VERSION,
+            description: WEB_FAVICON_CACHE_MIGRATION_DESCRIPTION,
+            sql: WEB_FAVICON_CACHE_SCHEMA_SQL,
             kind: MigrationKind::Up,
         },
     ]

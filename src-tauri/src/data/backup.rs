@@ -633,6 +633,9 @@ mod tests {
         pool.execute(db_schema::WEB_ACTIVITY_SCHEMA_SQL)
             .await
             .unwrap();
+        pool.execute(db_schema::WEB_FAVICON_CACHE_SCHEMA_SQL)
+            .await
+            .unwrap();
         pool
     }
 

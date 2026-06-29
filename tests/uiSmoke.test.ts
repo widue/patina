@@ -515,7 +515,8 @@ await runTest("classification web domain colors prefer favicon theme colors", ()
 
   assert.match(mappingDerivedState, /const webDomainIcons = useMemo/);
   assert.match(mappingDerivedState, /candidate\.faviconUrl\?\.trim\(\)/);
-  assert.match(mappingState, /const iconThemeColors = useIconThemeColors\(icons\)/);
+  assert.match(mappingState, /const mappingIcons = useRequestedAppIcons/);
+  assert.match(mappingState, /const iconThemeColors = useIconThemeColors\(mappingIcons\)/);
   assert.match(mappingDerivedState, /const webDomainIconThemeColors = useIconThemeColors\(webDomainIcons\)/);
   assert.match(colorResolver, /const iconColor = webDomainIconThemeColors\[candidate\.normalizedDomain\]/);
   assert.match(colorResolver, /if \(iconColor\) return iconColor;/);
@@ -532,7 +533,8 @@ await runTest("classification web domain colors prefer favicon theme colors", ()
   assert.match(iconThemeColors, /EDGE_DARK_PROTECTION_BRIGHTNESS = 120/);
   assert.match(iconThemeColors, /BUCKET_SIZE = 24/);
   assert.match(iconThemeColors, /fallbackThemeColor/);
-  assert.match(webActivityRepository, /ORDER BY CASE WHEN icon\.favicon_url LIKE 'data:%' THEN 0 ELSE 1 END/);
+  assert.match(webActivityRepository, /NULL AS favicon_url/);
+  assert.match(webActivityRepository, /LEFT JOIN web_favicon_cache AS favicon_cache/);
 });
 
 await runTest("app shell uses feature-owned Data prewarm and heavy cache lifecycle exits", () => {

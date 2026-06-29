@@ -201,6 +201,7 @@ async fn table_has_columns(
         "tool_daily_stats" => "PRAGMA table_info(tool_daily_stats)",
         "tool_software_reminder_rules" => "PRAGMA table_info(tool_software_reminder_rules)",
         "web_activity_segments" => "PRAGMA table_info(web_activity_segments)",
+        "web_favicon_cache" => "PRAGMA table_info(web_favicon_cache)",
         _ => {
             return Err(format!(
                 "unsupported schema inspection table `{table_name}`"
@@ -708,6 +709,19 @@ async fn has_web_activity_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
     Ok(segments_ready && time_index_ready && domain_time_index_ready && single_active_index_ready)
 }
 
+async fn has_web_favicon_cache_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
+    if !table_exists(pool, "web_favicon_cache").await? {
+        return Ok(false);
+    }
+
+    table_has_columns(
+        pool,
+        "web_favicon_cache",
+        &["normalized_domain", "favicon_url", "updated_at"],
+    )
+    .await
+}
+
 async fn normalize_current_baseline_migration_history_for_pool(
     pool: &Pool<Sqlite>,
 ) -> Result<bool, String> {
@@ -726,6 +740,8 @@ async fn normalize_current_baseline_migration_history_for_pool(
         expected.truncate(2);
     } else if !has_web_activity_schema(pool).await? {
         expected.truncate(3);
+    } else if !has_web_favicon_cache_schema(pool).await? {
+        expected.truncate(4);
     }
     if expected.is_empty() {
         return Ok(false);
@@ -860,6 +876,58 @@ mod tests {
             pool.execute(schema::WEB_ACTIVITY_SCHEMA_SQL).await.unwrap();
 
             assert!(has_web_activity_schema(&pool).await.unwrap());
+        });
+    }
+
+    #[test]
+    fn web_favicon_cache_schema_creates_table_and_backfills_segments() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(schema::WEB_ACTIVITY_SCHEMA_SQL).await.unwrap();
+            pool.execute(
+                "INSERT INTO web_activity_segments (
+                    browser_client_id, browser_kind, browser_exe_name, domain,
+                    normalized_domain, url, title, favicon_url, start_time,
+                    end_time, duration, source, created_at, updated_at
+                 ) VALUES
+                    ('client', 'chrome', 'chrome.exe', 'GitHub', 'github.com',
+                     NULL, 'Newer URL icon', 'https://github.com/favicon.ico', 200, 250, 50,
+                     'browser-extension', 200, 200),
+                    ('client', 'chrome', 'chrome.exe', 'GitHub', 'github.com',
+                     NULL, 'Older data icon', 'data:image/png;base64,github', 100, 150, 50,
+                     'browser-extension', 100, 100),
+                    ('client', 'chrome', 'chrome.exe', 'Docs', 'docs.rs',
+                     NULL, 'Docs', 'https://docs.rs/favicon.ico', 300, 350, 50,
+                     'browser-extension', 300, 300)",
+            )
+            .await
+            .unwrap();
+
+            pool.execute(schema::WEB_FAVICON_CACHE_SCHEMA_SQL)
+                .await
+                .unwrap();
+
+            assert!(has_web_favicon_cache_schema(&pool).await.unwrap());
+
+            let github: (String, i64) = sqlx::query_as(
+                "SELECT favicon_url, updated_at
+                 FROM web_favicon_cache
+                 WHERE normalized_domain = 'github.com'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let docs: (String, i64) = sqlx::query_as(
+                "SELECT favicon_url, updated_at
+                 FROM web_favicon_cache
+                 WHERE normalized_domain = 'docs.rs'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+            assert_eq!(github, ("data:image/png;base64,github".to_string(), 100));
+            assert_eq!(docs, ("https://docs.rs/favicon.ico".to_string(), 300));
         });
     }
 
@@ -1029,6 +1097,58 @@ mod tests {
 
             run_current_migrations(&pool).await.unwrap();
             assert!(has_web_activity_schema(&pool).await.unwrap());
+        });
+    }
+
+    #[test]
+    fn current_schema_history_does_not_mark_missing_web_favicon_cache_as_applied() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::TOOLS_TABLES_SCHEMA_SQL).await.unwrap();
+            pool.execute(schema::SOFTWARE_REMINDER_RULES_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::WEB_ACTIVITY_SCHEMA_SQL).await.unwrap();
+            create_sqlx_migrations_table(&pool).await;
+            pool.execute(
+                "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+                 VALUES (1, 'old_v1', 1, x'01', 0),
+                        (2, 'old_v2', 1, x'02', 0),
+                        (3, 'old_v3', 1, x'03', 0),
+                        (4, 'old_v4', 1, x'04', 0),
+                        (5, 'old_v5_without_table', 1, x'05', 0)",
+            )
+            .await
+            .unwrap();
+
+            let normalized = normalize_current_baseline_migration_history_for_pool(&pool)
+                .await
+                .unwrap();
+
+            assert!(normalized);
+            assert!(!has_web_favicon_cache_schema(&pool).await.unwrap());
+
+            let rows = sqlx::query("SELECT version, description, checksum FROM _sqlx_migrations")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+            let mut expected = expected_migration_metadata();
+            expected.truncate(4);
+
+            assert_eq!(rows.len(), expected.len());
+            for (version, description, checksum) in expected {
+                assert!(rows.iter().any(|row| {
+                    row.get::<i64, _>("version") == version
+                        && row.get::<String, _>("description") == description
+                        && row.get::<Vec<u8>, _>("checksum") == checksum
+                }));
+            }
+
+            run_current_migrations(&pool).await.unwrap();
+            assert!(has_web_favicon_cache_schema(&pool).await.unwrap());
         });
     }
 
