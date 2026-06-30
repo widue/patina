@@ -1,4 +1,4 @@
-import { Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { PencilLine, RotateCcw, Trash2 } from "lucide-react";
 import type { AppCategory } from "../../../shared/classification/categoryTokens";
 import QuietColorField from "../../../shared/components/QuietColorField";
 import QuietIconAction from "../../../shared/components/QuietIconAction";
@@ -49,7 +49,7 @@ export default function CategoryColorControls({
                 />
                 <span className="min-w-0 truncate text-sm font-semibold text-[var(--qp-text-primary)]">{label}</span>
                 <QuietIconAction
-                  icon={<Pencil size={13} />}
+                  icon={<PencilLine size={13} />}
                   className="qp-icon-action-dimmed"
                   onClick={() => onRenameCategory(category)}
                   title={UI_TEXT.mapping.renameCategory(label)}

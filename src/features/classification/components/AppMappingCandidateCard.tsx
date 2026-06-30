@@ -1,4 +1,4 @@
-import { Captions, CaptionsOff, ListPlus, ListX, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Captions, CaptionsOff, ListPlus, ListX, PencilLine, RotateCcw, Trash2 } from "lucide-react";
 import type { ObservedAppCandidate } from "../types";
 import type { UserAssignableAppCategory } from "../../../shared/classification/categoryTokens";
 import type { ColorDisplayFormat } from "../../../shared/lib/colorFormatting";
@@ -105,7 +105,7 @@ export default function AppMappingCandidateCard({
                 </span>
               )}
               <QuietIconAction
-                icon={<Pencil size={13} />}
+                icon={<PencilLine size={13} />}
                 title={UI_TEXT.mapping.editAppName}
                 disabled={isBusy}
                 onClick={onStartNameEdit}

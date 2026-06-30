@@ -11,6 +11,29 @@ const MAX_EXTENSION_VERSION_CHARS: usize = 64;
 const MAX_TITLE_CHARS: usize = 512;
 const MAX_FAVICON_URL_CHARS: usize = 8192;
 
+const WEB_ACTIVITY_CHROMIUM_BROWSER_EXES: &[&str] = &[
+    "chrome.exe",
+    "msedge.exe",
+    "brave.exe",
+    "opera.exe",
+    "vivaldi.exe",
+    "arc.exe",
+    "chromium.exe",
+    "360chromex.exe",
+    "thorium.exe",
+    "centbrowser.exe",
+    "catsxp.exe",
+];
+
+const WEB_ACTIVITY_FIREFOX_BROWSER_EXES: &[&str] =
+    &["firefox.exe", "zen.exe", "floorp.exe", "iceweasel.exe"];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WebActivityBrowserFamily {
+    Chromium,
+    Firefox,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserActiveTabPayload {
@@ -124,18 +147,19 @@ pub fn normalize_domain(value: &str) -> Option<String> {
     Some(normalized)
 }
 
+pub fn resolve_web_activity_browser_family(exe_name: &str) -> Option<WebActivityBrowserFamily> {
+    let normalized = exe_name.trim().to_ascii_lowercase();
+    if WEB_ACTIVITY_CHROMIUM_BROWSER_EXES.contains(&normalized.as_str()) {
+        return Some(WebActivityBrowserFamily::Chromium);
+    }
+    if WEB_ACTIVITY_FIREFOX_BROWSER_EXES.contains(&normalized.as_str()) {
+        return Some(WebActivityBrowserFamily::Firefox);
+    }
+    None
+}
+
 pub fn is_supported_browser_exe(exe_name: &str) -> bool {
-    matches!(
-        exe_name.trim().to_ascii_lowercase().as_str(),
-        "chrome.exe"
-            | "msedge.exe"
-            | "brave.exe"
-            | "opera.exe"
-            | "opera_gx.exe"
-            | "vivaldi.exe"
-            | "arc.exe"
-            | "chromium.exe"
-    )
+    resolve_web_activity_browser_family(exe_name).is_some()
 }
 
 pub fn parse_domain_override_enabled(raw_value: &str) -> bool {
@@ -213,5 +237,85 @@ mod tests {
         assert!(parse_domain_override_enabled("{}"));
         assert!(!parse_domain_override_enabled(r#"{"enabled":false}"#));
         assert!(parse_domain_override_enabled("not-json"));
+    }
+
+    #[test]
+    fn supported_browser_exe_excludes_opera_gx() {
+        assert!(is_supported_browser_exe("opera.exe"));
+        assert!(!is_supported_browser_exe("opera_gx.exe"));
+    }
+
+    #[test]
+    fn supported_browser_exe_includes_only_new_360_extreme_browser() {
+        assert!(is_supported_browser_exe("360ChromeX.exe"));
+        assert!(is_supported_browser_exe(" 360chromex.exe "));
+        assert!(!is_supported_browser_exe("360chrome.exe"));
+    }
+
+    #[test]
+    fn supported_browser_exe_resolves_chromium_family() {
+        for exe_name in [
+            "chrome.exe",
+            "msedge.exe",
+            "brave.exe",
+            "opera.exe",
+            "vivaldi.exe",
+            "arc.exe",
+            "chromium.exe",
+            "360chromex.exe",
+            "thorium.exe",
+            "centbrowser.exe",
+            "catsxp.exe",
+        ] {
+            assert_eq!(
+                resolve_web_activity_browser_family(exe_name),
+                Some(WebActivityBrowserFamily::Chromium),
+                "{exe_name} should be treated as Chromium family",
+            );
+        }
+    }
+
+    #[test]
+    fn supported_browser_exe_resolves_firefox_family() {
+        for exe_name in ["firefox.exe", "zen.exe", "floorp.exe", "iceweasel.exe"] {
+            assert_eq!(
+                resolve_web_activity_browser_family(exe_name),
+                Some(WebActivityBrowserFamily::Firefox),
+                "{exe_name} should be treated as Firefox family",
+            );
+        }
+    }
+
+    #[test]
+    fn supported_browser_exe_normalizes_case_and_space() {
+        assert_eq!(
+            resolve_web_activity_browser_family(" Firefox.EXE "),
+            Some(WebActivityBrowserFamily::Firefox),
+        );
+        assert_eq!(
+            resolve_web_activity_browser_family(" Thorium.EXE "),
+            Some(WebActivityBrowserFamily::Chromium),
+        );
+    }
+
+    #[test]
+    fn unsupported_browser_exe_keeps_candidates_out_until_confirmed() {
+        for exe_name in [
+            "tor.exe",
+            "librewolf.exe",
+            "waterfox.exe",
+            "noraneko.exe",
+            "ungoogled-chromium.exe",
+            "helium.exe",
+            "supermium.exe",
+            "edge.exe",
+            "egde.exe",
+        ] {
+            assert_eq!(
+                resolve_web_activity_browser_family(exe_name),
+                None,
+                "{exe_name} should remain unsupported",
+            );
+        }
     }
 }

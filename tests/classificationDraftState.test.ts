@@ -153,6 +153,16 @@ await runTest("default app mapping ignores saved runtime overrides", () => {
   ProcessMapper.clearUserOverrides();
 });
 
+await runTest("default app mapping names supported browser family candidates", () => {
+  assert.equal(ProcessMapper.mapDefault("360chromex.exe").name, "360 极速浏览器 X");
+  assert.equal(ProcessMapper.mapDefault("thorium.exe").name, "Thorium");
+  assert.equal(ProcessMapper.mapDefault("centbrowser.exe").name, "Cent Browser");
+  assert.equal(ProcessMapper.mapDefault("catsxp.exe").name, "Catsxp");
+  assert.equal(ProcessMapper.mapDefault("zen.exe").name, "Zen");
+  assert.equal(ProcessMapper.mapDefault("floorp.exe").name, "Floorp");
+  assert.equal(ProcessMapper.mapDefault("iceweasel.exe").name, "Iceweasel");
+});
+
 await runTest("historical other category overrides remain safely readable as unclassified", () => {
   const parsed = ProcessMapper.fromOverrideStorageValue(JSON.stringify({
     category: "other",
