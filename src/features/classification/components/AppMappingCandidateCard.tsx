@@ -1,4 +1,4 @@
-import { Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Captions, CaptionsOff, ListPlus, ListX, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import type { ObservedAppCandidate } from "../types";
 import type { UserAssignableAppCategory } from "../../../shared/classification/categoryTokens";
 import type { ColorDisplayFormat } from "../../../shared/lib/colorFormatting";
@@ -163,16 +163,18 @@ export default function AppMappingCandidateCard({
               onClick={onToggleTitleCapture}
               tone={titleCaptureEnabled ? "neutral" : "accent"}
               title={titleCaptureEnabled ? UI_TEXT.mapping.disableTitleCapture : UI_TEXT.mapping.enableTitleCapture}
+              leadingIcon={titleCaptureEnabled ? <CaptionsOff size={12} /> : <Captions size={12} />}
             >
-              {titleCaptureEnabled ? UI_TEXT.mapping.titleRecorded : UI_TEXT.mapping.titleNotRecorded}
+              {titleCaptureEnabled ? UI_TEXT.mapping.titleNotRecorded : UI_TEXT.mapping.titleRecorded}
             </QuietInlineAction>
             <QuietInlineAction
               disabled={isBusy}
               onClick={onToggleTracking}
               tone={trackingEnabled ? "warning" : "accent"}
               title={trackingEnabled ? UI_TEXT.mapping.disableTracking : UI_TEXT.mapping.enableTracking}
+              leadingIcon={trackingEnabled ? <ListX size={12} /> : <ListPlus size={12} />}
             >
-              {trackingEnabled ? UI_TEXT.mapping.statsEnabled : UI_TEXT.mapping.noStats}
+              {trackingEnabled ? UI_TEXT.mapping.excludeStats : UI_TEXT.mapping.restoreStats}
             </QuietInlineAction>
             <QuietInlineAction
               disabled={isBusy}

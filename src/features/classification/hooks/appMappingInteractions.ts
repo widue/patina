@@ -52,7 +52,8 @@ export interface AppMappingBootstrapSnapshot {
   loadedOverrides: ClassificationDraftState["overrides"];
   loadedWebDomainOverrides: ClassificationDraftState["webDomainOverrides"];
   loadedCategoryColorOverrides: ClassificationDraftState["categoryColorOverrides"];
-  loadedCustomCategories: ClassificationDraftState["customCategories"];
+  loadedCategoryLabelOverrides: ClassificationDraftState["categoryLabelOverrides"];
+  loadedPersistedCategoryIds: ClassificationDraftState["persistedCategoryIds"];
   loadedDeletedCategories: ClassificationDraftState["deletedCategories"];
 }
 
@@ -327,7 +328,8 @@ export async function saveAppMappingStateWithDeps(
         loadedOverrides: { ...nextDraftState.overrides },
         loadedWebDomainOverrides: { ...nextDraftState.webDomainOverrides },
         loadedCategoryColorOverrides: { ...nextDraftState.categoryColorOverrides },
-        loadedCustomCategories: [...nextDraftState.customCategories],
+        loadedCategoryLabelOverrides: { ...nextDraftState.categoryLabelOverrides },
+        loadedPersistedCategoryIds: [...nextDraftState.persistedCategoryIds],
         loadedDeletedCategories: [...nextDraftState.deletedCategories],
       },
       nextSaveStatus: "saved",

@@ -1,7 +1,8 @@
 import type { CandidateFilter, ObservedAppCandidate } from "../types.ts";
 import {
-  isCustomCategory,
+  isExtendedCategory,
   type AppCategory,
+  type ExtendedAppCategory,
   type UserAssignableAppCategory,
 } from "../../../shared/classification/categoryTokens.ts";
 import type { AppOverride } from "../services/classificationService.ts";
@@ -41,6 +42,7 @@ type FilterAndSortCandidatesParams = {
   filter: CandidateFilter;
   searchQuery?: string;
   resolveMappedCategory: (candidate: ObservedAppCandidate) => UserAssignableAppCategory;
+  resolveTrackingEnabled?: (candidate: ObservedAppCandidate) => boolean;
   resolveEffectiveDisplayName: (candidate: ObservedAppCandidate) => string;
   resolveCategoryLabel?: (category: UserAssignableAppCategory) => string;
 };
@@ -49,7 +51,8 @@ type ClassificationBootstrapSnapshot = {
   loadedOverrides: ClassificationDraftState["overrides"];
   loadedWebDomainOverrides: ClassificationDraftState["webDomainOverrides"];
   loadedCategoryColorOverrides: ClassificationDraftState["categoryColorOverrides"];
-  loadedCustomCategories: ClassificationDraftState["customCategories"];
+  loadedCategoryLabelOverrides: ClassificationDraftState["categoryLabelOverrides"];
+  loadedPersistedCategoryIds: ClassificationDraftState["persistedCategoryIds"];
   loadedDeletedCategories: ClassificationDraftState["deletedCategories"];
 };
 
@@ -138,7 +141,8 @@ export function createAppMappingDraftState(
     overrides: bootstrap.loadedOverrides,
     webDomainOverrides: bootstrap.loadedWebDomainOverrides ?? {},
     categoryColorOverrides: bootstrap.loadedCategoryColorOverrides,
-    customCategories: bootstrap.loadedCustomCategories,
+    categoryLabelOverrides: bootstrap.loadedCategoryLabelOverrides ?? {},
+    persistedCategoryIds: bootstrap.loadedPersistedCategoryIds,
     deletedCategories: bootstrap.loadedDeletedCategories,
   });
 }
@@ -182,13 +186,16 @@ export function deleteCategoryFromDraftState(
 
   const nextCategoryColorOverrides = { ...current.categoryColorOverrides };
   delete nextCategoryColorOverrides[category];
-  if (isCustomCategory(category)) {
+  const nextCategoryLabelOverrides = { ...current.categoryLabelOverrides };
+  delete nextCategoryLabelOverrides[category];
+  if (isExtendedCategory(category)) {
     return {
       ...current,
       overrides: nextOverrides,
       webDomainOverrides: nextWebDomainOverrides,
       categoryColorOverrides: nextCategoryColorOverrides,
-      customCategories: current.customCategories.filter((item) => item !== category),
+      categoryLabelOverrides: nextCategoryLabelOverrides,
+      persistedCategoryIds: current.persistedCategoryIds.filter((item) => item !== category),
       deletedCategories: current.deletedCategories.filter((item) => item !== category),
     };
   }
@@ -198,7 +205,91 @@ export function deleteCategoryFromDraftState(
     overrides: nextOverrides,
     webDomainOverrides: nextWebDomainOverrides,
     categoryColorOverrides: nextCategoryColorOverrides,
+    categoryLabelOverrides: nextCategoryLabelOverrides,
     deletedCategories: Array.from(new Set([...current.deletedCategories, category])),
+  };
+}
+
+export function createCategoryInDraftState(
+  current: ClassificationDraftState,
+  category: ExtendedAppCategory,
+  label: string,
+): ClassificationDraftState {
+  const normalizedLabel = label.trim().replace(/\s+/g, " ");
+  if (!normalizedLabel) {
+    return current;
+  }
+
+  return {
+    ...current,
+    categoryLabelOverrides: {
+      ...current.categoryLabelOverrides,
+      [category]: normalizedLabel,
+    },
+    persistedCategoryIds: current.persistedCategoryIds.includes(category)
+      ? current.persistedCategoryIds
+      : [...current.persistedCategoryIds, category],
+    deletedCategories: current.deletedCategories.filter((item) => item !== category),
+  };
+}
+
+export function mergeCategoryIntoDraftState(
+  current: ClassificationDraftState,
+  fromCategory: AppCategory,
+  toCategory: UserAssignableAppCategory,
+  fallbackColor?: string,
+): ClassificationDraftState {
+  if (fromCategory === toCategory) {
+    return current;
+  }
+
+  const nextOverrides: Record<string, AppOverride> = {};
+  for (const [exeName, override] of Object.entries(current.overrides)) {
+    nextOverrides[exeName] = override.category === fromCategory
+      ? { ...override, category: toCategory }
+      : override;
+  }
+
+  const nextWebDomainOverrides: Record<string, WebDomainOverride> = {};
+  for (const [normalizedDomain, override] of Object.entries(current.webDomainOverrides)) {
+    nextWebDomainOverrides[normalizedDomain] = override.category === fromCategory
+      ? { ...override, category: toCategory }
+      : override;
+  }
+
+  const nextCategoryColorOverrides = { ...current.categoryColorOverrides };
+  const movedColor = nextCategoryColorOverrides[fromCategory] ?? normalizeHexColor(fallbackColor);
+  delete nextCategoryColorOverrides[fromCategory];
+  if (movedColor && !nextCategoryColorOverrides[toCategory]) {
+    nextCategoryColorOverrides[toCategory] = movedColor;
+  }
+
+  const nextCategoryLabelOverrides = { ...current.categoryLabelOverrides };
+  delete nextCategoryLabelOverrides[fromCategory];
+
+  const nextPersistedCategoryIds = new Set(current.persistedCategoryIds);
+  if (isExtendedCategory(fromCategory)) {
+    nextPersistedCategoryIds.delete(fromCategory);
+  }
+  if (isExtendedCategory(toCategory)) {
+    nextPersistedCategoryIds.add(toCategory);
+  }
+
+  const nextDeletedCategories = new Set(current.deletedCategories.filter((category) => (
+    category !== fromCategory && category !== toCategory
+  )));
+  if (!isExtendedCategory(fromCategory) && fromCategory !== "system" && fromCategory !== "other") {
+    nextDeletedCategories.add(fromCategory);
+  }
+
+  return {
+    ...current,
+    overrides: nextOverrides,
+    webDomainOverrides: nextWebDomainOverrides,
+    categoryColorOverrides: nextCategoryColorOverrides,
+    categoryLabelOverrides: nextCategoryLabelOverrides,
+    persistedCategoryIds: Array.from(nextPersistedCategoryIds),
+    deletedCategories: Array.from(nextDeletedCategories),
   };
 }
 
@@ -235,11 +326,24 @@ export function updateCategoryColorInDraftState(
   return { ...current, categoryColorOverrides: next };
 }
 
+export function updateCategoryLabelInDraftState(
+  current: ClassificationDraftState,
+  category: AppCategory,
+  label: string | null,
+): ClassificationDraftState {
+  const next = { ...current.categoryLabelOverrides };
+  const normalizedLabel = label?.trim().replace(/\s+/g, " ");
+  if (!normalizedLabel) delete next[category];
+  else next[category] = normalizedLabel;
+  return { ...current, categoryLabelOverrides: next };
+}
+
 export function filterAndSortCandidates({
   candidates,
   filter,
   searchQuery,
   resolveMappedCategory,
+  resolveTrackingEnabled,
   resolveEffectiveDisplayName,
   resolveCategoryLabel,
 }: FilterAndSortCandidatesParams): ObservedAppCandidate[] {
@@ -249,6 +353,9 @@ export function filterAndSortCandidates({
   return candidates
     .filter((candidate) => {
       const category = resolveMappedCategory(candidate);
+      const trackingEnabled = resolveTrackingEnabled?.(candidate) ?? true;
+      if (filter === "excluded") return !trackingEnabled;
+      if (!trackingEnabled) return false;
       if (filter === "all") return true;
       if (filter === "other") return category === "other";
       return category !== "other";

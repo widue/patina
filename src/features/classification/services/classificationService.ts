@@ -2,7 +2,7 @@ import { ProcessMapper } from "../../../shared/classification/processMapper.ts";
 import type { AppOverride } from "../../../shared/classification/processMapper.ts";
 import {
   type AppCategory,
-  type CustomAppCategory,
+  type ExtendedAppCategory,
 } from "../../../shared/classification/categoryTokens.ts";
 import * as classificationStore from "./classificationStore.ts";
 import type { ObservedAppCandidate } from "./classificationStore.ts";
@@ -32,7 +32,8 @@ export interface ClassificationBootstrapData {
   loadedOverrides: Record<string, AppOverride>;
   loadedWebDomainOverrides: Record<string, WebDomainOverride>;
   loadedCategoryColorOverrides: Record<string, string>;
-  loadedCustomCategories: CustomAppCategory[];
+  loadedCategoryLabelOverrides: Record<string, string>;
+  loadedPersistedCategoryIds: ExtendedAppCategory[];
   loadedDeletedCategories: AppCategory[];
 }
 
@@ -40,6 +41,7 @@ export interface ClassificationCommitDeps {
   commitChangePlan: (changePlan: ReturnType<typeof buildClassificationDraftChangePlan>) => Promise<void>;
   setUserOverrides: (overrides: ClassificationDraftState["overrides"]) => void;
   setCategoryColorOverrides: (overrides: ClassificationDraftState["categoryColorOverrides"]) => void;
+  setCategoryLabelOverrides: (overrides: ClassificationDraftState["categoryLabelOverrides"]) => void;
   setDeletedCategories: (categories: AppCategory[]) => void;
 }
 
@@ -49,7 +51,8 @@ export interface ClassificationBootstrapDeps {
   loadAppOverrides: () => Promise<Record<string, AppOverride>>;
   loadWebDomainOverrides: () => Promise<Record<string, WebDomainOverride>>;
   loadCategoryColorOverrides: () => Promise<Record<string, string>>;
-  loadCustomCategories: () => Promise<CustomAppCategory[]>;
+  loadCategoryLabelOverrides: () => Promise<Record<string, string>>;
+  loadPersistedCategoryIds: () => Promise<ExtendedAppCategory[]>;
   loadDeletedCategories: () => Promise<AppCategory[]>;
   loadAppIconsForExecutables?: typeof loadClassificationIconsForExecutables;
 }
@@ -61,6 +64,7 @@ export function createClassificationCommitDeps(
     commitChangePlan,
     setUserOverrides: (overrides) => ProcessMapper.setUserOverrides(overrides),
     setCategoryColorOverrides: (overrides) => ProcessMapper.setCategoryColorOverrides(overrides),
+    setCategoryLabelOverrides: (overrides) => ProcessMapper.setCategoryLabelOverrides(overrides),
     setDeletedCategories: (categories) => ProcessMapper.setDeletedCategories(categories),
   };
 }
@@ -72,7 +76,8 @@ const defaultClassificationBootstrapDeps: ClassificationBootstrapDeps = {
   loadAppOverrides: () => classificationStore.loadAppOverrides(),
   loadWebDomainOverrides: () => classificationStore.loadWebDomainOverrides(),
   loadCategoryColorOverrides: () => classificationStore.loadCategoryColorOverrides(),
-  loadCustomCategories: () => classificationStore.loadCustomCategories(),
+  loadCategoryLabelOverrides: () => classificationStore.loadCategoryLabelOverrides(),
+  loadPersistedCategoryIds: () => classificationStore.loadPersistedCategoryIds(),
   loadDeletedCategories: () => classificationStore.loadDeletedCategories(),
   loadAppIconsForExecutables: loadClassificationIconsForExecutables,
 };
@@ -141,14 +146,16 @@ export class ClassificationService {
       observed,
       loadedOverrides,
       loadedCategoryColorOverrides,
-      loadedCustomCategories,
+      loadedCategoryLabelOverrides,
+      loadedPersistedCategoryIds,
       loadedDeletedCategories,
       webClassificationData,
     ] = await Promise.all([
       deps.loadObservedAppCandidates(),
       deps.loadAppOverrides(),
       deps.loadCategoryColorOverrides(),
-      deps.loadCustomCategories(),
+      deps.loadCategoryLabelOverrides(),
+      deps.loadPersistedCategoryIds(),
       deps.loadDeletedCategories(),
       loadOptionalWebClassificationData(deps),
     ]);
@@ -165,7 +172,8 @@ export class ClassificationService {
       loadedOverrides,
       loadedWebDomainOverrides: webClassificationData.loadedWebDomainOverrides,
       loadedCategoryColorOverrides: loadedCategoryColorOverrides ?? {},
-      loadedCustomCategories,
+      loadedCategoryLabelOverrides: loadedCategoryLabelOverrides ?? {},
+      loadedPersistedCategoryIds,
       loadedDeletedCategories: sanitizedDeletedCategories,
     };
     setClassificationBootstrapCache(bootstrap);
@@ -179,6 +187,7 @@ export class ClassificationService {
   static applyBootstrapToProcessMapper(bootstrap: ClassificationBootstrapData): void {
     ProcessMapper.setUserOverrides(bootstrap.loadedOverrides);
     ProcessMapper.setCategoryColorOverrides(bootstrap.loadedCategoryColorOverrides);
+    ProcessMapper.setCategoryLabelOverrides(bootstrap.loadedCategoryLabelOverrides);
     ProcessMapper.setDeletedCategories(bootstrap.loadedDeletedCategories);
   }
 
@@ -206,12 +215,12 @@ export class ClassificationService {
     ProcessMapper.setDeletedCategories(sanitizeDeletedCategories(categories));
   }
 
-  static async saveCustomCategory(category: CustomAppCategory) {
-    await classificationStore.saveCustomCategory(category);
+  static async saveCategoryDefinition(category: ExtendedAppCategory) {
+    await classificationStore.saveCategoryDefinition(category);
   }
 
-  static async deleteCustomCategory(category: CustomAppCategory) {
-    await classificationStore.deleteCustomCategory(category);
+  static async deleteCategoryDefinition(category: ExtendedAppCategory) {
+    await classificationStore.deleteCategoryDefinition(category);
   }
 
   static async saveDeletedCategory(category: AppCategory, deleted: boolean) {
@@ -248,5 +257,6 @@ export async function commitDraftChangesWithDeps(
   await deps.commitChangePlan(changePlan);
   deps.setUserOverrides(draft.overrides);
   deps.setCategoryColorOverrides(draft.categoryColorOverrides);
+  deps.setCategoryLabelOverrides(draft.categoryLabelOverrides);
   deps.setDeletedCategories(changePlan.sanitizedDeletedCategories);
 }

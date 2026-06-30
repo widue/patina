@@ -1,8 +1,8 @@
 import {
   USER_ASSIGNABLE_CATEGORIES,
-  isCustomCategory,
+  isExtendedCategory,
   type AppCategory,
-  type CustomAppCategory,
+  type ExtendedAppCategory,
 } from "../../../shared/classification/categoryTokens.ts";
 import type { AppOverride } from "../../../shared/classification/processMapper.ts";
 import type { WebDomainOverride } from "../../../shared/types/webActivity.ts";
@@ -11,7 +11,8 @@ export interface ClassificationDraftState {
   overrides: Record<string, AppOverride>;
   webDomainOverrides: Record<string, WebDomainOverride>;
   categoryColorOverrides: Record<string, string>;
-  customCategories: CustomAppCategory[];
+  categoryLabelOverrides: Record<string, string>;
+  persistedCategoryIds: ExtendedAppCategory[];
   deletedCategories: AppCategory[];
 }
 
@@ -19,8 +20,9 @@ export interface ClassificationDraftChangePlan {
   overrideUpserts: Array<{ exeName: string; override: AppOverride | null }>;
   webDomainOverrideUpserts: Array<{ normalizedDomain: string; override: WebDomainOverride | null }>;
   categoryColorUpdates: Array<{ category: AppCategory; colorValue: string | null }>;
-  customCategoriesToAdd: CustomAppCategory[];
-  customCategoriesToRemove: CustomAppCategory[];
+  categoryLabelUpdates: Array<{ category: AppCategory; label: string | null }>;
+  persistedCategoryIdsToAdd: ExtendedAppCategory[];
+  persistedCategoryIdsToRemove: ExtendedAppCategory[];
   deletedCategoryUpdates: Array<{ category: AppCategory; deleted: boolean }>;
   sanitizedDeletedCategories: AppCategory[];
 }
@@ -53,14 +55,15 @@ export function cloneClassificationDraftState(state: ClassificationDraftState): 
     overrides,
     webDomainOverrides,
     categoryColorOverrides: { ...state.categoryColorOverrides },
-    customCategories: [...state.customCategories],
+    categoryLabelOverrides: { ...(state.categoryLabelOverrides ?? {}) },
+    persistedCategoryIds: [...state.persistedCategoryIds],
     deletedCategories: [...state.deletedCategories],
   };
 }
 
 export function sanitizeDeletedCategories(categories: AppCategory[]): AppCategory[] {
   return categories.filter((category) => (
-    !isCustomCategory(category)
+    !isExtendedCategory(category)
     && category !== "system"
     && category !== "other"
   ));
@@ -144,7 +147,10 @@ export function hasClassificationDraftChanges(
   if (!areStringMapsEqual(saved.categoryColorOverrides, draft.categoryColorOverrides)) {
     return true;
   }
-  if (!areStringArraysEqual(saved.customCategories, draft.customCategories)) {
+  if (!areStringMapsEqual(saved.categoryLabelOverrides, draft.categoryLabelOverrides)) {
+    return true;
+  }
+  if (!areStringArraysEqual(saved.persistedCategoryIds, draft.persistedCategoryIds)) {
     return true;
   }
   if (!areStringArraysEqual(
@@ -230,14 +236,35 @@ export function buildClassificationDraftChangePlan(
     });
   }
 
-  const savedCustomCategories = new Set(saved.customCategories);
-  const draftCustomCategories = new Set(draft.customCategories);
-  const customCategoriesToAdd = draft.customCategories.filter((category) => !savedCustomCategories.has(category));
-  const customCategoriesToRemove = saved.customCategories.filter((category) => !draftCustomCategories.has(category));
+  const categoryLabelUpdates: ClassificationDraftChangePlan["categoryLabelUpdates"] = [];
+  const labelKeys = new Set([
+    ...Object.keys(saved.categoryLabelOverrides),
+    ...Object.keys(draft.categoryLabelOverrides),
+  ]);
+  for (const category of labelKeys) {
+    const savedLabel = saved.categoryLabelOverrides[category];
+    const draftLabel = draft.categoryLabelOverrides[category];
+    if (savedLabel === draftLabel) {
+      continue;
+    }
+    categoryLabelUpdates.push({
+      category: category as AppCategory,
+      label: draftLabel ?? null,
+    });
+  }
+
+  const savedPersistedCategoryIds = new Set(saved.persistedCategoryIds);
+  const draftPersistedCategoryIds = new Set(draft.persistedCategoryIds);
+  const persistedCategoryIdsToAdd = draft.persistedCategoryIds.filter((category) => (
+    !savedPersistedCategoryIds.has(category)
+  ));
+  const persistedCategoryIdsToRemove = saved.persistedCategoryIds.filter((category) => (
+    !draftPersistedCategoryIds.has(category)
+  ));
 
   const deletedCategoryUpdates: ClassificationDraftChangePlan["deletedCategoryUpdates"] = [];
   const assignableCategories = USER_ASSIGNABLE_CATEGORIES.filter((category) => (
-    !isCustomCategory(category) && category !== "other"
+    !isExtendedCategory(category) && category !== "other"
   ));
   for (const category of assignableCategories) {
     const savedDeleted = sanitizedSavedDeletedCategories.includes(category);
@@ -252,8 +279,9 @@ export function buildClassificationDraftChangePlan(
     overrideUpserts,
     webDomainOverrideUpserts,
     categoryColorUpdates,
-    customCategoriesToAdd,
-    customCategoriesToRemove,
+    categoryLabelUpdates,
+    persistedCategoryIdsToAdd,
+    persistedCategoryIdsToRemove,
     deletedCategoryUpdates,
     sanitizedDeletedCategories: sanitizedDraftDeletedCategories,
   };

@@ -4,7 +4,6 @@ import { useIconThemeColors } from "../../../shared/hooks/useIconThemeColors";
 import { useRequestedAppIcons } from "../../../shared/hooks/useRequestedAppIcons.ts";
 import { useQuietDialogs } from "../../../shared/hooks/useQuietDialogs";
 import type { ColorDisplayFormat } from "../../../shared/lib/colorFormatting";
-import { AppClassification } from "../../../shared/classification/appClassification.ts";
 import {
   ClassificationService,
   type AppOverride,
@@ -23,10 +22,13 @@ import {
   buildWebDomainCategoryOverride,
   buildWebDomainMappingOverride,
   cloneObservedCandidates,
+  createCategoryInDraftState,
   createAppMappingDraftState,
   deleteCategoryFromDraftState,
+  mergeCategoryIntoDraftState,
   updateAppOverrideInDraftState,
   updateCategoryColorInDraftState,
+  updateCategoryLabelInDraftState,
   updateWebDomainOverrideInDraftState,
 } from "./appMappingStateHelpers.ts";
 import {
@@ -40,8 +42,10 @@ import {
   syncWebDomainNameDraft,
 } from "./appMappingInteractions.ts";
 import {
-  buildCustomCategory,
+  createCategoryId,
+  getCategoryToken,
   type AppCategory,
+  type UserAssignableAppCategory,
 } from "../../../shared/classification/categoryTokens";
 import type {
   ObservedWebDomainCandidate,
@@ -49,7 +53,7 @@ import type {
 } from "../../../shared/types/webActivity.ts";
 import {
   cloneObservedWebDomainCandidates,
-  normalizeCustomCategoryInput,
+  normalizeCategoryNameInput,
   useAppMappingDerivedState,
 } from "./useAppMappingDerivedState.ts";
 
@@ -169,7 +173,8 @@ export function useAppMappingState({
   const draftOverrides = draftState?.overrides ?? {};
   const draftWebDomainOverrides = draftState?.webDomainOverrides ?? {};
   const draftCategoryColorOverrides = draftState?.categoryColorOverrides ?? {};
-  const draftCustomCategories = draftState?.customCategories ?? [];
+  const draftCategoryLabelOverrides = draftState?.categoryLabelOverrides ?? {};
+  const draftPersistedCategoryIds = draftState?.persistedCategoryIds ?? [];
   const draftDeletedCategories = draftState?.deletedCategories ?? [];
 
   const hasUnsavedChanges = (() => {
@@ -197,6 +202,7 @@ export function useAppMappingState({
     candidateCategoryOptions,
     categoryControlCategories,
     resolveCategoryColor,
+    resolveCategoryLabel,
     resolveEffectiveDisplayName,
     resolveCandidateColor,
     resolveMappedCategory,
@@ -217,7 +223,8 @@ export function useAppMappingState({
     draftOverrides,
     draftWebDomainOverrides,
     draftCategoryColorOverrides,
-    draftCustomCategories,
+    draftCategoryLabelOverrides,
+    draftPersistedCategoryIds,
     draftDeletedCategories,
     editingNameExe,
     nameEditSnapshots,
@@ -239,7 +246,8 @@ export function useAppMappingState({
         loadedOverrides: { ...savedState.overrides },
         loadedWebDomainOverrides: { ...savedState.webDomainOverrides },
         loadedCategoryColorOverrides: { ...savedState.categoryColorOverrides },
-        loadedCustomCategories: [...savedState.customCategories],
+        loadedCategoryLabelOverrides: { ...savedState.categoryLabelOverrides },
+        loadedPersistedCategoryIds: [...savedState.persistedCategoryIds],
         loadedDeletedCategories: [...savedState.deletedCategories],
       });
     }
@@ -257,7 +265,8 @@ export function useAppMappingState({
         loadedOverrides: { ...savedState.overrides },
         loadedWebDomainOverrides: { ...savedState.webDomainOverrides },
         loadedCategoryColorOverrides: { ...savedState.categoryColorOverrides },
-        loadedCustomCategories: [...savedState.customCategories],
+        loadedCategoryLabelOverrides: { ...savedState.categoryLabelOverrides },
+        loadedPersistedCategoryIds: [...savedState.persistedCategoryIds],
         loadedDeletedCategories: [...savedState.deletedCategories],
       });
     }
@@ -285,33 +294,33 @@ export function useAppMappingState({
     });
   }, []);
 
-  const handleCreateCustomCategory = useCallback(async () => {
-    const customCategoryName = await prompt({
+  const handleCreateCategory = useCallback(async () => {
+    const categoryName = await prompt({
       title: UI_TEXT.mapping.createCategoryTitle,
       description: UI_TEXT.mapping.createCategoryDescription,
       placeholder: UI_TEXT.mapping.createCategoryPlaceholder,
     });
-    if (!customCategoryName) return;
-    const normalized = normalizeCustomCategoryInput(customCategoryName);
+    if (!categoryName) return;
+    const normalized = normalizeCategoryNameInput(categoryName);
     if (!normalized) return;
-    const category = buildCustomCategory(normalized);
+    const duplicateOption = candidateCategoryOptions.find((option) => option.label === normalized);
+    if (duplicateOption) return;
+    const category = createCategoryId();
     setDraftState((current) => {
       if (!current) return current;
-      return {
-        ...current,
-        customCategories: current.customCategories.includes(category)
-          ? current.customCategories
-          : [...current.customCategories, category],
-        deletedCategories: current.deletedCategories.filter((item) => item !== category),
-      };
+      let nextCategory = category;
+      while (current.persistedCategoryIds.includes(nextCategory)) {
+        nextCategory = createCategoryId();
+      }
+      return createCategoryInDraftState(current, nextCategory, normalized);
     });
-  }, [prompt]);
+  }, [candidateCategoryOptions, prompt]);
 
   const handleDeleteCategory = useCallback(async (category: AppCategory) => {
     if (category === "other") {
       return;
     }
-    const categoryLabel = AppClassification.getCategoryLabel(category);
+    const categoryLabel = resolveCategoryLabel(category);
     const confirmed = await confirm({
       title: UI_TEXT.mapping.deleteCategoryTitle,
       description: UI_TEXT.mapping.deleteCategoryDetail(categoryLabel),
@@ -323,7 +332,57 @@ export function useAppMappingState({
       if (!current) return current;
       return deleteCategoryFromDraftState(current, category);
     });
-  }, [confirm]);
+  }, [confirm, resolveCategoryLabel]);
+
+  const handleRenameCategory = useCallback(async (category: AppCategory) => {
+    if (!draftState || category === "other" || category === "system") {
+      return;
+    }
+
+    const categoryLabel = resolveCategoryLabel(category);
+    const categoryName = await prompt({
+      title: UI_TEXT.mapping.renameCategoryTitle,
+      description: UI_TEXT.mapping.renameCategoryDescription,
+      placeholder: UI_TEXT.mapping.renameCategoryPlaceholder,
+      initialValue: categoryLabel,
+    });
+    if (!categoryName) return;
+
+    const normalized = normalizeCategoryNameInput(categoryName);
+    if (!normalized) return;
+    if (normalized === categoryLabel) return;
+
+    const duplicateOption = candidateCategoryOptions.find((item) => (
+      item.value !== category && item.label === normalized
+    ));
+    if (duplicateOption?.value === "other") return;
+    if (duplicateOption) {
+      const confirmed = await confirm({
+        title: UI_TEXT.mapping.renameCategoryDuplicateTitle,
+        description: UI_TEXT.mapping.renameCategoryDuplicateDetail(normalized),
+        confirmLabel: UI_TEXT.dialog.confirm,
+      });
+      if (!confirmed) return;
+
+      setDraftState((current) => {
+        if (!current) return current;
+        return mergeCategoryIntoDraftState(
+          current,
+          category,
+          duplicateOption.value as UserAssignableAppCategory,
+          resolveCategoryColor(category),
+        );
+      });
+      return;
+    }
+
+    const defaultLabel = getCategoryToken(category).label;
+    const nextLabel = normalized === defaultLabel ? null : normalized;
+    setDraftState((current) => {
+      if (!current) return current;
+      return updateCategoryLabelInDraftState(current, category, nextLabel);
+    });
+  }, [candidateCategoryOptions, confirm, draftState, prompt, resolveCategoryColor, resolveCategoryLabel]);
 
   const handleCategoryAssign = useCallback((candidate: ObservedAppCandidate, categoryValue: string) => {
     const current = draftOverrides[candidate.exeName] ?? null;
@@ -445,7 +504,8 @@ export function useAppMappingState({
         overrides: {},
         webDomainOverrides: {},
         categoryColorOverrides: {},
-        customCategories: [],
+        categoryLabelOverrides: {},
+        persistedCategoryIds: [],
         deletedCategories: [],
       },
       nameDrafts,
@@ -469,7 +529,8 @@ export function useAppMappingState({
         overrides: {},
         webDomainOverrides: {},
         categoryColorOverrides: {},
-        customCategories: [],
+        categoryLabelOverrides: {},
+        persistedCategoryIds: [],
         deletedCategories: [],
       },
       webNameDrafts,
@@ -731,8 +792,10 @@ export function useAppMappingState({
     categoryControlCategories,
     candidateCategoryOptions,
     resolveCategoryColor,
-    handleCreateCustomCategory,
+    resolveCategoryLabel,
+    handleCreateCategory,
     handleDeleteCategory,
+    handleRenameCategory,
     resolveEffectiveDisplayName,
     resolveCandidateColor,
     resolveMappedCategory,

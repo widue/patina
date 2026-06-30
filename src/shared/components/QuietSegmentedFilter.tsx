@@ -1,6 +1,9 @@
+import type { ReactNode } from "react";
+
 export interface QuietSegmentedFilterOption<T extends string> {
   value: T;
-  label: string;
+  label: ReactNode;
+  ariaLabel?: string;
   disabled?: boolean;
 }
 
@@ -33,6 +36,7 @@ export default function QuietSegmentedFilter<T extends string>({
             type="button"
             disabled={option.disabled}
             aria-pressed={selected}
+            aria-label={option.ariaLabel}
             onClick={() => onChange(option.value)}
             className={`qp-segmented-filter-item ${selected ? "qp-segmented-filter-item-selected" : ""}`.trim()}
           >

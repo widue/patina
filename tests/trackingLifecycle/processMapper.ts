@@ -231,7 +231,7 @@ export function runProcessMapperTests() {
     ProcessMapper.clearUserOverrides();
   });
 
-  runTest("process mapper allows assigning custom category", () => {
+  runTest("process mapper allows assigning extended category ids", () => {
     ProcessMapper.clearUserOverrides();
 
     ProcessMapper.setUserOverride("atlas.exe", {

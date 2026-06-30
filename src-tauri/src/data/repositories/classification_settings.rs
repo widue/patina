@@ -3,8 +3,9 @@ use sqlx::{Pool, Sqlite};
 const APP_OVERRIDE_KEY_PREFIX: &str = "__app_override::";
 const WEB_DOMAIN_OVERRIDE_KEY_PREFIX: &str = "__web_domain_override::";
 const CATEGORY_COLOR_OVERRIDE_KEY_PREFIX: &str = "__category_color_override::";
+const CATEGORY_LABEL_OVERRIDE_KEY_PREFIX: &str = "__category_label_override::";
 const CATEGORY_DEFAULT_COLOR_ASSIGNMENT_KEY_PREFIX: &str = "__category_default_color_assignment::";
-const CUSTOM_CATEGORY_KEY_PREFIX: &str = "__custom_category::";
+const CATEGORY_DEFINITION_KEY_PREFIX: &str = "__custom_category::";
 const DELETED_CATEGORY_KEY_PREFIX: &str = "__deleted_category::";
 const MIGRATION_KEY_PREFIX: &str = "__classification_manual_confirmation_migration::";
 const MAX_SETTING_KEY_LEN: usize = 256;
@@ -99,8 +100,9 @@ fn is_allowed_classification_setting_key(key: &str) -> bool {
         APP_OVERRIDE_KEY_PREFIX,
         WEB_DOMAIN_OVERRIDE_KEY_PREFIX,
         CATEGORY_COLOR_OVERRIDE_KEY_PREFIX,
+        CATEGORY_LABEL_OVERRIDE_KEY_PREFIX,
         CATEGORY_DEFAULT_COLOR_ASSIGNMENT_KEY_PREFIX,
-        CUSTOM_CATEGORY_KEY_PREFIX,
+        CATEGORY_DEFINITION_KEY_PREFIX,
         DELETED_CATEGORY_KEY_PREFIX,
         MIGRATION_KEY_PREFIX,
     ]
@@ -186,6 +188,26 @@ mod tests {
                 load_setting(&pool, key).await,
                 Some("1780226815860".to_string())
             );
+        });
+    }
+
+    #[test]
+    fn commit_classification_setting_mutations_accepts_category_label_override() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+            let key = "__category_label_override::development";
+
+            commit_classification_setting_mutations(
+                &pool,
+                &[ClassificationSettingMutation {
+                    key: key.to_string(),
+                    value: Some("Dev Tools".to_string()),
+                }],
+            )
+            .await
+            .unwrap();
+
+            assert_eq!(load_setting(&pool, key).await, Some("Dev Tools".to_string()));
         });
     }
 

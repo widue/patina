@@ -87,8 +87,10 @@ await runTest("classification batch operations stop on the first failed write", 
   const executor = new FakeWriteExecutor(2);
   const mutations = buildCommitDraftChangePlanSettingMutations(buildClassificationDraftChangePlan({
     overrides: {},
+    webDomainOverrides: {},
     categoryColorOverrides: {},
-    customCategories: [],
+    categoryLabelOverrides: {},
+    persistedCategoryIds: [],
     deletedCategories: [],
   }, {
     overrides: {
@@ -97,10 +99,12 @@ await runTest("classification batch operations stop on the first failed write", 
         displayName: "Work Browser",
       },
     },
+    webDomainOverrides: {},
     categoryColorOverrides: {
       development: "#112233",
     },
-    customCategories: [],
+    categoryLabelOverrides: {},
+    persistedCategoryIds: [],
     deletedCategories: ["music"],
   }));
   const operations = buildClassificationSettingMutationOperations(mutations);
