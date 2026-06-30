@@ -24,7 +24,7 @@ interface LazyViewChunkPreloadDeps {
   warn?: (message: string, error: unknown) => void;
 }
 
-type IdleWindow = Window & typeof globalThis & {
+type IdleWindow = {
   requestIdleCallback?: (callback: () => void, options?: { timeout: number }) => number;
   cancelIdleCallback?: (handle: number) => void;
 };
@@ -82,11 +82,13 @@ function schedulePreloadTask(
 
   let cancelIdle: (() => void) | null = null;
   const timer = window.setTimeout(() => {
-    const idleWindow = window as IdleWindow;
+    const idleWindow = window as unknown as IdleWindow;
+    const requestIdleCallback = idleWindow.requestIdleCallback;
+    const cancelIdleCallback = idleWindow.cancelIdleCallback;
 
-    if (idleWindow.requestIdleCallback && idleWindow.cancelIdleCallback) {
-      const handle = idleWindow.requestIdleCallback(callback, { timeout: idleTimeoutMs });
-      cancelIdle = () => idleWindow.cancelIdleCallback?.(handle);
+    if (typeof requestIdleCallback === "function" && typeof cancelIdleCallback === "function") {
+      const handle = requestIdleCallback.call(window, callback, { timeout: idleTimeoutMs });
+      cancelIdle = () => cancelIdleCallback.call(window, handle);
       return;
     }
 

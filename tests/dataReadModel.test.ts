@@ -3,6 +3,9 @@ import { ProcessMapper } from "../src/shared/classification/processMapper.ts";
 import { mapRawAggregateSessionCandidates } from "../src/platform/persistence/sessionReadRepository.ts";
 import {
   buildActivityHeatmap,
+  buildDataAppTrendViewModelFromAggregate,
+  buildDataTrendAggregateContext,
+  buildDataTrendViewModelFromAggregate,
   buildDataTrendViewModel,
   buildDataAppTrendViewModel,
   buildYearOptions,
@@ -169,6 +172,7 @@ await runTest("activity trend exposes dates only for day granularity", () => {
   assert.equal(weekly.chartData.at(-2)?.date, "2026-05-07");
   assert.match(monthly.chartData.at(-1)?.date ?? "", /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(yearly.chartData.at(-1)?.date, null);
+  assert.equal(yearly.chartData.at(-1)?.hours, 1);
 });
 
 await runTest("app trend groups sessions by application and day", () => {
@@ -271,6 +275,62 @@ await runTest("yearly app trend averages by month", () => {
 
   assert.equal(rows.granularity, "month");
   assert.equal(rows.selectedApp?.averageDuration, 60 * 60 * 1000);
+  assert.equal(rows.chartData.find((point) => point.date === "2026-04-01")?.duration, 12 * 60 * 60 * 1000);
+});
+
+await runTest("shared trend aggregate matches standalone overview and app read models", () => {
+  const nowMs = new Date(2026, 4, 8, 12, 0, 0).getTime();
+  const sessions = [
+    makeSession({
+      appName: "Blender",
+      exeName: "blender.exe",
+      startTime: new Date(2026, 3, 30, 23, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 1, 1, 0, 0).getTime(),
+    }),
+    makeSession({
+      appName: "Cursor",
+      exeName: "cursor.exe",
+      startTime: new Date(2026, 4, 8, 8, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 8, 11, 0, 0).getTime(),
+    }),
+  ];
+  const context = buildDataTrendAggregateContext(sessions, 365, nowMs);
+
+  assert.deepEqual(
+    buildDataTrendViewModelFromAggregate(context),
+    buildDataTrendViewModel(sessions, 365, nowMs),
+  );
+  assert.deepEqual(
+    buildDataAppTrendViewModelFromAggregate(context, "blender.exe"),
+    buildDataAppTrendViewModel(sessions, 365, nowMs, "blender.exe"),
+  );
+});
+
+await runTest("selected app derivation from shared aggregate does not mutate overview trend", () => {
+  const nowMs = new Date(2026, 4, 8, 12, 0, 0).getTime();
+  const sessions = [
+    makeSession({
+      appName: "Blender",
+      exeName: "blender.exe",
+      startTime: new Date(2026, 4, 8, 10, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 8, 11, 0, 0).getTime(),
+    }),
+    makeSession({
+      appName: "Cursor",
+      exeName: "cursor.exe",
+      startTime: new Date(2026, 4, 8, 8, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 8, 11, 0, 0).getTime(),
+    }),
+  ];
+  const context = buildDataTrendAggregateContext(sessions, 7, nowMs);
+  const overviewBefore = buildDataTrendViewModelFromAggregate(context);
+  const blender = buildDataAppTrendViewModelFromAggregate(context, "blender.exe");
+  const cursor = buildDataAppTrendViewModelFromAggregate(context, "cursor.exe");
+  const overviewAfter = buildDataTrendViewModelFromAggregate(context);
+
+  assert.deepEqual(overviewAfter, overviewBefore);
+  assert.equal(blender.selectedApp?.appName, "Blender");
+  assert.equal(cursor.selectedApp?.appName, "Cursor");
 });
 
 await runTest("aggregate repository mapping keeps a minimal effective time slice", () => {
@@ -389,6 +449,44 @@ await runTest("heatmap snapshot caches earliest activity and refreshes sessions"
   assert.equal(second.sessions, sessions);
   assert.equal(earliestLoadCount, 1);
   assert.equal(sessionLoadCount, 2);
+});
+
+await runTest("heatmap snapshot dedupes matching in-flight range loads", async () => {
+  resetDataReadModelCacheForTests();
+  let earliestLoadCount = 0;
+  let sessionLoadCount = 0;
+  let releaseSessions: (() => void) | null = null;
+  const sessions = [
+    makeSession({
+      startTime: new Date(2026, 0, 1, 9, 0, 0).getTime(),
+      endTime: new Date(2026, 0, 1, 10, 0, 0).getTime(),
+    }),
+  ];
+  const deps: DataHeatmapDependencies = {
+    getEarliestSessionStartTime: async () => {
+      earliestLoadCount += 1;
+      return sessions[0].startTime;
+    },
+    getSessionsInRange: async () => {
+      sessionLoadCount += 1;
+      await new Promise<void>((resolve) => {
+        releaseSessions = resolve;
+      });
+      return sessions;
+    },
+  };
+  const nowMs = new Date(2026, 0, 3, 12, 0, 0).getTime();
+
+  const first = loadDataHeatmapSnapshot("recent", nowMs, deps);
+  const second = prewarmRecentDataHeatmapCache(nowMs, deps);
+  releaseSessions?.();
+  const [firstSnapshot, secondSnapshot] = await Promise.all([first, second]);
+
+  assert.equal(firstSnapshot.sessions, sessions);
+  assert.equal(secondSnapshot.sessions, sessions);
+  assert.equal(firstSnapshot.sessions, secondSnapshot.sessions);
+  assert.equal(earliestLoadCount, 1);
+  assert.equal(sessionLoadCount, 1);
 });
 
 await runTest("recent heatmap prewarm reuses a warm cache", async () => {

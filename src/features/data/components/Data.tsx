@@ -6,6 +6,9 @@ import { useRequestedAppIcons } from "../../../shared/hooks/useRequestedAppIcons
 import type { AppLanguage } from "../../../shared/settings/appSettings.ts";
 import {
   buildDataAppTrendViewModel,
+  buildDataAppTrendViewModelFromAggregate,
+  buildDataTrendAggregateContext,
+  buildDataTrendViewModelFromAggregate,
   buildDataTrendViewModel,
   buildActivityHeatmap,
   buildYearOptions,
@@ -37,6 +40,7 @@ import type { DataTrendSnapshot } from "../services/dataTrendSnapshot.ts";
 import type { DataTrendRangeSelection } from "../services/dataTrendRange.ts";
 import { useDataTrendSnapshot } from "../hooks/useDataTrendSnapshot.ts";
 import { loadDataIconsForExecutables } from "../services/dataIconService.ts";
+import { scheduleDataWorkAfterFirstPaint } from "../services/dataFirstPaintScheduler.ts";
 import DataTrendRangeControl from "./DataTrendRangeControl.tsx";
 import DataTrendPanel from "./DataTrendPanel.tsx";
 import DataHeatmapPanel, { type HeatmapGranularity } from "./DataHeatmapPanel.tsx";
@@ -95,6 +99,10 @@ function filterDataAppOptionsForQuery(options: DataAppOption[], query: string) {
 const DATA_TREND_X_AXIS_MIN_TICK_GAP = 24;
 type DataChartDimension = { width: number; height: number };
 type DataChartDimensionKey = "overviewTrend" | "appTrend";
+const CACHED_DATA_HEATMAP_REFRESH_DELAY_MS = 320;
+const CACHED_DATA_HEATMAP_REFRESH_IDLE_TIMEOUT_MS = 1_500;
+const DATA_OPEN_PREWARM_DELAY_MS = 500;
+const DATA_OPEN_PREWARM_IDLE_TIMEOUT_MS = 2_000;
 const dataChartDimensionCache: Partial<Record<DataChartDimensionKey, DataChartDimension>> = {};
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -258,28 +266,20 @@ export default function Data({
   }, [bootstrapSnapshot]);
 
   useEffect(() => {
-    void prewarmDataFirstScreen({
-      mappingVersion,
-      reason: "data-opened",
-      uiLanguage,
-    });
+    return scheduleDataWorkAfterFirstPaint(() => {
+      void prewarmDataFirstScreen({
+        mappingVersion,
+        reason: "data-opened",
+        uiLanguage,
+      });
+    }, DATA_OPEN_PREWARM_IDLE_TIMEOUT_MS, DATA_OPEN_PREWARM_DELAY_MS);
   }, [mappingVersion, uiLanguage]);
 
   useEffect(() => {
     let cancelled = false;
-    const loadYear = async () => {
+    let cancelScheduledLoad: (() => void) | null = null;
+    const loadYearSnapshot = async () => {
       const nowForRange = Date.now();
-      const cachedSessions = getCachedDataHeatmapSessions(selectedHeatmapView, nowForRange);
-
-      if (cachedSessions) {
-        setYearSessions(cachedSessions);
-        setYearSessionsView(selectedHeatmapView);
-        hasFetchedHeatmapOnceRef.current = true;
-        setHeatmapLoading(false);
-      } else {
-        setHeatmapLoading(true);
-      }
-
       try {
         const snapshot = await loadDataHeatmapSnapshot(selectedHeatmapView, nowForRange);
         if (cancelled) return;
@@ -301,17 +301,64 @@ export default function Data({
         }
       }
     };
+    const scheduleLoadYear = () => {
+      const nowForRange = Date.now();
+      const cachedSessions = getCachedDataHeatmapSessions(selectedHeatmapView, nowForRange);
 
-    void loadYear();
+      if (cachedSessions) {
+        setYearSessions(cachedSessions);
+        setYearSessionsView(selectedHeatmapView);
+        hasFetchedHeatmapOnceRef.current = true;
+        setHeatmapLoading(false);
+      } else {
+        setHeatmapLoading(true);
+      }
+
+      if (cachedSessions) {
+        cancelScheduledLoad = scheduleDataWorkAfterFirstPaint(() => {
+          void loadYearSnapshot();
+        }, CACHED_DATA_HEATMAP_REFRESH_IDLE_TIMEOUT_MS, CACHED_DATA_HEATMAP_REFRESH_DELAY_MS);
+        return;
+      }
+
+      void loadYearSnapshot();
+    };
+
+    scheduleLoadYear();
     return () => {
       cancelled = true;
+      cancelScheduledLoad?.();
     };
   }, [selectedHeatmapView, refreshKey]);
 
+  const sharedTrendAggregateContext = useMemo(() => {
+    if (!overviewTrend.snapshot || !appTrend.snapshot) return null;
+    const overviewRange = overviewTrend.snapshot.range;
+    const appRange = appTrend.snapshot.range;
+    if (
+      overviewRange.cacheKey !== appRange.cacheKey
+      || overviewRange.label !== appRange.label
+      || overviewRange.granularity !== appRange.granularity
+      || overviewRange.dayCount !== appRange.dayCount
+      || overviewTrend.snapshot.sessions !== appTrend.snapshot.sessions
+    ) {
+      return null;
+    }
+
+    return buildDataTrendAggregateContext(
+      overviewTrend.snapshot.sessions,
+      overviewRange,
+      overviewTrend.nowMs,
+    );
+  }, [appTrend.snapshot, mappingVersion, overviewTrend.nowMs, overviewTrend.snapshot, uiLanguage]);
+
   const trendViewModel = useMemo(() => {
+    if (sharedTrendAggregateContext) {
+      return buildDataTrendViewModelFromAggregate(sharedTrendAggregateContext);
+    }
     if (!overviewTrend.snapshot) return null;
     return buildDataTrendViewModel(overviewTrend.snapshot.sessions, overviewTrend.snapshot.range, overviewTrend.nowMs);
-  }, [mappingVersion, overviewTrend.nowMs, overviewTrend.snapshot]);
+  }, [mappingVersion, overviewTrend.nowMs, overviewTrend.snapshot, sharedTrendAggregateContext, uiLanguage]);
   if (trendViewModel) {
     lastTrendViewModelRef.current = {
       rangeCacheKey: overviewTrend.resolvedRange.cacheKey,
@@ -332,9 +379,12 @@ export default function Data({
       : null)
     ?? bootstrapTrendViewModel;
   const appTrendViewModel = useMemo(() => {
+    if (sharedTrendAggregateContext) {
+      return buildDataAppTrendViewModelFromAggregate(sharedTrendAggregateContext, selectedAppKey);
+    }
     if (!appTrend.snapshot) return null;
     return buildDataAppTrendViewModel(appTrend.snapshot.sessions, appTrend.snapshot.range, appTrend.nowMs, selectedAppKey);
-  }, [appTrend.nowMs, appTrend.snapshot, mappingVersion, selectedAppKey]);
+  }, [appTrend.nowMs, appTrend.snapshot, mappingVersion, selectedAppKey, sharedTrendAggregateContext, uiLanguage]);
   const bootstrapAppTrendViewModel = matchingBootstrapSnapshot?.appRangeCacheKey === appTrend.resolvedRange.cacheKey
     ? matchingBootstrapSnapshot.appTrendViewModel
     : null;

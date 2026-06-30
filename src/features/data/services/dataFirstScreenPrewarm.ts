@@ -1,8 +1,9 @@
 import type { AppLanguage } from "../../../shared/settings/appSettings.ts";
 import {
   buildActivityHeatmap,
-  buildDataAppTrendViewModel,
-  buildDataTrendViewModel,
+  buildDataAppTrendViewModelFromAggregate,
+  buildDataTrendAggregateContext,
+  buildDataTrendViewModelFromAggregate,
   prewarmRecentDataHeatmapCache,
 } from "./dataReadModel.ts";
 import {
@@ -61,6 +62,12 @@ function buildBootstrapSnapshot(
   options: DataFirstScreenPrewarmOptions,
   nowMs: number,
 ): DataBootstrapSnapshot {
+  const trendAggregateContext = buildDataTrendAggregateContext(
+    trendSnapshot.sessions,
+    trendSnapshot.range,
+    trendSnapshot.fetchedAtMs,
+  );
+
   return {
     createdAtMs: nowMs,
     overviewRangeCacheKey: trendSnapshot.range.cacheKey,
@@ -68,17 +75,8 @@ function buildBootstrapSnapshot(
     heatmapSelection: "recent",
     mappingVersion: options.mappingVersion,
     uiLanguage: options.uiLanguage,
-    overviewTrendViewModel: buildDataTrendViewModel(
-      trendSnapshot.sessions,
-      trendSnapshot.range,
-      trendSnapshot.fetchedAtMs,
-    ),
-    appTrendViewModel: buildDataAppTrendViewModel(
-      trendSnapshot.sessions,
-      trendSnapshot.range,
-      trendSnapshot.fetchedAtMs,
-      null,
-    ),
+    overviewTrendViewModel: buildDataTrendViewModelFromAggregate(trendAggregateContext),
+    appTrendViewModel: buildDataAppTrendViewModelFromAggregate(trendAggregateContext, null),
     heatmapRows: buildActivityHeatmap(heatmapSnapshot.sessions, "recent", nowMs),
     earliestStartTime: heatmapSnapshot.earliestStartTime,
   };

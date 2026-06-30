@@ -1,4 +1,5 @@
-import type { CSSProperties, ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { flushSync } from "react-dom";
 import { motion } from "framer-motion";
 import { ArrowUpCircle, Monitor, Clock, Settings2, Sparkles, BarChart3, Info, ToolCase } from "lucide-react";
 import appIconUrl from "../../../src-tauri/icons/32x32.png";
@@ -7,7 +8,8 @@ import type { View } from "../types/view";
 
 interface Props {
   currentView: View;
-  onNavigate: (view: View) => void;
+  onNavigate: (view: View) => boolean | void | Promise<boolean | void>;
+  onPreviewNavigate?: (view: View) => void;
   footerContent?: ReactNode;
   showUpdateEntry?: boolean;
   onOpenUpdateDialog?: () => void;
@@ -19,6 +21,7 @@ const NO_DRAG_STYLE: AppRegionStyle = { WebkitAppRegion: "no-drag" };
 export default function AppSidebar({
   currentView,
   onNavigate,
+  onPreviewNavigate,
   footerContent,
   showUpdateEntry = false,
   onOpenUpdateDialog,
@@ -32,6 +35,50 @@ export default function AppSidebar({
     { id: "settings" as View, icon: Settings2, label: UI_TEXT.settings.title },
     { id: "about" as View, icon: Info, label: UI_TEXT.about.title },
   ];
+  const [optimisticView, setOptimisticView] = useState<View | null>(null);
+  const navigateRequestRef = useRef(0);
+  const activeView = optimisticView ?? currentView;
+
+  useEffect(() => {
+    setOptimisticView(null);
+  }, [currentView]);
+
+  const handleNavClick = (view: View) => {
+    navigateRequestRef.current += 1;
+    const requestId = navigateRequestRef.current;
+
+    flushSync(() => {
+      setOptimisticView(view);
+    });
+
+    const runNavigate = () => {
+      if (navigateRequestRef.current !== requestId) return;
+
+      void Promise.resolve(onNavigate(view)).then((navigated) => {
+        if (navigateRequestRef.current !== requestId) return;
+        if (navigated === false) {
+          setOptimisticView(null);
+        }
+      });
+    };
+
+    if (typeof window === "undefined") {
+      runNavigate();
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        window.setTimeout(runNavigate, 0);
+      });
+    });
+  };
+
+  useEffect(() => {
+    return () => {
+      navigateRequestRef.current += 1;
+    };
+  }, []);
 
   return (
     <motion.aside
@@ -49,16 +96,19 @@ export default function AppSidebar({
         {navItems.map((item) => (
           <motion.button
             key={item.id}
-            onClick={() => onNavigate(item.id)}
+            onFocus={() => onPreviewNavigate?.(item.id)}
+            onMouseEnter={() => onPreviewNavigate?.(item.id)}
+            onPointerDown={() => onPreviewNavigate?.(item.id)}
+            onClick={() => handleNavClick(item.id)}
             aria-label={item.label}
             className={`qp-nav-item h-10 w-full rounded-[10px] transition-colors relative flex items-center justify-center ${
-              currentView === item.id
+              activeView === item.id
                 ? "qp-nav-item-active"
                 : "text-[var(--qp-text-tertiary)] hover:text-[var(--qp-text-secondary)]"
             }`}
           >
             <item.icon size={18} strokeWidth={2.15} />
-            {currentView === item.id && (
+            {activeView === item.id && (
               <div className="absolute left-[-1px] top-[9px] w-[2px] h-[22px] rounded-full bg-[var(--qp-accent-default)]" />
             )}
           </motion.button>

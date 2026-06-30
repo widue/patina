@@ -308,7 +308,7 @@ await runTest("app shell declares every primary desktop view", () => {
 
   for (const view of EXPECTED_VIEWS) {
     assert.match(viewType, new RegExp(`"${view}"`));
-    assert.match(shell, new RegExp(`currentView === "${view}"`));
+    assert.match(shell, new RegExp(`renderedView === "${view}"`));
     assert.match(sidebar, new RegExp(`id: "${view}" as View`));
   }
 });

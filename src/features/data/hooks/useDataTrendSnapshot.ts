@@ -7,14 +7,20 @@ import {
   resolveDataTrendRange,
   type DataTrendRangeSelection,
 } from "../services/dataTrendRange.ts";
+import { scheduleDataWorkAfterFirstPaint } from "../services/dataFirstPaintScheduler.ts";
+
+const CACHED_DATA_REFRESH_DELAY_MS = 320;
+const CACHED_DATA_REFRESH_IDLE_TIMEOUT_MS = 1_500;
 
 interface UseDataTrendSnapshotParams {
   selection: DataTrendRangeSelection;
   refreshKey: number;
   loadSnapshot: (selection: DataTrendRangeSelection, nowMs?: number) => Promise<DataTrendSnapshot>;
+  deferCachedRefresh?: boolean;
 }
 
 export function useDataTrendSnapshot({
+  deferCachedRefresh = true,
   selection,
   refreshKey,
   loadSnapshot,
@@ -28,6 +34,7 @@ export function useDataTrendSnapshot({
 
   useEffect(() => {
     let cancelled = false;
+    let cancelScheduledLoad: (() => void) | null = null;
     const nextNowMs = Date.now();
     const nextRange = resolveDataTrendRange(selection, nextNowMs);
     const nextCached = getCachedDataTrendSnapshot(nextRange);
@@ -40,19 +47,32 @@ export function useDataTrendSnapshot({
       setLoading(true);
     }
 
-    void loadSnapshot(selection, nextNowMs).then((nextSnapshot) => {
-      if (cancelled) return;
-      setSnapshot(nextSnapshot);
-      setNowMs(nextSnapshot.fetchedAtMs);
-      setHasFetchedOnce(true);
-    }).finally(() => {
-      if (!cancelled) setLoading(false);
-    });
+    const loadFreshSnapshot = () => {
+      void loadSnapshot(selection, nextNowMs).then((nextSnapshot) => {
+        if (cancelled) return;
+        setSnapshot(nextSnapshot);
+        setNowMs(nextSnapshot.fetchedAtMs);
+        setHasFetchedOnce(true);
+      }).finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    };
+
+    if (nextCached && deferCachedRefresh) {
+      cancelScheduledLoad = scheduleDataWorkAfterFirstPaint(
+        loadFreshSnapshot,
+        CACHED_DATA_REFRESH_IDLE_TIMEOUT_MS,
+        CACHED_DATA_REFRESH_DELAY_MS,
+      );
+    } else {
+      loadFreshSnapshot();
+    }
 
     return () => {
       cancelled = true;
+      cancelScheduledLoad?.();
     };
-  }, [loadSnapshot, refreshKey, selection]);
+  }, [deferCachedRefresh, loadSnapshot, refreshKey, selection]);
 
   return {
     hasFetchedOnce,

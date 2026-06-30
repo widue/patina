@@ -208,6 +208,17 @@ export async function getSessionsInRange(startMs: number, endMs: number): Promis
   return rows.map((row) => mapRawHistorySession(row, samplesBySessionId.get(row.id) ?? []));
 }
 
+export async function getSessionsInRangeWithoutTitleSamples(startMs: number, endMs: number): Promise<HistorySession[]> {
+  const db = await getDB();
+  const now = Date.now();
+  const rows = await db.select<RawHistorySessionRow[]>(
+    "SELECT id, app_name, exe_name, window_title, start_time, end_time, COALESCE(duration, MAX(0, ? - start_time)) as duration, continuity_group_start_time FROM sessions WHERE start_time < ? AND COALESCE(end_time, ?) > ? ORDER BY start_time ASC",
+    [now, endMs, now, startMs],
+  );
+
+  return rows.map((row) => mapRawHistorySession(row));
+}
+
 export async function getSessionSummariesInRange(startMs: number, endMs: number): Promise<AggregateSessionRecord[]> {
   const db = await getDB();
   const now = Date.now();

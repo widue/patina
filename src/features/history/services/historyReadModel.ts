@@ -7,6 +7,7 @@ import type {
 import {
   getHistoryByDate,
   getSessionsInRange,
+  getSessionsInRangeWithoutTitleSamples,
 } from "../../../platform/persistence/sessionReadRepository.ts";
 import {
   getWebFaviconsForDomains,
@@ -65,9 +66,10 @@ export interface HistoryReadModel {
   diagnostics: ReadModelDiagnostics;
 }
 
-interface HistorySnapshotDeps {
+export interface HistorySnapshotDeps {
   getHistoryByDate: typeof getHistoryByDate;
   getSessionsInRange: typeof getSessionsInRange;
+  getWeeklySessionsInRange?: typeof getSessionsInRangeWithoutTitleSamples;
   getWebActivitySegmentsInRange: typeof getWebActivitySegmentsInRange;
   getWebFaviconsForDomains: typeof getWebFaviconsForDomains;
   loadWebDomainOverrides: typeof loadWebDomainOverrides;
@@ -76,6 +78,7 @@ interface HistorySnapshotDeps {
 const DEFAULT_HISTORY_SNAPSHOT_DEPS: HistorySnapshotDeps = {
   getHistoryByDate,
   getSessionsInRange,
+  getWeeklySessionsInRange: getSessionsInRangeWithoutTitleSamples,
   getWebActivitySegmentsInRange,
   getWebFaviconsForDomains,
   loadWebDomainOverrides,
@@ -182,7 +185,7 @@ export async function loadHistorySnapshot(
 
   const [daySessions, weeklySessions, webSnapshotPart] = await Promise.all([
     deps.getHistoryByDate(date),
-    deps.getSessionsInRange(weeklyRangeStart, weeklyRangeEnd),
+    (deps.getWeeklySessionsInRange ?? deps.getSessionsInRange)(weeklyRangeStart, weeklyRangeEnd),
     loadOptionalWebSnapshotPart(deps, selectedDayRange),
   ]);
   const icons = getCachedHistoryIconMap(daySessions, weeklySessions);

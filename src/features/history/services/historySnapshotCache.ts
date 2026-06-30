@@ -1,7 +1,12 @@
-import { loadHistorySnapshot, type HistorySnapshot } from "./historyReadModel.ts";
+import {
+  loadHistorySnapshot,
+  type HistorySnapshot,
+  type HistorySnapshotDeps,
+} from "./historyReadModel.ts";
 
 const HISTORY_SNAPSHOT_CACHE_LIMIT = 14;
 const HISTORY_SNAPSHOT_CACHE = new Map<string, HistorySnapshot>();
+const HISTORY_SNAPSHOT_PROMISES = new Map<string, Promise<HistorySnapshot>>();
 
 function formatHistorySnapshotCacheKey(date: Date, rollingDayCount: number): string {
   const localDate = new Date(date);
@@ -40,17 +45,38 @@ export function setHistorySnapshotCache(
 
 export function clearHistorySnapshotCache(): void {
   HISTORY_SNAPSHOT_CACHE.clear();
+  HISTORY_SNAPSHOT_PROMISES.clear();
 }
 
 export function getHistorySnapshotCacheSizeForTests(): number {
   return HISTORY_SNAPSHOT_CACHE.size;
 }
 
+export async function loadHistorySnapshotWithCache(
+  date: Date = new Date(),
+  rollingDayCount: number = 7,
+  deps?: HistorySnapshotDeps,
+): Promise<HistorySnapshot> {
+  const cacheKey = formatHistorySnapshotCacheKey(date, rollingDayCount);
+  const pending = HISTORY_SNAPSHOT_PROMISES.get(cacheKey);
+  if (pending) return pending;
+
+  const snapshotPromise = loadHistorySnapshot(date, rollingDayCount, deps)
+    .then((snapshot) => {
+      setHistorySnapshotCache(snapshot, date, rollingDayCount);
+      return snapshot;
+    })
+    .finally(() => {
+      HISTORY_SNAPSHOT_PROMISES.delete(cacheKey);
+    });
+
+  HISTORY_SNAPSHOT_PROMISES.set(cacheKey, snapshotPromise);
+  return snapshotPromise;
+}
+
 export async function prewarmHistorySnapshotCache(
   date: Date = new Date(),
   rollingDayCount: number = 7,
 ): Promise<HistorySnapshot> {
-  const snapshot = await loadHistorySnapshot(date, rollingDayCount);
-  setHistorySnapshotCache(snapshot, date, rollingDayCount);
-  return snapshot;
+  return loadHistorySnapshotWithCache(date, rollingDayCount);
 }
