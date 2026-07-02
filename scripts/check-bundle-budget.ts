@@ -15,7 +15,6 @@ const INITIAL_CHUNK_BUDGETS = [
   { label: "index", pattern: /^index-.*\.js$/, gzipKiB: 80 },
   { label: "charts", pattern: /^charts-.*\.js$/, gzipKiB: 125 },
   { label: "react-vendor", pattern: /^react-vendor-.*\.js$/, gzipKiB: 70 },
-  { label: "motion", pattern: /^motion-.*\.js$/, gzipKiB: 45 },
   { label: "icons", pattern: /^icons-.*\.js$/, gzipKiB: 10 },
   { label: "tauri", pattern: /^tauri-.*\.js$/, gzipKiB: 8 },
 ] as const;

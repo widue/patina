@@ -1,4 +1,3 @@
-import { AnimatePresence } from "framer-motion";
 import { ChevronDown, ChevronRight, ChevronUp, Globe2 } from "lucide-react";
 import { getUiLocale, UI_TEXT } from "../../../shared/copy/index.ts";
 import { AppClassification } from "../../../shared/classification/appClassification.ts";
@@ -63,8 +62,7 @@ export function HistoryTimelineList({
 
   return (
     <div className={`history-timeline-list flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 ${className}`.trim()}>
-      <AnimatePresence initial={false}>
-        {timelineSessions.map((session) => {
+      {timelineSessions.map((session) => {
           const mapped = AppClassification.mapApp(session.exeName, { appName: session.displayName });
           const overrideColor = AppClassification.getUserOverride(session.exeName)?.color;
           const accentColor = overrideColor ?? iconThemeColors[session.exeName] ?? mapped.color;
@@ -148,7 +146,6 @@ export function HistoryTimelineList({
             </div>
           );
         })}
-      </AnimatePresence>
     </div>
   );
 }
@@ -172,8 +169,7 @@ export function HistoryWebTimelineList({
 
   return (
     <div className={`history-timeline-list flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 ${className}`.trim()}>
-      <AnimatePresence initial={false}>
-        {items.map((item) => (
+      {items.map((item) => (
           <div
             key={item.id}
             tabIndex={0}
@@ -212,7 +208,6 @@ export function HistoryWebTimelineList({
             </div>
           </div>
         ))}
-      </AnimatePresence>
     </div>
   );
 }

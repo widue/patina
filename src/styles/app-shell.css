@@ -289,6 +289,10 @@
   box-shadow: var(--qp-shadow-toast);
 }
 
+.qp-toast-entry {
+  animation: qp-fade-in var(--qp-motion-fast) var(--qp-motion-ease) both;
+}
+
 .qp-toast-content {
   display: flex;
   align-items: flex-start;
@@ -802,8 +806,8 @@ body[data-window-label="widget"] {
   overflow: hidden;
   padding: 0 7px;
   transition:
-    opacity var(--qp-motion-fast) var(--qp-motion-ease),
-    transform var(--qp-motion-fast) var(--qp-motion-ease);
+    opacity var(--qp-motion-base) var(--qp-motion-ease),
+    transform var(--qp-motion-base) var(--qp-motion-ease);
 }
 
 .widget-shell-left .widget-pill-tray {
@@ -985,13 +989,13 @@ body[data-window-label="widget"] {
 
 .qp-view-container {
   will-change: transform, opacity;
-  animation: qp-view-fade-in 400ms cubic-bezier(0.25, 1, 0.5, 1) both;
+  animation: qp-view-fade-in var(--qp-motion-base) var(--qp-motion-ease) both;
 }
 
 @keyframes qp-view-fade-in {
   from {
     opacity: 0;
-    transform: translate3d(0, 3px, 0);
+    transform: translate3d(0, 2px, 0);
   }
   to {
     opacity: 1;

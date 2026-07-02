@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { Globe2 } from "lucide-react";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import QuietSegmentedFilter, { type QuietSegmentedFilterOption } from "../../../shared/components/QuietSegmentedFilter";
@@ -90,12 +89,12 @@ export default function HistoryDayDistributionPanel({
                   </span>
                 </div>
                 <div className="h-1.5 bg-[var(--qp-track-muted)] rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${item.percentage}%` }}
-                    transition={{ duration: 0.2, ease: "easeOut" }}
-                    className="h-full rounded-full"
-                    style={{ backgroundColor: item.color }}
+                  <div
+                    className="history-day-distribution-progress h-full rounded-full"
+                    style={{
+                      backgroundColor: item.color,
+                      width: `${item.percentage}%`,
+                    }}
                   />
                 </div>
               </div>
