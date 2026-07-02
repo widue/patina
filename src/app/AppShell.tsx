@@ -95,6 +95,8 @@ type HistoryDateRequest = {
   requestId: number;
 };
 
+const VIEW_ORDER: View[] = ["dashboard", "history", "data", "mapping", "tools", "settings", "about"];
+
 export default function AppShell() {
   return (
     <UpdateDialogProvider>
@@ -128,6 +130,40 @@ function AppShellContent() {
   const [historyDateRequest, setHistoryDateRequest] = useState<HistoryDateRequest | null>(null);
   const [toolsInitialTarget, setToolsInitialTarget] = useState<ToolsOpenTarget | null>(null);
   const [renderedView, setRenderedView] = useState<View>("dashboard");
+  const prevViewIndexRef = useRef(0);
+  const [viewTransitionStyle, setViewTransitionStyle] = useState<React.CSSProperties>({
+    "--qp-view-transition-offset": "12px",
+    "--qp-view-transition-duration": "220ms",
+  } as React.CSSProperties);
+
+  const changeRenderedView = useCallback((nextView: View) => {
+    const prevIndex = prevViewIndexRef.current;
+    const nextIndex = VIEW_ORDER.indexOf(nextView);
+
+    if (prevIndex !== nextIndex && nextIndex !== -1) {
+      const diff = nextIndex - prevIndex;
+      const direction = diff > 0 ? 1 : -1;
+      const absDiff = Math.abs(diff);
+
+      // Distance scales slightly with tabs crossed: 1 tab = 10px, 2 tabs = 14px, 3+ tabs = 18px
+      const offsetVal = 6 + Math.min(3, absDiff) * 4;
+      const offsetStr = `${direction * offsetVal}px`;
+
+      // Duration accelerates as more tabs are crossed to represent momentum: 1 tab = 220ms, 2 tabs = 200ms, 3+ tabs = 170ms
+      const durationVal = Math.max(170, 230 - absDiff * 15);
+      const durationStr = `${durationVal}ms`;
+
+      setViewTransitionStyle({
+        "--qp-view-transition-offset": offsetStr,
+        "--qp-view-transition-duration": durationStr,
+      } as React.CSSProperties);
+
+      prevViewIndexRef.current = nextIndex;
+    }
+
+    setRenderedView(nextView);
+  }, []);
+
   const backgroundEnteredAtMsRef = useRef<number | null>(null);
   const renderedViewRequestRef = useRef(0);
   const wasForegroundReadyRef = useRef<boolean | null>(null);
@@ -163,12 +199,12 @@ function AppShellContent() {
     const requestId = renderedViewRequestRef.current;
 
     if (!preloadableView) {
-      setRenderedView(currentView);
+      changeRenderedView(currentView);
       return undefined;
     }
 
     if (getPreloadableViewChunkStatus(preloadableView) === "resolved") {
-      setRenderedView(currentView);
+      changeRenderedView(currentView);
       return undefined;
     }
 
@@ -176,20 +212,20 @@ function AppShellContent() {
     void preloadLazyViewChunk(preloadableView)
       .then(() => {
         if (!cancelled && renderedViewRequestRef.current === requestId) {
-          setRenderedView(currentView);
+          changeRenderedView(currentView);
         }
       })
       .catch((error) => {
         console.warn(`Failed to preload ${preloadableView} view before navigation`, error);
         if (!cancelled && renderedViewRequestRef.current === requestId) {
-          setRenderedView(currentView);
+          changeRenderedView(currentView);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [currentView]);
+  }, [currentView, changeRenderedView]);
 
   useAppThemeMode(
     settingsThemeModePreview ?? appSettings.themeMode,
@@ -476,6 +512,7 @@ function AppShellContent() {
           >
             <div
               key={renderedView}
+              style={viewTransitionStyle}
               className="qp-view-container flex-1 min-h-0 flex flex-col h-full overflow-hidden"
             >
               {renderedView === "dashboard" && (

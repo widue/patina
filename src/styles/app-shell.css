@@ -989,13 +989,13 @@ body[data-window-label="widget"] {
 
 .qp-view-container {
   will-change: transform, opacity;
-  animation: qp-view-fade-in var(--qp-motion-base) var(--qp-motion-ease) both;
+  animation: qp-view-fade-in var(--qp-view-transition-duration, var(--qp-motion-view-duration)) var(--qp-motion-ease) both;
 }
 
 @keyframes qp-view-fade-in {
   from {
     opacity: 0;
-    transform: translate3d(0, 2px, 0);
+    transform: translate3d(0, var(--qp-view-transition-offset, 12px), 0);
   }
   to {
     opacity: 1;
