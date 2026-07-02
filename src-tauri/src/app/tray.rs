@@ -5,7 +5,9 @@ use crate::app::widget;
 use crate::data::repositories::tracker_settings;
 use crate::data::sqlite_pool::wait_for_sqlite_pool;
 use crate::domain::settings::{CloseBehavior, DesktopBehaviorSettings};
-use crate::engine::tracking::runtime as tracking_runtime;
+use crate::engine::tracking::{
+    pause_state::TrackingPauseRuntimeState, runtime as tracking_runtime,
+};
 use sqlx::{Pool, Sqlite};
 use tauri::{
     menu::{Menu, MenuEvent, MenuItem},
@@ -58,11 +60,19 @@ pub(crate) async fn toggle_tracking_paused<R: Runtime>(app: AppHandle<R>) -> Res
         .await
         .map_err(|error| format!("failed to toggle tracking pause setting: {error}"))?;
 
-    if let Err(error) = apply_tracking_pause_menu_label(&app, tracking_paused) {
+    apply_tracking_pause_setting_change(&app, tracking_paused, reason)
+}
+
+pub(crate) fn apply_tracking_pause_setting_change<R: Runtime>(
+    app: &AppHandle<R>,
+    tracking_paused: bool,
+    reason: &'static str,
+) -> Result<(), String> {
+    update_tracking_pause_runtime_state(app, tracking_paused);
+    if let Err(error) = apply_tracking_pause_menu_label(app, tracking_paused) {
         eprintln!("[tray] failed to update tracking pause menu label: {error}");
     }
-
-    tracking_runtime::emit_tracking_data_changed(&app, reason, now_ms())
+    tracking_runtime::emit_tracking_data_changed(app, reason, now_ms())
         .map_err(|error| format!("failed to emit tracking pause event: {error}"))?;
 
     Ok(())
@@ -83,6 +93,20 @@ pub(crate) async fn toggle_tracking_paused_in_pool(
     };
 
     Ok((next, reason))
+}
+
+pub(crate) fn tracking_pause_event_reason(tracking_paused: bool) -> &'static str {
+    if tracking_paused {
+        "tracking-paused"
+    } else {
+        "tracking-resumed"
+    }
+}
+
+fn update_tracking_pause_runtime_state<R: Runtime>(app: &AppHandle<R>, tracking_paused: bool) {
+    if let Some(state) = app.try_state::<TrackingPauseRuntimeState>() {
+        state.set_after_write(tracking_paused, now_ms() as i64);
+    }
 }
 
 fn apply_tracking_pause_menu_label<R: Runtime>(
@@ -180,6 +204,7 @@ pub(crate) fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
         eprintln!("[tray] failed to initialize tracking pause menu label: {error}");
         false
     });
+    update_tracking_pause_runtime_state(app, tracking_paused);
 
     let menu = build_tray_menu(app, tracking_paused)?;
 
@@ -259,6 +284,8 @@ mod tests {
             assert_eq!(second_reason, "tracking-resumed");
             assert!(!second_paused);
             assert!(!second_value);
+            assert_eq!(tracking_pause_event_reason(true), "tracking-paused");
+            assert_eq!(tracking_pause_event_reason(false), "tracking-resumed");
         });
     }
 

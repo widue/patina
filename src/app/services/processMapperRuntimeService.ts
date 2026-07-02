@@ -4,6 +4,7 @@ import {
   loadAppOverrides,
   loadCategoryColorOverrides,
   loadCategoryDefaultColorAssignments,
+  loadCategoryLabelOverrides,
   loadDeletedCategories,
   saveCategoryDefaultColorAssignment,
 } from "../../features/classification/services/classificationStore.ts";
@@ -11,6 +12,7 @@ import {
 interface ProcessMapperRuntimeSnapshot {
   overrides: Record<string, AppOverride>;
   categoryColorOverrides: Record<string, string>;
+  categoryLabelOverrides: Record<string, string>;
   categoryDefaultColorAssignments: Record<string, string>;
   deletedCategories: AppCategory[];
 }
@@ -19,11 +21,13 @@ async function loadProcessMapperRuntimeSnapshot(): Promise<ProcessMapperRuntimeS
   const [
     overrides,
     categoryColorOverrides,
+    categoryLabelOverrides,
     categoryDefaultColorAssignments,
     deletedCategories,
   ] = await Promise.all([
     loadAppOverrides(),
     loadCategoryColorOverrides(),
+    loadCategoryLabelOverrides(),
     loadCategoryDefaultColorAssignments(),
     loadDeletedCategories(),
   ]);
@@ -31,6 +35,7 @@ async function loadProcessMapperRuntimeSnapshot(): Promise<ProcessMapperRuntimeS
   return {
     overrides,
     categoryColorOverrides: categoryColorOverrides ?? {},
+    categoryLabelOverrides: categoryLabelOverrides ?? {},
     categoryDefaultColorAssignments: categoryDefaultColorAssignments ?? {},
     deletedCategories: deletedCategories ?? [],
   };
@@ -39,6 +44,7 @@ async function loadProcessMapperRuntimeSnapshot(): Promise<ProcessMapperRuntimeS
 function applyProcessMapperRuntimeSnapshot(snapshot: ProcessMapperRuntimeSnapshot): void {
   ProcessMapper.setUserOverrides(snapshot.overrides);
   ProcessMapper.setCategoryColorOverrides(snapshot.categoryColorOverrides);
+  ProcessMapper.setCategoryLabelOverrides(snapshot.categoryLabelOverrides);
   ProcessMapper.setCategoryDefaultColorAssignments(snapshot.categoryDefaultColorAssignments);
   ProcessMapper.setDeletedCategories(snapshot.deletedCategories);
   ProcessMapper.setCategoryDefaultColorAssignmentPersistence(

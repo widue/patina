@@ -1,8 +1,9 @@
 import { UI_TEXT } from "../copy/index.ts";
 
-export const CUSTOM_CATEGORY_PREFIX = "custom:" as const;
+// The persisted prefix is historical; keep the literal value for existing user data.
+export const EXTENDED_CATEGORY_PREFIX = "custom:" as const;
 
-export type BuiltinAppCategory =
+export type SeededAppCategory =
   | "ai"
   | "development"
   | "office"
@@ -16,8 +17,8 @@ export type BuiltinAppCategory =
   | "other"
   | "system";
 
-export type CustomAppCategory = `${typeof CUSTOM_CATEGORY_PREFIX}${string}`;
-export type AppCategory = BuiltinAppCategory | CustomAppCategory;
+export type ExtendedAppCategory = `${typeof EXTENDED_CATEGORY_PREFIX}${string}`;
+export type AppCategory = SeededAppCategory | ExtendedAppCategory;
 export type UserAssignableAppCategory = Exclude<AppCategory, "system">;
 
 export const USER_ASSIGNABLE_CATEGORIES: UserAssignableAppCategory[] = [
@@ -81,7 +82,7 @@ export const QUIET_PRO_CATEGORY_PALETTE_37 = [
 
 export const OTHER_CATEGORY_FIXED_COLOR = "#8F98A8";
 
-const BUILTIN_CATEGORY_IDS: BuiltinAppCategory[] = [
+const SEEDED_CATEGORY_IDS: SeededAppCategory[] = [
   "ai",
   "development",
   "office",
@@ -96,14 +97,14 @@ const BUILTIN_CATEGORY_IDS: BuiltinAppCategory[] = [
   "system",
 ];
 
-const BUILTIN_SET = new Set<string>(BUILTIN_CATEGORY_IDS);
+const SEEDED_CATEGORY_SET = new Set<string>(SEEDED_CATEGORY_IDS);
 
-function getBuiltinLabel(category: BuiltinAppCategory): string {
+function getSeededCategoryLabel(category: SeededAppCategory): string {
   if (category === "ai") return UI_TEXT.categories.ai;
   return UI_TEXT.categories.short[category];
 }
 
-function normalizeCustomCategoryLabel(label: string): string {
+function normalizeLegacyExtendedCategoryLabel(label: string): string {
   const trimmed = label.trim().replace(/\s+/g, " ");
   if (!trimmed) {
     return UI_TEXT.categories.custom;
@@ -111,7 +112,7 @@ function normalizeCustomCategoryLabel(label: string): string {
   return trimmed.slice(0, 20);
 }
 
-function decodeCustomCategoryRawLabel(raw: string): string {
+function decodeLegacyExtendedCategoryRawLabel(raw: string): string {
   let decoded = raw;
   for (let index = 0; index < 4; index += 1) {
     try {
@@ -127,34 +128,42 @@ function decodeCustomCategoryRawLabel(raw: string): string {
   return decoded;
 }
 
-export function resolveCustomCategoryLabel(category: CustomAppCategory): string {
-  const raw = category.slice(CUSTOM_CATEGORY_PREFIX.length);
+export function resolveExtendedCategoryLabel(category: ExtendedAppCategory): string {
+  const raw = category.slice(EXTENDED_CATEGORY_PREFIX.length);
   if (!raw) {
     return UI_TEXT.categories.custom;
   }
-  return normalizeCustomCategoryLabel(decodeCustomCategoryRawLabel(raw));
+  return normalizeLegacyExtendedCategoryLabel(decodeLegacyExtendedCategoryRawLabel(raw));
 }
 
-export function buildCustomCategory(label: string): CustomAppCategory {
-  const normalizedLabel = normalizeCustomCategoryLabel(label);
+export function buildLegacyExtendedCategoryId(label: string): ExtendedAppCategory {
+  const normalizedLabel = normalizeLegacyExtendedCategoryLabel(label);
   const encodedLabel = encodeURIComponent(normalizedLabel);
-  return `${CUSTOM_CATEGORY_PREFIX}${encodedLabel}` as CustomAppCategory;
+  return `${EXTENDED_CATEGORY_PREFIX}${encodedLabel}` as ExtendedAppCategory;
 }
 
-export function isCustomCategory(category: string): category is CustomAppCategory {
-  return category.startsWith(CUSTOM_CATEGORY_PREFIX) && category.length > CUSTOM_CATEGORY_PREFIX.length;
+export function createCategoryId(): ExtendedAppCategory {
+  const randomUuid = globalThis.crypto?.randomUUID?.();
+  const idSegment = randomUuid
+    ? randomUuid.replace(/-/g, "")
+    : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`;
+  return `${EXTENDED_CATEGORY_PREFIX}category_${idSegment}` as ExtendedAppCategory;
 }
 
-export function normalizeCustomCategory(category: CustomAppCategory): CustomAppCategory {
-  return buildCustomCategory(resolveCustomCategoryLabel(category));
+export function isExtendedCategory(category: string): category is ExtendedAppCategory {
+  return category.startsWith(EXTENDED_CATEGORY_PREFIX) && category.length > EXTENDED_CATEGORY_PREFIX.length;
 }
 
-export function isBuiltinCategory(category: string): category is BuiltinAppCategory {
-  return BUILTIN_SET.has(category);
+export function normalizeExtendedCategory(category: ExtendedAppCategory): ExtendedAppCategory {
+  return buildLegacyExtendedCategoryId(resolveExtendedCategoryLabel(category));
+}
+
+export function isSeededCategory(category: string): category is SeededAppCategory {
+  return SEEDED_CATEGORY_SET.has(category);
 }
 
 export function isAppCategory(category: string): category is AppCategory {
-  return isBuiltinCategory(category) || isCustomCategory(category);
+  return isSeededCategory(category) || isExtendedCategory(category);
 }
 
 export function getCategoryToken(category: AppCategory): CategoryToken {
@@ -164,20 +173,20 @@ export function getCategoryToken(category: AppCategory): CategoryToken {
 
   if (category === "other") {
     return {
-      label: getBuiltinLabel("other"),
+      label: getSeededCategoryLabel("other"),
       color: OTHER_CATEGORY_FIXED_COLOR,
     };
   }
 
-  if (isCustomCategory(category)) {
+  if (isExtendedCategory(category)) {
     return {
-      label: resolveCustomCategoryLabel(category),
+      label: resolveExtendedCategoryLabel(category),
       color: QUIET_PRO_CATEGORY_PALETTE_37[0],
     };
   }
 
   return {
-    label: getBuiltinLabel(category),
+    label: getSeededCategoryLabel(category),
     color: QUIET_PRO_CATEGORY_PALETTE_37[0],
   };
 }

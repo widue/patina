@@ -1,20 +1,24 @@
 use crate::data::repositories;
 use crate::data::sqlite_pool::wait_for_sqlite_pool;
 use crate::domain::tools::{
-    PomodoroPhase, TimerMode, ToolAlert, ToolAlertKind, ToolsRuntimeSnapshot,
+    PomodoroPhase, PomodoroStatus, TimerMode, TimerStatus, ToolAlert, ToolAlertKind,
+    ToolsRuntimeSnapshot,
 };
-#[cfg(test)]
-use crate::domain::tools::{PomodoroStatus, TimerStatus};
 use chrono::Local;
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tokio::sync::Notify;
 use tokio::time::{sleep, Duration};
 
 mod notification;
 
 pub const TOOLS_RUNTIME_CHANGED_EVENT: &str = "tools-runtime-changed";
 pub const TOOLS_ALERT_EVENT: &str = "tools-alert";
-const TOOLS_RUNTIME_TICK_MS: u64 = 1_000;
+const TOOLS_RUNTIME_MIN_WAKE_MS: i64 = 250;
+const TOOLS_RUNTIME_IDLE_WAKE_MS: i64 = 60_000;
+const TOOLS_RUNTIME_ACTIVE_MAX_WAKE_MS: i64 = 60_000;
+const TOOLS_RUNTIME_SOFTWARE_REMINDER_WAKE_MS: i64 = 10_000;
+const TOOLS_RUNTIME_ERROR_WAKE_MS: u64 = 5_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct ToolsTickOutcome {
@@ -44,6 +48,13 @@ pub struct ToolsRuntimeState {
 }
 
 impl ToolsRuntimeState {
+    fn snapshot(&self) -> ToolsRuntimeSnapshot {
+        match self.inner.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
     fn replace(&self, snapshot: ToolsRuntimeSnapshot) {
         match self.inner.lock() {
             Ok(mut guard) => {
@@ -81,6 +92,21 @@ impl ToolsRuntimeState {
                 guard.retain(|alert| alert.id != alert_id);
             }
         }
+    }
+}
+
+#[derive(Default)]
+pub struct ToolsRuntimeWakeState {
+    notify: Notify,
+}
+
+impl ToolsRuntimeWakeState {
+    fn notify(&self) {
+        self.notify.notify_one();
+    }
+
+    fn notified(&self) -> tokio::sync::futures::Notified<'_> {
+        self.notify.notified()
     }
 }
 
@@ -122,8 +148,18 @@ pub async fn run<R: Runtime + 'static>(app: AppHandle<R>) -> Result<(), String> 
     loop {
         if let Err(error) = tick_and_refresh_if_changed(&app).await {
             eprintln!("[tools] runtime tick failed: {error}");
+            wait_for_next_tools_wake(&app, Duration::from_millis(TOOLS_RUNTIME_ERROR_WAKE_MS))
+                .await;
+            continue;
         }
-        sleep(Duration::from_millis(TOOLS_RUNTIME_TICK_MS)).await;
+
+        let snapshot = app
+            .try_state::<ToolsRuntimeState>()
+            .map(|state| state.snapshot())
+            .unwrap_or_default();
+        let next_wake =
+            compute_next_tools_wake(&snapshot, now_ms(), next_day_start_ms(), &date_key());
+        wait_for_next_tools_wake(&app, next_wake).await;
     }
 }
 
@@ -143,6 +179,12 @@ pub fn dismiss_alert<R: Runtime>(app: &AppHandle<R>, alert_id: &str) {
     }
 }
 
+pub fn notify_tools_runtime<R: Runtime>(app: &AppHandle<R>) {
+    if let Some(state) = app.try_state::<ToolsRuntimeWakeState>() {
+        state.notify();
+    }
+}
+
 pub async fn create_reminder<R: Runtime>(
     app: &AppHandle<R>,
     label: String,
@@ -154,7 +196,7 @@ pub async fn create_reminder<R: Runtime>(
     }
     let pool = wait_for_sqlite_pool(app).await?;
     repositories::tools::create_reminder(&pool, &label, scheduled_at, now_ms).await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn cancel_reminder<R: Runtime>(
@@ -163,7 +205,7 @@ pub async fn cancel_reminder<R: Runtime>(
 ) -> Result<ToolsRuntimeSnapshot, String> {
     let pool = wait_for_sqlite_pool(app).await?;
     repositories::tools::cancel_reminder(&pool, reminder_id, now_ms()).await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn create_software_reminder_rule<R: Runtime>(
@@ -180,7 +222,7 @@ pub async fn create_software_reminder_rule<R: Runtime>(
         now_ms(),
     )
     .await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn disable_software_reminder_rule<R: Runtime>(
@@ -189,7 +231,7 @@ pub async fn disable_software_reminder_rule<R: Runtime>(
 ) -> Result<ToolsRuntimeSnapshot, String> {
     let pool = wait_for_sqlite_pool(app).await?;
     repositories::tools::disable_software_reminder_rule(&pool, rule_id, now_ms()).await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn start_timer<R: Runtime>(
@@ -205,31 +247,31 @@ pub async fn start_timer<R: Runtime>(
         now_ms(),
     )
     .await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn pause_timer<R: Runtime>(app: &AppHandle<R>) -> Result<ToolsRuntimeSnapshot, String> {
     let pool = wait_for_sqlite_pool(app).await?;
     repositories::tools::pause_timer(&pool, now_ms()).await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn resume_timer<R: Runtime>(app: &AppHandle<R>) -> Result<ToolsRuntimeSnapshot, String> {
     let pool = wait_for_sqlite_pool(app).await?;
     repositories::tools::resume_timer(&pool, now_ms()).await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn reset_timer<R: Runtime>(app: &AppHandle<R>) -> Result<ToolsRuntimeSnapshot, String> {
     let pool = wait_for_sqlite_pool(app).await?;
     repositories::tools::reset_timer(&pool, now_ms()).await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn add_timer_lap<R: Runtime>(app: &AppHandle<R>) -> Result<ToolsRuntimeSnapshot, String> {
     let pool = wait_for_sqlite_pool(app).await?;
     repositories::tools::add_timer_lap(&pool, now_ms()).await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn start_pomodoro<R: Runtime>(
@@ -246,7 +288,7 @@ pub async fn start_pomodoro<R: Runtime>(
         now_ms(),
     )
     .await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn pause_pomodoro<R: Runtime>(
@@ -254,7 +296,7 @@ pub async fn pause_pomodoro<R: Runtime>(
 ) -> Result<ToolsRuntimeSnapshot, String> {
     let pool = wait_for_sqlite_pool(app).await?;
     repositories::tools::pause_pomodoro(&pool, now_ms()).await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn resume_pomodoro<R: Runtime>(
@@ -262,7 +304,7 @@ pub async fn resume_pomodoro<R: Runtime>(
 ) -> Result<ToolsRuntimeSnapshot, String> {
     let pool = wait_for_sqlite_pool(app).await?;
     repositories::tools::resume_pomodoro(&pool, now_ms()).await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn skip_pomodoro_phase<R: Runtime>(
@@ -270,7 +312,7 @@ pub async fn skip_pomodoro_phase<R: Runtime>(
 ) -> Result<ToolsRuntimeSnapshot, String> {
     let pool = wait_for_sqlite_pool(app).await?;
     repositories::tools::skip_pomodoro_phase(&pool, &date_key(), now_ms()).await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
 }
 
 pub async fn reset_pomodoro<R: Runtime>(
@@ -278,7 +320,18 @@ pub async fn reset_pomodoro<R: Runtime>(
 ) -> Result<ToolsRuntimeSnapshot, String> {
     let pool = wait_for_sqlite_pool(app).await?;
     repositories::tools::reset_pomodoro(&pool, now_ms()).await?;
-    refresh_snapshot(app).await
+    refresh_snapshot_after_tool_change(app).await
+}
+
+async fn wait_for_next_tools_wake<R: Runtime>(app: &AppHandle<R>, delay: Duration) {
+    if let Some(state) = app.try_state::<ToolsRuntimeWakeState>() {
+        tokio::select! {
+            _ = sleep(delay) => {}
+            _ = state.notified() => {}
+        }
+    } else {
+        sleep(delay).await;
+    }
 }
 
 async fn recover_after_startup<R: Runtime + 'static>(app: &AppHandle<R>) -> Result<(), String> {
@@ -436,6 +489,14 @@ async fn refresh_snapshot<R: Runtime>(app: &AppHandle<R>) -> Result<ToolsRuntime
     Ok(snapshot)
 }
 
+async fn refresh_snapshot_after_tool_change<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<ToolsRuntimeSnapshot, String> {
+    let snapshot = refresh_snapshot(app).await?;
+    notify_tools_runtime(app);
+    Ok(snapshot)
+}
+
 fn send_tool_alert<R: Runtime + 'static>(app: &AppHandle<R>, alert: ToolAlert) {
     if let Some(state) = app.try_state::<ToolsRuntimeState>() {
         state.push_alert(alert.clone());
@@ -468,6 +529,63 @@ fn snapshot_has_active_work(snapshot: &ToolsRuntimeSnapshot) -> bool {
         || snapshot.next_reminder_at.is_some()
 }
 
+fn compute_next_tools_wake(
+    snapshot: &ToolsRuntimeSnapshot,
+    now_ms: i64,
+    date_boundary_ms: i64,
+    current_date_key: &str,
+) -> Duration {
+    let has_pending_software_reminder = snapshot
+        .software_reminder_rules
+        .iter()
+        .any(|rule| rule.last_fired_date_key.as_deref() != Some(current_date_key));
+    let mut max_delay_ms = if has_pending_software_reminder {
+        TOOLS_RUNTIME_SOFTWARE_REMINDER_WAKE_MS
+    } else {
+        TOOLS_RUNTIME_IDLE_WAKE_MS
+    };
+    if snapshot_has_runtime_boundary_work(snapshot) {
+        max_delay_ms = max_delay_ms.min(TOOLS_RUNTIME_ACTIVE_MAX_WAKE_MS);
+    }
+
+    let mut delay_ms = max_delay_ms;
+    if let Some(next_reminder_at) = snapshot.next_reminder_at {
+        delay_ms = delay_ms.min(next_reminder_at.saturating_sub(now_ms));
+    }
+    if let Some(timer) = snapshot.current_timer.as_ref() {
+        if timer.mode == TimerMode::Countdown && timer.status == TimerStatus::Running {
+            if let Some(remaining_ms) = timer.remaining_ms_at(now_ms) {
+                delay_ms = delay_ms.min(remaining_ms);
+            }
+        }
+    }
+    if let Some(pomodoro) = snapshot.current_pomodoro.as_ref() {
+        if pomodoro.status == PomodoroStatus::Running {
+            delay_ms = delay_ms.min(pomodoro.remaining_ms_at(now_ms));
+        }
+    }
+    if date_boundary_ms > now_ms {
+        delay_ms = delay_ms.min(date_boundary_ms.saturating_sub(now_ms));
+    }
+
+    let clamped_ms = delay_ms.clamp(TOOLS_RUNTIME_MIN_WAKE_MS, max_delay_ms);
+    Duration::from_millis(clamped_ms as u64)
+}
+
+fn snapshot_has_runtime_boundary_work(snapshot: &ToolsRuntimeSnapshot) -> bool {
+    snapshot.next_reminder_at.is_some()
+        || snapshot
+            .current_timer
+            .as_ref()
+            .map(|timer| timer.mode == TimerMode::Countdown && timer.status == TimerStatus::Running)
+            .unwrap_or(false)
+        || snapshot
+            .current_pomodoro
+            .as_ref()
+            .map(|pomodoro| pomodoro.status == PomodoroStatus::Running)
+            .unwrap_or(false)
+}
+
 fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -491,10 +609,38 @@ fn day_start_ms() -> i64 {
         .unwrap_or_else(|| now.timestamp_millis())
 }
 
+fn next_day_start_ms() -> i64 {
+    let now = Local::now();
+    let Some(next_date) = now.date_naive().succ_opt() else {
+        return now
+            .timestamp_millis()
+            .saturating_add(TOOLS_RUNTIME_IDLE_WAKE_MS);
+    };
+    let Some(start) = next_date.and_hms_opt(0, 0, 0) else {
+        return now
+            .timestamp_millis()
+            .saturating_add(TOOLS_RUNTIME_IDLE_WAKE_MS);
+    };
+    start
+        .and_local_timezone(Local)
+        .earliest()
+        .map(|date_time| date_time.timestamp_millis())
+        .unwrap_or_else(|| {
+            now.timestamp_millis()
+                .saturating_add(TOOLS_RUNTIME_IDLE_WAKE_MS)
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::tools::{ToolPomodoroRun, ToolReminder, ToolTimer};
+    use crate::domain::tools::{
+        ToolPomodoroRun, ToolReminder, ToolSoftwareReminderRule, ToolTimer,
+    };
+
+    fn duration_ms(duration: Duration) -> u64 {
+        duration.as_millis() as u64
+    }
 
     #[test]
     fn tools_tick_outcome_merges_state_changes() {
@@ -582,5 +728,151 @@ mod tests {
 
         state.dismiss_alert("reminder:1");
         assert!(state.alerts().is_empty());
+    }
+
+    #[test]
+    fn tools_wake_uses_idle_delay_without_active_work() {
+        let snapshot = ToolsRuntimeSnapshot::default();
+        let delay = compute_next_tools_wake(&snapshot, 1_000, 120_000, "2026-06-29");
+
+        assert_eq!(duration_ms(delay), TOOLS_RUNTIME_IDLE_WAKE_MS as u64);
+    }
+
+    #[test]
+    fn tools_wake_uses_pending_reminder_time() {
+        let snapshot = ToolsRuntimeSnapshot {
+            next_reminder_at: Some(11_000),
+            ..ToolsRuntimeSnapshot::default()
+        };
+        let delay = compute_next_tools_wake(&snapshot, 1_000, 120_000, "2026-06-29");
+
+        assert_eq!(duration_ms(delay), 10_000);
+    }
+
+    #[test]
+    fn tools_wake_clamps_due_reminder_to_min_delay() {
+        let snapshot = ToolsRuntimeSnapshot {
+            next_reminder_at: Some(1_000),
+            ..ToolsRuntimeSnapshot::default()
+        };
+        let delay = compute_next_tools_wake(&snapshot, 1_000, 120_000, "2026-06-29");
+
+        assert_eq!(duration_ms(delay), TOOLS_RUNTIME_MIN_WAKE_MS as u64);
+    }
+
+    #[test]
+    fn tools_wake_uses_countdown_remaining_time() {
+        let snapshot = ToolsRuntimeSnapshot {
+            current_timer: Some(ToolTimer {
+                id: 1,
+                mode: TimerMode::Countdown,
+                label: None,
+                duration_ms: Some(10_000),
+                accumulated_ms: 2_000,
+                started_at: Some(1_000),
+                paused_at: None,
+                completed_at: None,
+                status: TimerStatus::Running,
+                created_at: 1_000,
+                updated_at: 1_000,
+            }),
+            ..ToolsRuntimeSnapshot::default()
+        };
+        let delay = compute_next_tools_wake(&snapshot, 4_000, 120_000, "2026-06-29");
+
+        assert_eq!(duration_ms(delay), 5_000);
+    }
+
+    #[test]
+    fn tools_wake_uses_pomodoro_remaining_time() {
+        let snapshot = ToolsRuntimeSnapshot {
+            current_pomodoro: Some(ToolPomodoroRun {
+                id: 1,
+                phase: PomodoroPhase::Focus,
+                status: PomodoroStatus::Running,
+                cycle_index: 1,
+                focus_ms: 10_000,
+                short_break_ms: 1_000,
+                long_break_ms: 1_000,
+                long_break_every: 4,
+                phase_started_at: Some(1_000),
+                phase_paused_at: None,
+                phase_remaining_ms: Some(10_000),
+                completed_focus_count: 0,
+                created_at: 1_000,
+                updated_at: 1_000,
+            }),
+            ..ToolsRuntimeSnapshot::default()
+        };
+        let delay = compute_next_tools_wake(&snapshot, 6_000, 120_000, "2026-06-29");
+
+        assert_eq!(duration_ms(delay), 5_000);
+    }
+
+    #[test]
+    fn tools_wake_keeps_software_reminder_on_slow_poll() {
+        let snapshot = ToolsRuntimeSnapshot {
+            software_reminder_rules: vec![ToolSoftwareReminderRule {
+                id: 1,
+                app_name: "Editor".to_string(),
+                exe_name: Some("editor.exe".to_string()),
+                limit_ms: 60_000,
+                message: "Break".to_string(),
+                created_at: 1_000,
+                updated_at: 1_000,
+                disabled_at: None,
+                last_fired_date_key: None,
+            }],
+            ..ToolsRuntimeSnapshot::default()
+        };
+        let delay = compute_next_tools_wake(&snapshot, 1_000, 120_000, "2026-06-29");
+
+        assert_eq!(
+            duration_ms(delay),
+            TOOLS_RUNTIME_SOFTWARE_REMINDER_WAKE_MS as u64
+        );
+    }
+
+    #[test]
+    fn tools_wake_ignores_software_reminders_already_fired_today() {
+        let snapshot = ToolsRuntimeSnapshot {
+            software_reminder_rules: vec![ToolSoftwareReminderRule {
+                id: 1,
+                app_name: "Editor".to_string(),
+                exe_name: Some("editor.exe".to_string()),
+                limit_ms: 60_000,
+                message: "Break".to_string(),
+                created_at: 1_000,
+                updated_at: 1_000,
+                disabled_at: None,
+                last_fired_date_key: Some("2026-06-29".to_string()),
+            }],
+            ..ToolsRuntimeSnapshot::default()
+        };
+        let delay = compute_next_tools_wake(&snapshot, 1_000, 120_000, "2026-06-29");
+
+        assert_eq!(duration_ms(delay), TOOLS_RUNTIME_IDLE_WAKE_MS as u64);
+    }
+
+    #[test]
+    fn tools_wake_respects_date_boundary() {
+        let snapshot = ToolsRuntimeSnapshot::default();
+        let delay = compute_next_tools_wake(&snapshot, 1_000, 21_000, "2026-06-29");
+
+        assert_eq!(duration_ms(delay), 20_000);
+    }
+
+    #[test]
+    fn tools_wake_state_notifies_waiter() {
+        tauri::async_runtime::block_on(async {
+            let state = ToolsRuntimeWakeState::default();
+            let notified = state.notified();
+
+            state.notify();
+
+            assert!(tokio::time::timeout(Duration::from_millis(50), notified)
+                .await
+                .is_ok());
+        });
     }
 }

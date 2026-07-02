@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { RefreshCw, Save, Search, Sparkles, SlidersHorizontal } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { ListX, RefreshCw, Save, Search, Sparkles, SlidersHorizontal } from "lucide-react";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import QuietDialog from "../../../shared/components/QuietDialog";
 import QuietPageHeader from "../../../shared/components/QuietPageHeader";
@@ -27,13 +27,20 @@ interface Props {
 export default function AppMapping(props: Props) {
   const { webActivityEnabled = false } = props;
   const [objectMode, setObjectMode] = useState<MappingObjectMode>(readClassificationObjectMode);
-  const filterOptions: Array<{ value: CandidateFilter; label: string }> = [
+  const filterOptions: Array<{ value: CandidateFilter; label: ReactNode; showCount?: boolean; ariaLabel?: string }> = [
     { value: "all", label: UI_TEXT.mapping.filters.all },
-    { value: "other", label: UI_TEXT.mapping.filters.other },
     { value: "classified", label: UI_TEXT.mapping.filters.classified },
+    { value: "other", label: UI_TEXT.mapping.filters.other },
+    {
+      value: "excluded",
+      label: <ListX size={13} aria-hidden />,
+      showCount: false,
+      ariaLabel: UI_TEXT.mapping.excludeStats,
+    },
   ];
   const {
     dialogs,
+    icons,
     loading,
     draftState,
     savedState,
@@ -57,8 +64,10 @@ export default function AppMapping(props: Props) {
     categoryControlCategories,
     candidateCategoryOptions,
     resolveCategoryColor,
-    handleCreateCustomCategory,
+    resolveCategoryLabel,
+    handleCreateCategory,
     handleDeleteCategory,
+    handleRenameCategory,
     resolveEffectiveDisplayName,
     resolveCandidateColor,
     resolveMappedCategory,
@@ -186,7 +195,8 @@ export default function AppMapping(props: Props) {
                     : activeCounts.classified;
                 return {
                   value: item.value,
-                  label: `${item.label} (${count})`,
+                  label: item.showCount === false ? item.label : `${item.label} (${count})`,
+                  ariaLabel: item.ariaLabel,
                 };
               })}
             />
@@ -295,7 +305,7 @@ export default function AppMapping(props: Props) {
                   <AppMappingCandidateCard
                     key={candidate.exeName}
                     candidate={candidate}
-                    icon={props.icons[candidate.exeName]}
+                    icon={icons[candidate.exeName]}
                     displayName={displayName}
                     displayColor={displayColor}
                     assignedCategory={assignedCategory}
@@ -349,7 +359,7 @@ export default function AppMapping(props: Props) {
             </button>
             <button
               type="button"
-              onClick={() => void handleCreateCustomCategory()}
+              onClick={() => void handleCreateCategory()}
               className="qp-button-primary qp-dialog-action"
             >
               {UI_TEXT.mapping.createCategoryAction}
@@ -361,9 +371,11 @@ export default function AppMapping(props: Props) {
           <CategoryColorControls
             categories={categoryControlCategories}
             colorFormat={colorFormat}
+            getCategoryLabel={resolveCategoryLabel}
             getCategoryColor={resolveCategoryColor}
             onColorFormatChange={setColorFormat}
             onApplyColor={applyCategoryColor}
+            onRenameCategory={handleRenameCategory}
             onDeleteCategory={handleDeleteCategory}
           />
         </div>

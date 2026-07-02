@@ -1,7 +1,8 @@
 import {
   getCategoryToken,
-  isCustomCategory,
-  normalizeCustomCategory,
+  isAppCategory,
+  isExtendedCategory,
+  normalizeExtendedCategory,
   USER_ASSIGNABLE_CATEGORIES,
   type AppCategory,
   type UserAssignableAppCategory,
@@ -62,6 +63,27 @@ function normalizeHexColor(color: string | undefined): string | null {
   return normalized.toUpperCase();
 }
 
+function normalizeCategoryLabelOverrides(
+  overrides: Record<string, string> | null | undefined,
+): Record<string, string> {
+  if (!overrides) {
+    return {};
+  }
+
+  const normalized: Record<string, string> = {};
+  for (const [category, label] of Object.entries(overrides)) {
+    if (!isAppCategory(category) || category === "system" || category === "other") {
+      continue;
+    }
+    const trimmed = label.trim().replace(/\s+/g, " ");
+    if (!trimmed) {
+      continue;
+    }
+    normalized[category] = trimmed;
+  }
+  return normalized;
+}
+
 function resolveDefaultMappingName(defaultMapping: { name: string; localizedNames?: Partial<Record<string, string>> }) {
   return defaultMapping.localizedNames?.[getUiTextLanguage()] ?? defaultMapping.name;
 }
@@ -72,8 +94,8 @@ function normalizeUserAssignableCategory(category: string | undefined): UserAssi
     return null;
   }
 
-  if (isCustomCategory(normalized)) {
-    return normalizeCustomCategory(normalized);
+  if (isExtendedCategory(normalized)) {
+    return normalizeExtendedCategory(normalized);
   }
 
   if (USER_ASSIGNABLE_CATEGORY_SET.has(normalized)) {
@@ -125,6 +147,7 @@ function normalizeOverride(override: AppOverride | null | undefined): AppOverrid
 export class ProcessMapper {
   private static userOverrides: Record<string, AppOverride> = {};
   private static categoryColors = new CategoryColorRegistry();
+  private static categoryLabelOverrides: Record<string, string> = {};
 
   static getUserAssignableCategories() {
     return [...USER_ASSIGNABLE_CATEGORIES];
@@ -143,7 +166,25 @@ export class ProcessMapper {
   }
 
   static getCategoryLabel(category: AppCategory) {
-    return getCategoryToken(category).label;
+    return this.categoryLabelOverrides[category] ?? getCategoryToken(category).label;
+  }
+
+  static setCategoryLabelOverrides(overrides: Record<string, string>) {
+    this.categoryLabelOverrides = normalizeCategoryLabelOverrides(overrides);
+  }
+
+  static setCategoryLabelOverride(category: AppCategory, label?: string | null) {
+    const normalized = normalizeCategoryLabelOverrides({ [category]: label ?? "" });
+    const nextLabel = normalized[category];
+    if (!nextLabel) {
+      delete this.categoryLabelOverrides[category];
+      return;
+    }
+    this.categoryLabelOverrides[category] = nextLabel;
+  }
+
+  static clearCategoryLabelOverrides() {
+    this.categoryLabelOverrides = {};
   }
 
   static getCategoryColor(category: AppCategory) {

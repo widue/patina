@@ -3,7 +3,7 @@ import { getUiTextLanguage } from "../../../shared/copy/index.ts";
 import { useIconThemeColors } from "../../../shared/hooks/useIconThemeColors";
 import { AppClassification } from "../../../shared/classification/appClassification.ts";
 import {
-  isCustomCategory,
+  isExtendedCategory,
   USER_ASSIGNABLE_CATEGORIES,
   type AppCategory,
   type UserAssignableAppCategory,
@@ -20,10 +20,12 @@ import {
 } from "./appMappingStateHelpers.ts";
 
 const USER_ASSIGNABLE_CATEGORY_SET = new Set<string>(USER_ASSIGNABLE_CATEGORIES);
-const CUSTOM_CATEGORY_NAME_LIMITS = {
-  "zh-CN": 2,
-  "en-US": 12,
+const CATEGORY_NAME_LIMITS = {
+  cjkCharacters: 6,
+  latinWords: 2,
+  latinCharacters: 12,
 } as const;
+const CJK_CHARACTER_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
 interface UseAppMappingDerivedStateParams {
   candidates: ObservedAppCandidate[];
@@ -32,7 +34,8 @@ interface UseAppMappingDerivedStateParams {
   draftOverrides: ClassificationDraftState["overrides"];
   draftWebDomainOverrides: ClassificationDraftState["webDomainOverrides"];
   draftCategoryColorOverrides: ClassificationDraftState["categoryColorOverrides"];
-  draftCustomCategories: ClassificationDraftState["customCategories"];
+  draftCategoryLabelOverrides: ClassificationDraftState["categoryLabelOverrides"];
+  draftPersistedCategoryIds: ClassificationDraftState["persistedCategoryIds"];
   draftDeletedCategories: ClassificationDraftState["deletedCategories"];
   editingNameExe: string | null;
   nameEditSnapshots: Record<string, AppOverride | null>;
@@ -43,12 +46,13 @@ interface UseAppMappingDerivedStateParams {
   webActivityEnabled: boolean;
 }
 
-export function normalizeCustomCategoryInput(input: string) {
-  const language = getUiTextLanguage();
-  const limit = CUSTOM_CATEGORY_NAME_LIMITS[language] ?? CUSTOM_CATEGORY_NAME_LIMITS["zh-CN"];
+export function normalizeCategoryNameInput(input: string) {
   const normalized = input.trim().replace(/\s+/g, " ");
-  const value = language === "en-US" ? normalized.split(" ")[0] ?? "" : normalized;
-  return Array.from(value).slice(0, limit).join("");
+  if (CJK_CHARACTER_PATTERN.test(normalized)) {
+    return Array.from(normalized).slice(0, CATEGORY_NAME_LIMITS.cjkCharacters).join("");
+  }
+  const latinValue = normalized.split(" ").slice(0, CATEGORY_NAME_LIMITS.latinWords).join(" ");
+  return Array.from(latinValue).slice(0, CATEGORY_NAME_LIMITS.latinCharacters).join("").trimEnd();
 }
 
 export function cloneObservedWebDomainCandidates(
@@ -60,7 +64,7 @@ export function cloneObservedWebDomainCandidates(
 export function resolveUserAssignableCategory(
   category: AppCategory | undefined,
 ): UserAssignableAppCategory {
-  if (category && (isCustomCategory(category) || USER_ASSIGNABLE_CATEGORY_SET.has(category))) {
+  if (category && (isExtendedCategory(category) || USER_ASSIGNABLE_CATEGORY_SET.has(category))) {
     return category as UserAssignableAppCategory;
   }
   return "other";
@@ -90,7 +94,8 @@ export function useAppMappingDerivedState({
   draftOverrides,
   draftWebDomainOverrides,
   draftCategoryColorOverrides,
-  draftCustomCategories,
+  draftCategoryLabelOverrides,
+  draftPersistedCategoryIds,
   draftDeletedCategories,
   editingNameExe,
   nameEditSnapshots,
@@ -117,6 +122,10 @@ export function useAppMappingDerivedState({
   const resolveCategoryColor = useCallback((category: AppCategory) => (
     draftCategoryColorOverrides[category] ?? AppClassification.getCategoryColor(category)
   ), [draftCategoryColorOverrides]);
+
+  const resolveCategoryLabel = useCallback((category: AppCategory) => (
+    draftCategoryLabelOverrides[category] ?? AppClassification.getCategoryLabel(category)
+  ), [draftCategoryLabelOverrides]);
 
   const resolveAutoDisplayName = useCallback((candidate: ObservedAppCandidate) => {
     const appName = candidate.appName.trim();
@@ -232,18 +241,29 @@ export function useAppMappingDerivedState({
       filter,
       searchQuery,
       resolveMappedCategory,
+      resolveTrackingEnabled,
       resolveEffectiveDisplayName: resolveSortDisplayName,
-      resolveCategoryLabel: (category) => AppClassification.getCategoryLabel(category),
+      resolveCategoryLabel,
     }),
-    [candidates, filter, searchQuery, resolveMappedCategory, resolveSortDisplayName],
+    [
+      candidates,
+      filter,
+      searchQuery,
+      resolveCategoryLabel,
+      resolveMappedCategory,
+      resolveSortDisplayName,
+      resolveTrackingEnabled,
+    ],
   );
 
   const counts = useMemo(() => {
-    const all = candidates.length;
-    const other = candidates.filter((candidate) => resolveMappedCategory(candidate) === "other").length;
+    const includedCandidates = candidates.filter((candidate) => resolveTrackingEnabled(candidate));
+    const all = includedCandidates.length;
+    const other = includedCandidates.filter((candidate) => resolveMappedCategory(candidate) === "other").length;
+    const excluded = candidates.filter((candidate) => !resolveTrackingEnabled(candidate)).length;
     const classified = Math.max(0, all - other);
-    return { all, other, classified };
-  }, [candidates, resolveMappedCategory]);
+    return { all, other, classified, excluded };
+  }, [candidates, resolveMappedCategory, resolveTrackingEnabled]);
 
   const filteredWebDomainCandidates = useMemo(() => {
     if (!webActivityEnabled) return [];
@@ -252,6 +272,9 @@ export function useAppMappingDerivedState({
     return webDomainCandidates
       .filter((candidate) => {
         const category = resolveWebDomainCategory(candidate);
+        const recordingEnabled = resolveWebDomainEnabled(candidate);
+        if (filter === "excluded") return !recordingEnabled;
+        if (!recordingEnabled) return false;
         if (filter === "all") return true;
         if (filter === "other") return category === "other";
         return category !== "other";
@@ -259,7 +282,7 @@ export function useAppMappingDerivedState({
       .filter((candidate) => {
         if (!normalizedQuery) return true;
         const category = resolveWebDomainCategory(candidate);
-        const categoryLabel = AppClassification.getCategoryLabel(category);
+        const categoryLabel = resolveCategoryLabel(category);
         const haystack = [
           resolveWebDomainSortDisplayName(candidate),
           candidate.domain,
@@ -281,73 +304,84 @@ export function useAppMappingDerivedState({
     filter,
     searchQuery,
     resolveWebDomainCategory,
+    resolveWebDomainEnabled,
+    resolveCategoryLabel,
     resolveWebDomainSortDisplayName,
     webActivityEnabled,
     webDomainCandidates,
   ]);
 
   const webDomainCounts = useMemo(() => {
-    if (!webActivityEnabled) return { all: 0, other: 0, classified: 0 };
+    if (!webActivityEnabled) return { all: 0, other: 0, classified: 0, excluded: 0 };
 
-    const all = webDomainCandidates.length;
-    const other = webDomainCandidates.filter((candidate) => resolveWebDomainCategory(candidate) === "other").length;
+    const includedCandidates = webDomainCandidates.filter((candidate) => resolveWebDomainEnabled(candidate));
+    const all = includedCandidates.length;
+    const other = includedCandidates.filter((candidate) => resolveWebDomainCategory(candidate) === "other").length;
+    const excluded = webDomainCandidates.filter((candidate) => !resolveWebDomainEnabled(candidate)).length;
     const classified = Math.max(0, all - other);
-    return { all, other, classified };
-  }, [resolveWebDomainCategory, webActivityEnabled, webDomainCandidates]);
+    return { all, other, classified, excluded };
+  }, [resolveWebDomainCategory, resolveWebDomainEnabled, webActivityEnabled, webDomainCandidates]);
 
-  const customCategoryOptions = useMemo(() => {
+  const extendedCategoryOptions = useMemo(() => {
     const deletedSet = new Set(draftDeletedCategories);
     const categories = new Set<UserAssignableAppCategory>();
-    for (const category of draftCustomCategories) {
-      if (isCustomCategory(category) && !deletedSet.has(category)) categories.add(category);
+    for (const category of draftPersistedCategoryIds) {
+      if (isExtendedCategory(category) && !deletedSet.has(category)) categories.add(category);
     }
     for (const override of Object.values(draftOverrides)) {
-      if (override.category && isCustomCategory(override.category) && !deletedSet.has(override.category)) {
+      if (override.category && isExtendedCategory(override.category) && !deletedSet.has(override.category)) {
         categories.add(override.category);
       }
     }
     for (const override of Object.values(draftWebDomainOverrides)) {
-      if (override.category && isCustomCategory(override.category) && !deletedSet.has(override.category)) {
+      if (override.category && isExtendedCategory(override.category) && !deletedSet.has(override.category)) {
         categories.add(override.category);
       }
     }
     for (const category of Object.keys(draftCategoryColorOverrides)) {
-      if (isCustomCategory(category) && !deletedSet.has(category)) categories.add(category);
+      if (isExtendedCategory(category) && !deletedSet.has(category)) categories.add(category);
     }
     return Array.from(categories)
-      .sort((a, b) => AppClassification.getCategoryLabel(a).localeCompare(AppClassification.getCategoryLabel(b), "zh-CN"));
-  }, [draftCategoryColorOverrides, draftCustomCategories, draftDeletedCategories, draftOverrides, draftWebDomainOverrides]);
+      .sort((a, b) => resolveCategoryLabel(a).localeCompare(resolveCategoryLabel(b), "zh-CN"));
+  }, [
+    draftCategoryColorOverrides,
+    draftPersistedCategoryIds,
+    draftDeletedCategories,
+    draftOverrides,
+    draftWebDomainOverrides,
+    resolveCategoryLabel,
+  ]);
 
-  const activeBuiltinCategories = useMemo(
+  const activeSeededCategories = useMemo(
     () => USER_ASSIGNABLE_CATEGORIES.filter((category) => !draftDeletedCategories.includes(category)),
     [draftDeletedCategories],
   );
 
   const orderedAssignableCategories = useMemo<UserAssignableAppCategory[]>(() => {
-    const base = activeBuiltinCategories.filter((category) => category !== "other");
-    const hasOther = activeBuiltinCategories.includes("other");
-    return hasOther ? [...base, ...customCategoryOptions, "other"] : [...base, ...customCategoryOptions];
-  }, [activeBuiltinCategories, customCategoryOptions]);
+    const base = activeSeededCategories.filter((category) => category !== "other");
+    const hasOther = activeSeededCategories.includes("other");
+    return hasOther ? [...base, ...extendedCategoryOptions, "other"] : [...base, ...extendedCategoryOptions];
+  }, [activeSeededCategories, extendedCategoryOptions]);
 
   const candidateCategoryOptions = useMemo(
     () => orderedAssignableCategories.map((category) => ({
       value: category,
-      label: AppClassification.getCategoryLabel(category),
+      label: resolveCategoryLabel(category),
     })),
-    [orderedAssignableCategories],
+    [orderedAssignableCategories, resolveCategoryLabel],
   );
 
   const categoryControlCategories = useMemo<AppCategory[]>(() => {
     const manageable = [
-      ...activeBuiltinCategories.filter((category) => category !== "other"),
-      ...customCategoryOptions,
+      ...activeSeededCategories.filter((category) => category !== "other"),
+      ...extendedCategoryOptions,
     ];
     return [...manageable]
-      .sort((a, b) => AppClassification.getCategoryLabel(a).localeCompare(
-        AppClassification.getCategoryLabel(b),
+      .sort((a, b) => resolveCategoryLabel(a).localeCompare(
+        resolveCategoryLabel(b),
         "zh-CN",
       ));
-  }, [activeBuiltinCategories, customCategoryOptions]);
+  }, [activeSeededCategories, extendedCategoryOptions, resolveCategoryLabel]);
 
   return {
     filteredCandidates,
@@ -357,6 +391,7 @@ export function useAppMappingDerivedState({
     candidateCategoryOptions,
     categoryControlCategories,
     resolveCategoryColor,
+    resolveCategoryLabel,
     resolveEffectiveDisplayName,
     resolveCandidateColor,
     resolveMappedCategory,

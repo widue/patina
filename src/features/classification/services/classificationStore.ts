@@ -20,10 +20,10 @@ import {
 import { ProcessMapper, type AppOverride } from "../../../shared/classification/processMapper.ts";
 import {
   isAppCategory,
-  isCustomCategory,
+  isExtendedCategory,
   USER_ASSIGNABLE_CATEGORIES,
   type AppCategory,
-  type CustomAppCategory,
+  type ExtendedAppCategory,
 } from "../../../shared/classification/categoryTokens.ts";
 import { resolveCanonicalExecutable, shouldTrackProcess } from "../../../shared/classification/processNormalization.ts";
 import type { ClassificationDraftChangePlan } from "./classificationDraftState.ts";
@@ -37,8 +37,9 @@ const APP_OVERRIDE_KEY_PREFIX = "__app_override::";
 const WEB_DOMAIN_OVERRIDE_KEY_PREFIX = "__web_domain_override::";
 const LEGACY_AUTO_CLASSIFICATION_MIGRATION_KEY = "__classification_manual_confirmation_migration::v1";
 const CATEGORY_COLOR_OVERRIDE_KEY_PREFIX = "__category_color_override::";
+const CATEGORY_LABEL_OVERRIDE_KEY_PREFIX = "__category_label_override::";
 const CATEGORY_DEFAULT_COLOR_ASSIGNMENT_KEY_PREFIX = "__category_default_color_assignment::";
-const CUSTOM_CATEGORY_KEY_PREFIX = "__custom_category::";
+const CATEGORY_DEFINITION_KEY_PREFIX = "__custom_category::";
 const DELETED_CATEGORY_KEY_PREFIX = "__deleted_category::";
 const USER_ASSIGNABLE_CATEGORY_SET = new Set<string>(USER_ASSIGNABLE_CATEGORIES);
 
@@ -63,7 +64,7 @@ let legacyAutoClassificationMigrationPromise: Promise<void> | null = null;
 
 function isPersistableDeletedCategory(category: string): category is AppCategory {
   return isAppCategory(category)
-    && !isCustomCategory(category)
+    && !isExtendedCategory(category)
     && category !== "system"
     && category !== "other";
 }
@@ -80,6 +81,17 @@ function normalizeHexColor(colorValue: string | undefined): string | null {
   return normalized.toUpperCase();
 }
 
+function normalizeCategoryLabel(label: string | undefined): string | null {
+  const normalized = (label ?? "").trim().replace(/\s+/g, " ");
+  return normalized || null;
+}
+
+function isPersistableLabelOverrideCategory(category: string): category is AppCategory {
+  return isAppCategory(category)
+    && category !== "system"
+    && category !== "other";
+}
+
 function normalizeWebDomainKey(value: string): string | null {
   const normalized = value.trim().trimEnd().replace(/\.$/, "").toLocaleLowerCase();
   if (!normalized) {
@@ -91,7 +103,7 @@ function normalizeWebDomainKey(value: string): string | null {
 function normalizeWebDomainOverride(override: WebDomainOverride | null | undefined): WebDomainOverride | null {
   if (!override) return null;
   const normalized: WebDomainOverride = {};
-  if (override.category && (isCustomCategory(override.category) || USER_ASSIGNABLE_CATEGORY_SET.has(override.category))) {
+  if (override.category && (isExtendedCategory(override.category) || USER_ASSIGNABLE_CATEGORY_SET.has(override.category))) {
     normalized.category = override.category;
   }
   if (override.displayName?.trim()) {
@@ -374,6 +386,68 @@ function buildSaveCategoryColorOverrideMutations(
   }];
 }
 
+export async function loadCategoryLabelOverrides(): Promise<Record<string, string>> {
+  const rows = await loadSettingRowsByKeyPrefix(CATEGORY_LABEL_OVERRIDE_KEY_PREFIX);
+
+  const overrides: Record<string, string> = {};
+  for (const row of rows) {
+    const category = row.key.slice(CATEGORY_LABEL_OVERRIDE_KEY_PREFIX.length);
+    if (!isPersistableLabelOverrideCategory(category)) {
+      continue;
+    }
+    const label = normalizeCategoryLabel(row.value);
+    if (!label) {
+      continue;
+    }
+    overrides[category] = label;
+  }
+
+  return overrides;
+}
+
+export async function saveCategoryLabelOverride(
+  category: AppCategory,
+  label: string | null,
+): Promise<void> {
+  const key = `${CATEGORY_LABEL_OVERRIDE_KEY_PREFIX}${category}`;
+  if (!isPersistableLabelOverrideCategory(category)) {
+    await deleteSettingValue(key);
+    return;
+  }
+  const normalizedLabel = normalizeCategoryLabel(label ?? undefined);
+  if (!normalizedLabel) {
+    await deleteSettingValue(key);
+    return;
+  }
+
+  await upsertSettingValue(key, normalizedLabel);
+}
+
+function buildSaveCategoryLabelOverrideMutations(
+  category: AppCategory,
+  label: string | null,
+): ClassificationSettingMutation[] {
+  const key = `${CATEGORY_LABEL_OVERRIDE_KEY_PREFIX}${category}`;
+  if (!isPersistableLabelOverrideCategory(category)) {
+    return [{
+      key,
+      value: null,
+    }];
+  }
+  const normalizedLabel = normalizeCategoryLabel(label ?? undefined);
+  if (!normalizedLabel) {
+    return [{
+      key,
+      value: null,
+    }];
+  }
+
+  return [{
+    key,
+    value: normalizedLabel,
+  }];
+}
+
 export async function loadCategoryDefaultColorAssignments(): Promise<Record<string, string>> {
   const rows = await loadSettingRowsByKeyPrefix(CATEGORY_DEFAULT_COLOR_ASSIGNMENT_KEY_PREFIX);
 
@@ -407,13 +481,13 @@ export async function saveCategoryDefaultColorAssignment(
   await upsertSettingValue(key, normalizedColor);
 }
 
-export async function loadCustomCategories(): Promise<CustomAppCategory[]> {
-  const rows = await loadSettingKeysByKeyPrefix(CUSTOM_CATEGORY_KEY_PREFIX);
+export async function loadPersistedCategoryIds(): Promise<ExtendedAppCategory[]> {
+  const rows = await loadSettingKeysByKeyPrefix(CATEGORY_DEFINITION_KEY_PREFIX);
 
-  const categories = new Set<CustomAppCategory>();
+  const categories = new Set<ExtendedAppCategory>();
   for (const row of rows) {
-    const category = row.key.slice(CUSTOM_CATEGORY_KEY_PREFIX.length);
-    if (!isCustomCategory(category)) {
+    const category = row.key.slice(CATEGORY_DEFINITION_KEY_PREFIX.length);
+    if (!isExtendedCategory(category)) {
       continue;
     }
     categories.add(category);
@@ -422,32 +496,37 @@ export async function loadCustomCategories(): Promise<CustomAppCategory[]> {
   return Array.from(categories);
 }
 
-export async function saveCustomCategory(category: CustomAppCategory): Promise<void> {
-  const key = `${CUSTOM_CATEGORY_KEY_PREFIX}${category}`;
+export async function saveCategoryDefinition(category: ExtendedAppCategory): Promise<void> {
+  const key = `${CATEGORY_DEFINITION_KEY_PREFIX}${category}`;
   await upsertSettingValue(key, String(Date.now()));
 }
 
-function buildSaveCustomCategoryMutations(category: CustomAppCategory): ClassificationSettingMutation[] {
+function buildSaveCategoryDefinitionMutations(category: ExtendedAppCategory): ClassificationSettingMutation[] {
   return [{
-    key: `${CUSTOM_CATEGORY_KEY_PREFIX}${category}`,
+    key: `${CATEGORY_DEFINITION_KEY_PREFIX}${category}`,
     value: String(Date.now()),
   }];
 }
 
-export async function deleteCustomCategory(category: CustomAppCategory): Promise<void> {
-  await deleteSettingValue(`${CUSTOM_CATEGORY_KEY_PREFIX}${category}`);
+export async function deleteCategoryDefinition(category: ExtendedAppCategory): Promise<void> {
+  await deleteSettingValue(`${CATEGORY_DEFINITION_KEY_PREFIX}${category}`);
   await deleteSettingValue(`${DELETED_CATEGORY_KEY_PREFIX}${category}`);
+  await deleteSettingValue(`${CATEGORY_LABEL_OVERRIDE_KEY_PREFIX}${category}`);
   await deleteSettingValue(`${CATEGORY_DEFAULT_COLOR_ASSIGNMENT_KEY_PREFIX}${category}`);
 }
 
-function buildDeleteCustomCategoryMutations(category: CustomAppCategory): ClassificationSettingMutation[] {
+function buildDeleteCategoryDefinitionMutations(category: ExtendedAppCategory): ClassificationSettingMutation[] {
   return [
     {
-      key: `${CUSTOM_CATEGORY_KEY_PREFIX}${category}`,
+      key: `${CATEGORY_DEFINITION_KEY_PREFIX}${category}`,
       value: null,
     },
     {
       key: `${DELETED_CATEGORY_KEY_PREFIX}${category}`,
+      value: null,
+    },
+    {
+      key: `${CATEGORY_LABEL_OVERRIDE_KEY_PREFIX}${category}`,
       value: null,
     },
     {
@@ -528,13 +607,17 @@ export function buildCommitDraftChangePlanSettingMutations(
     mutations.push(...buildSaveCategoryColorOverrideMutations(update.category, update.colorValue));
   }
 
-  for (const category of changePlan.customCategoriesToAdd) {
-    mutations.push(...buildSaveCustomCategoryMutations(category));
+  for (const update of changePlan.categoryLabelUpdates) {
+    mutations.push(...buildSaveCategoryLabelOverrideMutations(update.category, update.label));
+  }
+
+  for (const category of changePlan.persistedCategoryIdsToAdd) {
+    mutations.push(...buildSaveCategoryDefinitionMutations(category));
     mutations.push(...buildSaveDeletedCategoryMutations(category, false));
   }
 
-  for (const category of changePlan.customCategoriesToRemove) {
-    mutations.push(...buildDeleteCustomCategoryMutations(category));
+  for (const category of changePlan.persistedCategoryIdsToRemove) {
+    mutations.push(...buildDeleteCategoryDefinitionMutations(category));
     mutations.push(...buildSaveDeletedCategoryMutations(category, false));
     mutations.push(...buildSaveCategoryColorOverrideMutations(category, null));
   }

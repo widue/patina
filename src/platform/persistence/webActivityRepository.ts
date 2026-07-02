@@ -34,7 +34,18 @@ interface RawSettingRow {
   value: string;
 }
 
+interface RawWebFaviconRow {
+  normalized_domain: string;
+  favicon_url: string;
+}
+
 const WEB_DOMAIN_OVERRIDE_KEY_PREFIX = "__web_domain_override::";
+const WEB_FAVICON_QUERY_BATCH_SIZE = 900;
+
+function normalizeWebDomainKey(value: string): string | null {
+  const normalized = value.trim().replace(/\.$/, "").toLocaleLowerCase();
+  return normalized ? normalized : null;
+}
 
 function normalizeHexColor(colorValue: string | undefined): string | undefined {
   const raw = (colorValue ?? "").trim();
@@ -90,7 +101,7 @@ export async function getWebActivitySegmentsInRange(
             normalized_domain,
             url,
             title,
-            favicon_url,
+            NULL AS favicon_url,
             start_time,
             end_time,
             COALESCE(duration, MAX(0, ? - start_time)) AS duration
@@ -122,24 +133,16 @@ export async function loadObservedWebDomainStats(
   const db = await getDB();
   const sinceMs = Date.now() - (Math.max(1, days) * 24 * 60 * 60 * 1000);
   const nowMs = Date.now();
-     const rows = await db.select<RawObservedWebDomainStatRow[]>(
+  const rows = await db.select<RawObservedWebDomainStatRow[]>(
     `SELECT segment.normalized_domain AS normalized_domain,
             MAX(COALESCE(segment.domain, segment.normalized_domain)) AS domain,
             SUM(COALESCE(segment.duration, MAX(0, ? - segment.start_time))) AS total_duration,
             MAX(segment.start_time) AS last_seen_ms,
-            (
-              SELECT icon.favicon_url
-              FROM web_activity_segments AS icon
-              WHERE icon.normalized_domain = segment.normalized_domain
-                AND icon.favicon_url IS NOT NULL
-                AND icon.favicon_url <> ''
-              ORDER BY CASE WHEN icon.favicon_url LIKE 'data:%' THEN 0 ELSE 1 END,
-                       icon.start_time DESC,
-                       icon.id DESC
-              LIMIT 1
-            ) AS favicon_url,
+            MAX(favicon_cache.favicon_url) AS favicon_url,
             MAX(segment.title) AS title
      FROM web_activity_segments AS segment
+     LEFT JOIN web_favicon_cache AS favicon_cache
+       ON favicon_cache.normalized_domain = segment.normalized_domain
      WHERE segment.start_time >= ?
      GROUP BY segment.normalized_domain
      ORDER BY last_seen_ms DESC, total_duration DESC
@@ -155,6 +158,41 @@ export async function loadObservedWebDomainStats(
     faviconUrl: row.favicon_url,
     title: row.title,
   }));
+}
+
+export async function getWebFaviconsForDomains(domains: string[]): Promise<Record<string, string>> {
+  const normalizedDomains = Array.from(new Set(
+    domains
+      .map((domain) => normalizeWebDomainKey(domain))
+      .filter((domain): domain is string => Boolean(domain)),
+  ));
+  const faviconMap: Record<string, string> = {};
+
+  if (normalizedDomains.length === 0) {
+    return faviconMap;
+  }
+
+  const db = await getDB();
+  for (let index = 0; index < normalizedDomains.length; index += WEB_FAVICON_QUERY_BATCH_SIZE) {
+    const batch = normalizedDomains.slice(index, index + WEB_FAVICON_QUERY_BATCH_SIZE);
+    const placeholders = batch.map(() => "?").join(", ");
+    const rows = await db.select<RawWebFaviconRow[]>(
+      `SELECT normalized_domain, favicon_url
+       FROM web_favicon_cache
+       WHERE normalized_domain IN (${placeholders})`,
+      batch,
+    );
+
+    for (const row of rows) {
+      const domain = normalizeWebDomainKey(row.normalized_domain);
+      const faviconUrl = row.favicon_url?.trim();
+      if (domain && faviconUrl) {
+        faviconMap[domain] = faviconUrl;
+      }
+    }
+  }
+
+  return faviconMap;
 }
 
 export async function loadWebDomainOverrides(): Promise<Record<string, WebDomainOverride>> {

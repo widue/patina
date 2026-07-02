@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="src-tauri/icons/128x128.png" width="72" height="72" alt="Patina icon">
-
 # Patina
 
 Local-first time tracking for Windows desktop work.
@@ -11,58 +9,60 @@ English · [简体中文](README.zh-CN.md)
 ![Platform](https://img.shields.io/badge/platform-Windows-4f6f8f)
 ![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%20v2-4f7f8f)
 ![Local first](https://img.shields.io/badge/data-local--first-5f7f68)
+[![License](https://img.shields.io/badge/license-MIT-6f647a)](LICENSE)
 [![Downloads](https://img.shields.io/github/downloads/Ceceliaee/patina/total?label=downloads&color=b07a3a)](https://github.com/Ceceliaee/patina/releases)
 [![Latest downloads](https://img.shields.io/github/downloads/Ceceliaee/patina/latest/total?label=latest&color=8f6f4f)](https://github.com/Ceceliaee/patina/releases/latest)
-[![License](https://img.shields.io/badge/license-MIT-6f647a)](LICENSE)
+[![GitHub stars](https://img.shields.io/github/stars/Ceceliaee/patina?style=social)](https://github.com/Ceceliaee/patina/stargazers)
 
 </div>
 
 
 <p align="center">
-Patina records foreground apps and organizes them into today's overview, a timeline, and long-term trends.<br>
-Focused on quiet and trustworthy personal desktop time records.
+Patina records foreground app usage as local, quiet, and trustworthy personal desktop time records.
 </p>
 
-![Patina dashboard](.github/assets/readme/dashboard.png)
+<p align="center">
+  <img src=".github/assets/readme/hero.png" alt="Patina dashboard">
+</p>
+
+## Why Patina
+
+- Records foreground apps automatically, without manually starting or stopping timers.
+- Handles idle, lock, sleep, and abnormal-exit boundaries to keep records more trustworthy.
+- Keeps data local by default, with no account, cloud sync, or server dependency.
+- Lets you manage app names, categories, colors, stats exclusions, and window title capture.
+- Provides lightweight local tools such as reminders, timers, and Pomodoro.
+- Keeps the interface restrained, clear, and low-interruption for long-term daily use.
 
 ## Download
 
 Prebuilt versions are published on GitHub Releases:
 
-- [Latest release page](https://github.com/Ceceliaee/patina/releases/latest)
+- [Download latest](https://github.com/Ceceliaee/patina/releases/latest)
 
-If you just want to use the app, open the latest release page and download the `.exe` installer.
+Open the release page, download the Windows installer, and run it. Patina currently targets Windows 10/11 desktop use.
 
-For browser webpage sync, the release also includes the Patina Web Sync extension, with usage instructions inside the extension package.
-
-## Why Patina
-
-- Automatic foreground app tracking without manually maintaining the main time record.
-- AFK, lock, sleep, and crash recovery boundaries designed to keep records trustworthy.
-- Local SQLite storage by default, with no account, cloud sync, or server dependency.
-- App-level controls for names, categories, colors, stats exclusions, and title capture.
-- Lightweight local tools for reminders, timers, and Pomodoro.
-- A restrained, low-interruption desktop interface for long-term daily use.
+The Patina Web Sync browser extension is optional and is used to identify webpage titles in browsers.
 
 ## Core Features
 
 ### Automatic Tracking
 
-- Detects the active foreground window and application.
-- Prevents idle time from silently counting as effective activity.
-- Seals sessions across lock, sleep, long-away, and abnormal-exit boundaries.
-- Uses media and audio signals to reduce missed time in low-interaction scenarios such as videos, meetings, courses, and livestreams.
+- Automatically records the current foreground app and turns activity into time records.
+- Detects idle, lock, and sleep states to reduce invalid time in statistics.
+- Handles record boundaries after long-away periods and abnormal exits, reducing accidentally merged time.
+- Reduces missed effective activity in low-interaction scenarios such as videos, meetings, courses, and livestreams.
 
 ### Review And Analysis
 
-- Review today's effective activity, app ranking, category distribution, and live tracking status.
-- Browse the daily timeline and inspect title details under the same app.
-- Explore trends, heatmaps, and app-level curves across longer time ranges.
+- Review effective activity, app rankings, and category distribution in today's overview.
+- Use the timeline to review activity by date and inspect app switches and window title details.
+- Understand long-term time distribution through trends, heatmaps, and app curves.
 
 ### Management And Control
 
-- Rename apps and adjust categories or colors.
-- Exclude apps from statistics or disable title capture for specific apps.
+- Rename apps and adjust categories, colors, and statistics rules.
+- Exclude apps you do not want in statistics, or disable window title capture for specific apps.
 - Export local backups, restore backups, and clean up historical records.
 
 ### Lightweight Tools
@@ -73,37 +73,54 @@ For browser webpage sync, the release also includes the Patina Web Sync extensio
 
 ## Interface Preview
 
-| Today | History |
-| :---: | :---: |
-| ![Today page](.github/assets/readme/dashboard.png) | ![History page](.github/assets/readme/history.png) |
-| Data | Apps |
-| ![Data page](.github/assets/readme/data.png) | ![Apps page](.github/assets/readme/mapping.png) |
-| Settings | About |
-| ![Settings page](.github/assets/readme/settings.png) | ![About page](.github/assets/readme/about.png) |
+<table>
+  <tr>
+    <td width="50%" align="center"><strong>History</strong></td>
+    <td width="50%" align="center"><strong>Data</strong></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src=".github/assets/readme/history.png" alt="History page"></td>
+    <td width="50%"><img src=".github/assets/readme/data.png" alt="Data page"></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><strong>Classification</strong></td>
+    <td width="50%" align="center"><strong>Tools</strong></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src=".github/assets/readme/classification.png" alt="Classification page"></td>
+    <td width="50%"><img src=".github/assets/readme/tools.png" alt="Tools page"></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><strong>Settings</strong></td>
+    <td width="50%" align="center"><strong>About</strong></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src=".github/assets/readme/settings.png" alt="Settings page"></td>
+    <td width="50%"><img src=".github/assets/readme/about.png" alt="About page"></td>
+  </tr>
+</table>
 
 ## Reliability And Privacy
 
 Time tracking has long-term value only when the records are trustworthy. Patina focuses on these boundaries:
 
-- **Native window tracking**: identifies the foreground window through Rust and the Windows API.
-- **AFK-aware timing**: idle time does not continue counting as effective activity.
-- **Lifecycle boundaries**: handles lock, sleep, resume, and abnormal-exit session sealing.
-- **Noise filtering**: filters installers, updaters, temporary system windows, and similar processes that should not enter statistics.
-- **Real-duration stats**: rankings, distributions, and totals use effective activity time, not just visual spans.
+- **Foreground app recognition**: records the window and app that are actually in the foreground, reducing temporary-window and system noise.
+- **Idle handling**: idle time does not continue counting as effective activity.
+- **State boundaries**: handles record boundaries after lock, sleep, resume, long-away periods, and abnormal exits.
+- **Effective-duration stats**: rankings, distributions, and totals use effective activity time, not just open spans.
 - **Title capture control**: window title capture can be disabled per app to reduce unnecessary sensitive information retention.
-- **Local data control**: core data stays local, and backups or restores are initiated by the user.
+- **Local data control**: core data stays local, and backups, restores, and history cleanup are initiated by the user.
 
 ## Current Scope
 
-Patina intentionally keeps its scope focused:
+Patina currently focuses on personal local time records:
 
-- **Windows 10/11 first**
-- **Personal use first**
-- **Local-first data storage and control**
-- **Quiet, professional, long-term desktop experience**
-- **Lightweight local tools such as reminders, timers, and Pomodoro**
+- Windows 10/11 desktop use
+- Personal local data storage and control
+- Automatic tracking, review, classification, and backup or restore
+- Lightweight local tools
 
-Team collaboration, account systems, cloud sync, mobile apps, broad multi-platform parity, task management platforms, gamified productivity tools, and heavy AI insights are not the current main direction.
+It is not currently aimed at team collaboration, account systems, cloud sync, multi-platform sync, or heavy AI insights.
 
 ## Build From Source
 
@@ -149,9 +166,15 @@ src-tauri/target/release/bundle/
 - Database: SQLite via `@tauri-apps/plugin-sql`
 - Windows integration: `windows` crate
 
-## Project Docs
+## Contributing
 
 If you want to contribute, understand the product direction, or review architecture boundaries, start with [`CONTRIBUTING.md`](CONTRIBUTING.md#english).
+
+## Feedback
+
+If you run into a problem, notice unusual records, or want to suggest an improvement, you can use GitHub Issues:
+
+- <https://github.com/Ceceliaee/patina/issues/new/choose>
 
 ## Support
 
@@ -165,10 +188,15 @@ Patina is a personal, local-first open-source project. If it has been useful in 
 
 Sponsorship helps sustain maintenance, but it does not affect feature priority, issue handling, the roadmap, or the product direction.
 
-## Feedback
+## Star History
 
-- Releases: <https://github.com/Ceceliaee/patina/releases>
-- Issues: <https://github.com/Ceceliaee/patina/issues/new/choose>
+<a href="https://www.star-history.com/?repos=Ceceliaee%2Fpatina">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Ceceliaee/patina&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Ceceliaee/patina&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Ceceliaee/patina&type=date&legend=top-left" />
+ </picture>
+</a>
 
 ## License
 

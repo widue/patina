@@ -5,6 +5,10 @@ export interface BenchmarkMeasurement {
   iterations: number;
   elapsedMs: number;
   averageMs: number;
+  minMs: number;
+  p50Ms: number;
+  p95Ms: number;
+  maxMs: number;
   budgetAverageMs: number;
   withinBudget: boolean;
 }
@@ -16,27 +20,39 @@ export interface BenchmarkReport {
   metadata?: Record<string, unknown>;
 }
 
+export function createBenchmarkMeasurement(
+  name: string,
+  durations: number[],
+  budgetAverageMs: number,
+): BenchmarkMeasurement {
+  const elapsedMs = durations.reduce((sum, duration) => sum + duration, 0);
+  const averageMs = durations.length > 0 ? elapsedMs / durations.length : 0;
+  const distribution = summarizeDurations(durations);
+
+  return {
+    name,
+    iterations: durations.length,
+    elapsedMs,
+    averageMs,
+    ...distribution,
+    budgetAverageMs,
+    withinBudget: averageMs <= budgetAverageMs,
+  };
+}
+
 export function measureBenchmark(
   name: string,
   iterations: number,
   budgetAverageMs: number,
   run: () => void,
 ): BenchmarkMeasurement {
-  const startedAt = performance.now();
+  const durations: number[] = [];
   for (let index = 0; index < iterations; index += 1) {
+    const iterationStartedAt = performance.now();
     run();
+    durations.push(performance.now() - iterationStartedAt);
   }
-  const elapsedMs = performance.now() - startedAt;
-  const averageMs = elapsedMs / iterations;
-
-  return {
-    name,
-    iterations,
-    elapsedMs,
-    averageMs,
-    budgetAverageMs,
-    withinBudget: averageMs <= budgetAverageMs,
-  };
+  return createBenchmarkMeasurement(name, durations, budgetAverageMs);
 }
 
 export async function measureAsyncBenchmark(
@@ -45,20 +61,32 @@ export async function measureAsyncBenchmark(
   budgetAverageMs: number,
   run: () => Promise<void>,
 ): Promise<BenchmarkMeasurement> {
-  const startedAt = performance.now();
+  const durations: number[] = [];
   for (let index = 0; index < iterations; index += 1) {
+    const iterationStartedAt = performance.now();
     await run();
+    durations.push(performance.now() - iterationStartedAt);
   }
-  const elapsedMs = performance.now() - startedAt;
-  const averageMs = elapsedMs / iterations;
+  return createBenchmarkMeasurement(name, durations, budgetAverageMs);
+}
+
+function percentile(sortedDurations: number[], percentileValue: number): number {
+  if (sortedDurations.length === 0) return 0;
+  const index = Math.min(
+    sortedDurations.length - 1,
+    Math.max(0, Math.ceil(sortedDurations.length * percentileValue) - 1),
+  );
+  return sortedDurations[index];
+}
+
+function summarizeDurations(durations: number[]) {
+  const sortedDurations = durations.slice().sort((left, right) => left - right);
 
   return {
-    name,
-    iterations,
-    elapsedMs,
-    averageMs,
-    budgetAverageMs,
-    withinBudget: averageMs <= budgetAverageMs,
+    minMs: sortedDurations[0] ?? 0,
+    p50Ms: percentile(sortedDurations, 0.5),
+    p95Ms: percentile(sortedDurations, 0.95),
+    maxMs: sortedDurations.at(-1) ?? 0,
   };
 }
 

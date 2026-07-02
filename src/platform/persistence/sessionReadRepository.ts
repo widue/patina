@@ -20,6 +20,11 @@ interface RawTitleSampleRow {
   end_time: number | null;
 }
 
+interface RawIconCacheRow {
+  exe_name: string;
+  icon_base64: string;
+}
+
 export interface RawAggregateSessionCandidateRow {
   app_name: string;
   exe_name: string;
@@ -34,6 +39,8 @@ export interface AggregateSessionRecord {
   startTime: number;
   endTime: number;
 }
+
+const ICON_QUERY_BATCH_SIZE = 900;
 
 function mapRawTitleSample(row: RawTitleSampleRow): TitleSampleDetail {
   return {
@@ -76,23 +83,88 @@ export function mapRawAggregateSessionCandidates(
     }));
 }
 
+function collectIconLookupKeys(exeName: string): string[] {
+  const rawExe = exeName.trim();
+  if (!rawExe) return [];
+
+  const lowerExe = rawExe.toLowerCase();
+  const normalizedExe = AppClassification.normalizeExecutable(rawExe);
+  const canonicalExe = AppClassification.resolveCanonicalExecutable(rawExe);
+
+  return Array.from(new Set([
+    rawExe,
+    lowerExe,
+    normalizedExe,
+    canonicalExe,
+  ].filter(Boolean)));
+}
+
+function addIconAliasesToMap(map: Record<string, string>, exeName: string, iconBase64: string): void {
+  for (const key of collectIconLookupKeys(exeName)) {
+    map[key] = iconBase64;
+  }
+}
+
+function addIconRowToMap(map: Record<string, string>, row: RawIconCacheRow): void {
+  const rawExe = (row.exe_name ?? "").trim();
+  if (!rawExe || !row.icon_base64) return;
+
+  addIconAliasesToMap(map, rawExe, row.icon_base64);
+}
+
+function readIconFromMap(map: Record<string, string>, exeName: string): string | null {
+  for (const key of collectIconLookupKeys(exeName)) {
+    const icon = map[key];
+    if (icon) return icon;
+  }
+
+  return null;
+}
+
 export async function getIconMap(): Promise<Record<string, string>> {
   const db = await getDB();
-  const results = await db.select<{ exe_name: string; icon_base64: string }[]>(
+  const results = await db.select<RawIconCacheRow[]>(
     "SELECT exe_name, icon_base64 FROM icon_cache",
   );
   const map: Record<string, string> = {};
 
   for (const row of results) {
-    const rawExe = (row.exe_name ?? "").trim();
-    if (!rawExe) continue;
+    addIconRowToMap(map, row);
+  }
 
-    const normalizedExe = AppClassification.resolveCanonicalExecutable(rawExe);
-    const lowerExe = rawExe.toLowerCase();
+  return map;
+}
 
-    map[rawExe] = row.icon_base64;
-    map[lowerExe] = row.icon_base64;
-    map[normalizedExe] = row.icon_base64;
+export async function getIconsForExecutables(exeNames: string[]): Promise<Record<string, string>> {
+  const lookupKeys = Array.from(new Set(
+    exeNames.flatMap((exeName) => collectIconLookupKeys(exeName)),
+  ));
+  const map: Record<string, string> = {};
+
+  if (lookupKeys.length === 0) {
+    return map;
+  }
+
+  const db = await getDB();
+  for (let index = 0; index < lookupKeys.length; index += ICON_QUERY_BATCH_SIZE) {
+    const batchKeys = lookupKeys.slice(index, index + ICON_QUERY_BATCH_SIZE);
+    const caseInsensitiveBatchKeys = batchKeys.map((key) => key.toLowerCase());
+    const placeholders = batchKeys.map(() => "?").join(", ");
+    const rows = await db.select<RawIconCacheRow[]>(
+      `SELECT exe_name, icon_base64 FROM icon_cache WHERE LOWER(exe_name) IN (${placeholders})`,
+      caseInsensitiveBatchKeys,
+    );
+
+    for (const row of rows) {
+      addIconRowToMap(map, row);
+    }
+  }
+
+  for (const exeName of exeNames) {
+    const icon = readIconFromMap(map, exeName);
+    if (icon) {
+      addIconAliasesToMap(map, exeName, icon);
+    }
   }
 
   return map;
@@ -134,6 +206,17 @@ export async function getSessionsInRange(startMs: number, endMs: number): Promis
   }
 
   return rows.map((row) => mapRawHistorySession(row, samplesBySessionId.get(row.id) ?? []));
+}
+
+export async function getSessionsInRangeWithoutTitleSamples(startMs: number, endMs: number): Promise<HistorySession[]> {
+  const db = await getDB();
+  const now = Date.now();
+  const rows = await db.select<RawHistorySessionRow[]>(
+    "SELECT id, app_name, exe_name, window_title, start_time, end_time, COALESCE(duration, MAX(0, ? - start_time)) as duration, continuity_group_start_time FROM sessions WHERE start_time < ? AND COALESCE(end_time, ?) > ? ORDER BY start_time ASC",
+    [now, endMs, now, startMs],
+  );
+
+  return rows.map((row) => mapRawHistorySession(row));
 }
 
 export async function getSessionSummariesInRange(startMs: number, endMs: number): Promise<AggregateSessionRecord[]> {

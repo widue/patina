@@ -309,7 +309,7 @@ await runTest("app shell declares every primary desktop view", () => {
 
   for (const view of EXPECTED_VIEWS) {
     assert.match(viewType, new RegExp(`"${view}"`));
-    assert.match(shell, new RegExp(`currentView === "${view}"`));
+    assert.match(shell, new RegExp(`renderedView === "${view}"`));
     assert.match(sidebar, new RegExp(`id: "${view}" as View`));
   }
 });
@@ -430,6 +430,7 @@ await runTest("settings leaves web activity connection status to the extension",
 await runTest("settings services only expose web sync and remote push controls", () => {
   const settings = readUtf8("src/features/settings/components/Settings.tsx");
   const settingsInterface = readUtf8("src/features/settings/components/SettingsInterfacePanel.tsx");
+  const settingsDataSafety = readUtf8("src/features/settings/components/SettingsDataSafetyPanel.tsx");
   const settingsStyles = readUtf8("src/styles/features/settings.css");
   const appSettings = readUtf8("src/shared/settings/appSettings.ts");
   const appSettingsStore = readUtf8("src/platform/persistence/appSettingsStore.ts");
@@ -461,8 +462,20 @@ await runTest("settings services only expose web sync and remote push controls",
   assert.match(settingsInterface, /UI_TEXT\.settings\.webActivityHelpTitle/);
   assert.match(settingsStyles, /\.settings-web-activity-title-row \{\s*min-height: 20px;/);
   assert.match(settingsStyles, /\.settings-inline-help-button \{\s*display: inline-flex;\s*height: 18px;/);
+  assert.match(settingsDataSafety, /StoragePathPlaceholderRow/);
+  assert.match(settingsDataSafety, /actions=\{\[/);
+  assert.match(settingsDataSafety, /showTooltip=\{false\}/);
+  assert.match(settingsDataSafety, /aria-busy=\{!storageSnapshot\}/);
+  assert.match(settingsStyles, /\.settings-storage-path-row-placeholder/);
+  assert.doesNotMatch(settingsStyles, /\.settings-storage-path-placeholder-action/);
   assert.match(settingsCopy, /webActivityHelpAction/);
   assert.match(settingsCopy, /webActivityHelpSteps/);
+  assert.match(settingsCopy, /patina-chromium-extension-v\.\.\.zip/);
+  assert.match(settingsCopy, /manifest\.json/);
+  assert.match(settingsCopy, /patina-firefox-extension-v\.\.\.xpi/);
+  assert.match(settingsCopy, /about:addons/);
+  assert.doesNotMatch(settingsCopy, /patina-firefox-extension-v\.\.\.zip/);
+  assert.doesNotMatch(settingsCopy, /about:debugging#\/runtime\/this-firefox/);
   assert.match(settingsCopy, /Patina Web Sync 启用并连接成功后：\\n• 自动同步当前活动标签页的网站地址、标题和网站图标。/);
   assert.doesNotMatch(settingsCopy, /浏览器内部页面不会写入网页记录/);
   assert.doesNotMatch(settingsCopy, /浏览历史库/);
@@ -501,7 +514,7 @@ await runTest("web activity views are gated by saved web sync setting", () => {
   assert.match(mappingState, /webActivityEnabled = false/);
   assert.match(mappingDerivedState, /if \(!webActivityEnabled\) return \{\}/);
   assert.match(mappingDerivedState, /if \(!webActivityEnabled\) return \[\]/);
-  assert.match(mappingDerivedState, /if \(!webActivityEnabled\) return \{ all: 0, other: 0, classified: 0 \}/);
+  assert.match(mappingDerivedState, /if \(!webActivityEnabled\) return \{ all: 0, other: 0, classified: 0, excluded: 0 \}/);
 });
 
 await runTest("classification web domain colors prefer favicon theme colors", () => {
@@ -516,7 +529,8 @@ await runTest("classification web domain colors prefer favicon theme colors", ()
 
   assert.match(mappingDerivedState, /const webDomainIcons = useMemo/);
   assert.match(mappingDerivedState, /candidate\.faviconUrl\?\.trim\(\)/);
-  assert.match(mappingState, /const iconThemeColors = useIconThemeColors\(icons\)/);
+  assert.match(mappingState, /const mappingIcons = useRequestedAppIcons/);
+  assert.match(mappingState, /const iconThemeColors = useIconThemeColors\(mappingIcons\)/);
   assert.match(mappingDerivedState, /const webDomainIconThemeColors = useIconThemeColors\(webDomainIcons\)/);
   assert.match(colorResolver, /const iconColor = webDomainIconThemeColors\[candidate\.normalizedDomain\]/);
   assert.match(colorResolver, /if \(iconColor\) return iconColor;/);
@@ -533,7 +547,15 @@ await runTest("classification web domain colors prefer favicon theme colors", ()
   assert.match(iconThemeColors, /EDGE_DARK_PROTECTION_BRIGHTNESS = 120/);
   assert.match(iconThemeColors, /BUCKET_SIZE = 24/);
   assert.match(iconThemeColors, /fallbackThemeColor/);
-  assert.match(webActivityRepository, /ORDER BY CASE WHEN icon\.favicon_url LIKE 'data:%' THEN 0 ELSE 1 END/);
+  assert.match(webActivityRepository, /NULL AS favicon_url/);
+  assert.match(webActivityRepository, /LEFT JOIN web_favicon_cache AS favicon_cache/);
+});
+
+await runTest("app icon cache lookup is case-insensitive for Windows executable names", () => {
+  const sessionReadRepository = readUtf8("src/platform/persistence/sessionReadRepository.ts");
+
+  assert.match(sessionReadRepository, /caseInsensitiveBatchKeys = batchKeys\.map/);
+  assert.match(sessionReadRepository, /WHERE LOWER\(exe_name\) IN/);
 });
 
 await runTest("app shell uses feature-owned Data prewarm and heavy cache lifecycle exits", () => {

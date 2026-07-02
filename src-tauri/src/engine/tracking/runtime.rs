@@ -1,3 +1,4 @@
+use super::pause_state::TrackingPauseRuntimeState;
 use super::runtime_snapshot::{TrackingRuntimeSnapshot, TrackingRuntimeSnapshotState};
 use super::session_timeout::{
     seal_active_sessions_for_continuity_timeout,
@@ -51,6 +52,8 @@ pub async fn run<R: Runtime>(
     startup::initialize_tracker(&app, &data)
         .await
         .map_err(|error| format!("tracker initialization failed: {error}"))?;
+    let pause_state = app.state::<TrackingPauseRuntimeState>();
+    initialize_tracking_pause_state(&data, &pause_state).await;
 
     let mut last_window: Option<tracker::WindowInfo> = None;
     let mut last_tracking_status: Option<TrackingStatusSnapshot> = None;
@@ -77,6 +80,7 @@ pub async fn run<R: Runtime>(
         .await;
         let (tracking_state, next_sustained_participation_state) = load_tracking_loop_state(
             &data,
+            &pause_state,
             &window_info,
             now_ms,
             &sustained_participation_state,
@@ -243,6 +247,22 @@ pub async fn run<R: Runtime>(
         last_window = Some(tracked_window);
         last_tracking_status = Some(tracking_state.tracking_status);
         sleep(Duration::from_secs(1)).await;
+    }
+}
+
+async fn initialize_tracking_pause_state(
+    data: &TrackingRuntimeDataStore,
+    pause_state: &TrackingPauseRuntimeState,
+) {
+    match data.load_tracking_paused_setting().await {
+        Ok(tracking_paused) => {
+            pause_state.set_verified(tracking_paused, now_ms());
+        }
+        Err(error) => {
+            log_tracker_error(format!(
+                "failed to initialize tracking pause state: {error}"
+            ));
+        }
     }
 }
 

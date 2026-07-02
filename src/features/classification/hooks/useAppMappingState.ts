@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import { useIconThemeColors } from "../../../shared/hooks/useIconThemeColors";
+import { useRequestedAppIcons } from "../../../shared/hooks/useRequestedAppIcons.ts";
 import { useQuietDialogs } from "../../../shared/hooks/useQuietDialogs";
 import type { ColorDisplayFormat } from "../../../shared/lib/colorFormatting";
-import { AppClassification } from "../../../shared/classification/appClassification.ts";
 import {
   ClassificationService,
   type AppOverride,
@@ -14,6 +14,7 @@ import {
   getClassificationBootstrapCache,
   setClassificationBootstrapCache,
 } from "../services/classificationBootstrapCache";
+import { loadClassificationIconsForExecutables } from "../services/classificationIconService.ts";
 import type { CandidateFilter, ObservedAppCandidate } from "../types";
 import {
   buildAppMappingCategoryOverride,
@@ -21,10 +22,13 @@ import {
   buildWebDomainCategoryOverride,
   buildWebDomainMappingOverride,
   cloneObservedCandidates,
+  createCategoryInDraftState,
   createAppMappingDraftState,
   deleteCategoryFromDraftState,
+  mergeCategoryIntoDraftState,
   updateAppOverrideInDraftState,
   updateCategoryColorInDraftState,
+  updateCategoryLabelInDraftState,
   updateWebDomainOverrideInDraftState,
 } from "./appMappingStateHelpers.ts";
 import {
@@ -38,8 +42,10 @@ import {
   syncWebDomainNameDraft,
 } from "./appMappingInteractions.ts";
 import {
-  buildCustomCategory,
+  createCategoryId,
+  getCategoryToken,
   type AppCategory,
+  type UserAssignableAppCategory,
 } from "../../../shared/classification/categoryTokens";
 import type {
   ObservedWebDomainCandidate,
@@ -47,7 +53,7 @@ import type {
 } from "../../../shared/types/webActivity.ts";
 import {
   cloneObservedWebDomainCandidates,
-  normalizeCustomCategoryInput,
+  normalizeCategoryNameInput,
   useAppMappingDerivedState,
 } from "./useAppMappingDerivedState.ts";
 
@@ -79,6 +85,9 @@ export function useAppMappingState({
   const [webDomainCandidates, setWebDomainCandidates] = useState<ObservedWebDomainCandidate[]>(
     () => cloneObservedWebDomainCandidates(initialBootstrap?.observedWebDomains ?? []),
   );
+  const [bootstrapIcons, setBootstrapIcons] = useState<Record<string, string>>(
+    () => initialBootstrap?.icons ?? {},
+  );
   const [savedState, setSavedState] = useState<ClassificationDraftState | null>(
     () => (initialBootstrap ? createAppMappingDraftState(initialBootstrap) : null),
   );
@@ -98,7 +107,23 @@ export function useAppMappingState({
   const [deletingSessionsExe, setDeletingSessionsExe] = useState<string | null>(null);
   const [showCategoryDialog, setShowCategoryDialog] = useState(false);
   const [colorFormat, setColorFormat] = useState<ColorDisplayFormat>("hex");
-  const iconThemeColors = useIconThemeColors(icons);
+  const candidateIconExeNames = useMemo(
+    () => candidates.map((candidate) => candidate.exeName),
+    [candidates],
+  );
+  const baseMappingIcons = useMemo(() => ({
+    ...icons,
+    ...bootstrapIcons,
+  }), [bootstrapIcons, icons]);
+  const mappingIcons = useRequestedAppIcons({
+    baseIcons: baseMappingIcons,
+    exeNames: candidateIconExeNames,
+    loadIcons: loadClassificationIconsForExecutables,
+    onError: (error) => {
+      console.warn("Failed to refresh classification app icons:", error);
+    },
+  });
+  const iconThemeColors = useIconThemeColors(mappingIcons);
   const skipNextNameBlurExeRef = useRef<string | null>(null);
   const skipNextWebNameBlurDomainRef = useRef<string | null>(null);
   const hasUnsavedChangesRef = useRef(false);
@@ -115,10 +140,12 @@ export function useAppMappingState({
         const nextObserved = cloneObservedCandidates(bootstrap.observed);
         const nextWebDomainCandidates = cloneObservedWebDomainCandidates(bootstrap.observedWebDomains);
         const nextState = createAppMappingDraftState(bootstrap);
+        const nextBootstrapIcons = bootstrap.icons ?? {};
         setClassificationBootstrapCache(bootstrap);
         if (cancelled) return;
         setCandidates(nextObserved);
         setWebDomainCandidates(nextWebDomainCandidates);
+        setBootstrapIcons(nextBootstrapIcons);
         if (!hasUnsavedChangesRef.current) {
           setSavedState(cloneClassificationDraftState(nextState));
           setDraftState(cloneClassificationDraftState(nextState));
@@ -146,7 +173,8 @@ export function useAppMappingState({
   const draftOverrides = draftState?.overrides ?? {};
   const draftWebDomainOverrides = draftState?.webDomainOverrides ?? {};
   const draftCategoryColorOverrides = draftState?.categoryColorOverrides ?? {};
-  const draftCustomCategories = draftState?.customCategories ?? [];
+  const draftCategoryLabelOverrides = draftState?.categoryLabelOverrides ?? {};
+  const draftPersistedCategoryIds = draftState?.persistedCategoryIds ?? [];
   const draftDeletedCategories = draftState?.deletedCategories ?? [];
 
   const hasUnsavedChanges = (() => {
@@ -174,6 +202,7 @@ export function useAppMappingState({
     candidateCategoryOptions,
     categoryControlCategories,
     resolveCategoryColor,
+    resolveCategoryLabel,
     resolveEffectiveDisplayName,
     resolveCandidateColor,
     resolveMappedCategory,
@@ -194,7 +223,8 @@ export function useAppMappingState({
     draftOverrides,
     draftWebDomainOverrides,
     draftCategoryColorOverrides,
-    draftCustomCategories,
+    draftCategoryLabelOverrides,
+    draftPersistedCategoryIds,
     draftDeletedCategories,
     editingNameExe,
     nameEditSnapshots,
@@ -211,16 +241,18 @@ export function useAppMappingState({
     if (savedState) {
       setClassificationBootstrapCache({
         observed: cloneObservedCandidates(observed),
+        icons: { ...bootstrapIcons },
         observedWebDomains: cloneObservedWebDomainCandidates(webDomainCandidates),
         loadedOverrides: { ...savedState.overrides },
         loadedWebDomainOverrides: { ...savedState.webDomainOverrides },
         loadedCategoryColorOverrides: { ...savedState.categoryColorOverrides },
-        loadedCustomCategories: [...savedState.customCategories],
+        loadedCategoryLabelOverrides: { ...savedState.categoryLabelOverrides },
+        loadedPersistedCategoryIds: [...savedState.persistedCategoryIds],
         loadedDeletedCategories: [...savedState.deletedCategories],
       });
     }
     return observed;
-  }, [savedState, webDomainCandidates]);
+  }, [bootstrapIcons, savedState, webDomainCandidates]);
 
   const refreshWebDomainCandidates = useCallback(async () => {
     const observedWebDomains = await ClassificationService.loadObservedWebDomainCandidates();
@@ -228,16 +260,18 @@ export function useAppMappingState({
     if (savedState) {
       setClassificationBootstrapCache({
         observed: cloneObservedCandidates(candidates),
+        icons: { ...bootstrapIcons },
         observedWebDomains: cloneObservedWebDomainCandidates(observedWebDomains),
         loadedOverrides: { ...savedState.overrides },
         loadedWebDomainOverrides: { ...savedState.webDomainOverrides },
         loadedCategoryColorOverrides: { ...savedState.categoryColorOverrides },
-        loadedCustomCategories: [...savedState.customCategories],
+        loadedCategoryLabelOverrides: { ...savedState.categoryLabelOverrides },
+        loadedPersistedCategoryIds: [...savedState.persistedCategoryIds],
         loadedDeletedCategories: [...savedState.deletedCategories],
       });
     }
     return observedWebDomains;
-  }, [candidates, savedState]);
+  }, [bootstrapIcons, candidates, savedState]);
 
   const updateOverride = useCallback((exeName: string, nextOverride: AppOverride | null) => {
     setDraftState((current) => {
@@ -260,33 +294,33 @@ export function useAppMappingState({
     });
   }, []);
 
-  const handleCreateCustomCategory = useCallback(async () => {
-    const customCategoryName = await prompt({
+  const handleCreateCategory = useCallback(async () => {
+    const categoryName = await prompt({
       title: UI_TEXT.mapping.createCategoryTitle,
       description: UI_TEXT.mapping.createCategoryDescription,
       placeholder: UI_TEXT.mapping.createCategoryPlaceholder,
     });
-    if (!customCategoryName) return;
-    const normalized = normalizeCustomCategoryInput(customCategoryName);
+    if (!categoryName) return;
+    const normalized = normalizeCategoryNameInput(categoryName);
     if (!normalized) return;
-    const category = buildCustomCategory(normalized);
+    const duplicateOption = candidateCategoryOptions.find((option) => option.label === normalized);
+    if (duplicateOption) return;
+    const category = createCategoryId();
     setDraftState((current) => {
       if (!current) return current;
-      return {
-        ...current,
-        customCategories: current.customCategories.includes(category)
-          ? current.customCategories
-          : [...current.customCategories, category],
-        deletedCategories: current.deletedCategories.filter((item) => item !== category),
-      };
+      let nextCategory = category;
+      while (current.persistedCategoryIds.includes(nextCategory)) {
+        nextCategory = createCategoryId();
+      }
+      return createCategoryInDraftState(current, nextCategory, normalized);
     });
-  }, [prompt]);
+  }, [candidateCategoryOptions, prompt]);
 
   const handleDeleteCategory = useCallback(async (category: AppCategory) => {
     if (category === "other") {
       return;
     }
-    const categoryLabel = AppClassification.getCategoryLabel(category);
+    const categoryLabel = resolveCategoryLabel(category);
     const confirmed = await confirm({
       title: UI_TEXT.mapping.deleteCategoryTitle,
       description: UI_TEXT.mapping.deleteCategoryDetail(categoryLabel),
@@ -298,7 +332,57 @@ export function useAppMappingState({
       if (!current) return current;
       return deleteCategoryFromDraftState(current, category);
     });
-  }, [confirm]);
+  }, [confirm, resolveCategoryLabel]);
+
+  const handleRenameCategory = useCallback(async (category: AppCategory) => {
+    if (!draftState || category === "other" || category === "system") {
+      return;
+    }
+
+    const categoryLabel = resolveCategoryLabel(category);
+    const categoryName = await prompt({
+      title: UI_TEXT.mapping.renameCategoryTitle,
+      description: UI_TEXT.mapping.renameCategoryDescription,
+      placeholder: UI_TEXT.mapping.renameCategoryPlaceholder,
+      initialValue: categoryLabel,
+    });
+    if (!categoryName) return;
+
+    const normalized = normalizeCategoryNameInput(categoryName);
+    if (!normalized) return;
+    if (normalized === categoryLabel) return;
+
+    const duplicateOption = candidateCategoryOptions.find((item) => (
+      item.value !== category && item.label === normalized
+    ));
+    if (duplicateOption?.value === "other") return;
+    if (duplicateOption) {
+      const confirmed = await confirm({
+        title: UI_TEXT.mapping.renameCategoryDuplicateTitle,
+        description: UI_TEXT.mapping.renameCategoryDuplicateDetail(normalized),
+        confirmLabel: UI_TEXT.dialog.confirm,
+      });
+      if (!confirmed) return;
+
+      setDraftState((current) => {
+        if (!current) return current;
+        return mergeCategoryIntoDraftState(
+          current,
+          category,
+          duplicateOption.value as UserAssignableAppCategory,
+          resolveCategoryColor(category),
+        );
+      });
+      return;
+    }
+
+    const defaultLabel = getCategoryToken(category).label;
+    const nextLabel = normalized === defaultLabel ? null : normalized;
+    setDraftState((current) => {
+      if (!current) return current;
+      return updateCategoryLabelInDraftState(current, category, nextLabel);
+    });
+  }, [candidateCategoryOptions, confirm, draftState, prompt, resolveCategoryColor, resolveCategoryLabel]);
 
   const handleCategoryAssign = useCallback((candidate: ObservedAppCandidate, categoryValue: string) => {
     const current = draftOverrides[candidate.exeName] ?? null;
@@ -420,7 +504,8 @@ export function useAppMappingState({
         overrides: {},
         webDomainOverrides: {},
         categoryColorOverrides: {},
-        customCategories: [],
+        categoryLabelOverrides: {},
+        persistedCategoryIds: [],
         deletedCategories: [],
       },
       nameDrafts,
@@ -444,7 +529,8 @@ export function useAppMappingState({
         overrides: {},
         webDomainOverrides: {},
         categoryColorOverrides: {},
-        customCategories: [],
+        categoryLabelOverrides: {},
+        persistedCategoryIds: [],
         deletedCategories: [],
       },
       webNameDrafts,
@@ -606,7 +692,12 @@ export function useAppMappingState({
         setDraftState(result.nextDraftState);
       }
       if (result.nextBootstrap) {
-        setClassificationBootstrapCache(result.nextBootstrap);
+        const nextBootstrapIcons = result.nextBootstrap.icons ?? bootstrapIcons;
+        setBootstrapIcons(nextBootstrapIcons);
+        setClassificationBootstrapCache({
+          ...result.nextBootstrap,
+          icons: nextBootstrapIcons,
+        });
       }
       if (result.resetEditingState) {
         setNameEditSnapshots({});
@@ -634,7 +725,7 @@ export function useAppMappingState({
     } finally {
       setSaving(false);
     }
-  }, [candidates, draftState, hasUnsavedChanges, onOverridesChanged, savedState, saving, webDomainCandidates]);
+  }, [bootstrapIcons, candidates, draftState, hasUnsavedChanges, onOverridesChanged, savedState, saving, webDomainCandidates]);
 
   useEffect(() => {
     onRegisterSaveHandler?.(handleSave);
@@ -677,6 +768,7 @@ export function useAppMappingState({
 
   return {
     dialogs,
+    icons: mappingIcons,
     loading,
     draftState,
     savedState,
@@ -700,8 +792,10 @@ export function useAppMappingState({
     categoryControlCategories,
     candidateCategoryOptions,
     resolveCategoryColor,
-    handleCreateCustomCategory,
+    resolveCategoryLabel,
+    handleCreateCategory,
     handleDeleteCategory,
+    handleRenameCategory,
     resolveEffectiveDisplayName,
     resolveCandidateColor,
     resolveMappedCategory,

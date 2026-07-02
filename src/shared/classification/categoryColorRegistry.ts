@@ -1,7 +1,7 @@
 import {
   getCategoryToken,
   isAppCategory,
-  isCustomCategory,
+  isExtendedCategory,
   OTHER_CATEGORY_FIXED_COLOR,
   QUIET_PRO_CATEGORY_PALETTE_37,
   USER_ASSIGNABLE_CATEGORIES,
@@ -124,7 +124,7 @@ export class CategoryColorRegistry {
       return persisted;
     }
 
-    if (!isCustomCategory(category)) {
+    if (!isExtendedCategory(category)) {
       const releaseDefaultColor = Object.prototype.hasOwnProperty.call(
         RELEASE_DEFAULT_CATEGORY_COLOR_ASSIGNMENTS,
         category,

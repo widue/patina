@@ -86,6 +86,9 @@ export function runReadModelRuntimeTests() {
       fetchedAtMs: 456,
       daySessions: [],
       weeklySessions: [],
+      dayWebSegments: [],
+      webDomainFavicons: {},
+      webDomainOverrides: {},
     };
 
     const result = await loadHistoryRuntimeSnapshotWithDeps(date, 14, {
@@ -181,6 +184,9 @@ export function runReadModelRuntimeTests() {
           fetchedAtMs: nowMs,
           daySessions: sessions,
           weeklySessions: sessions,
+          dayWebSegments: [],
+          webDomainFavicons: {},
+          webDomainOverrides: {},
         };
       },
       setHistorySnapshotCache: (snapshot, receivedDate, receivedRollingDayCount) => {
@@ -286,6 +292,9 @@ export function runReadModelRuntimeTests() {
         fetchedAtMs: nowMs,
         daySessions: restoredSessions,
         weeklySessions: restoredSessions,
+        dayWebSegments: [],
+        webDomainFavicons: {},
+        webDomainOverrides: {},
       }),
       setHistorySnapshotCache: (snapshot) => {
         assert.equal(snapshot.daySessions, restoredSessions);
@@ -373,6 +382,9 @@ export function runReadModelRuntimeTests() {
         fetchedAtMs: nowMs,
         daySessions: sessions,
         weeklySessions: sessions,
+        dayWebSegments: [],
+        webDomainFavicons: {},
+        webDomainOverrides: {},
       }),
       setHistorySnapshotCache: (snapshot) => {
         assert.equal(snapshot.daySessions, sessions);
@@ -459,6 +471,9 @@ export function runReadModelRuntimeTests() {
         fetchedAtMs: nowMs,
         daySessions: sessions,
         weeklySessions: sessions,
+        dayWebSegments: [],
+        webDomainFavicons: {},
+        webDomainOverrides: {},
       }),
       setHistorySnapshotCache: (snapshot) => {
         assert.equal(snapshot.daySessions, sessions);
@@ -547,6 +562,9 @@ export function runReadModelRuntimeTests() {
         fetchedAtMs: nowMs,
         daySessions: sessions,
         weeklySessions: sessions,
+        dayWebSegments: [],
+        webDomainFavicons: {},
+        webDomainOverrides: {},
       }),
       setHistorySnapshotCache: (snapshot) => {
         assert.equal(snapshot.daySessions, sessions);
@@ -633,6 +651,9 @@ export function runReadModelRuntimeTests() {
         fetchedAtMs: nowMs,
         daySessions: sessions,
         weeklySessions: sessions,
+        dayWebSegments: [],
+        webDomainFavicons: {},
+        webDomainOverrides: {},
       }),
       setHistorySnapshotCache: (snapshot) => {
         assert.equal(snapshot.daySessions, sessions);
@@ -734,6 +755,9 @@ export function runReadModelRuntimeTests() {
         fetchedAtMs: nowMs,
         daySessions: persistedSessions,
         weeklySessions: persistedSessions,
+        dayWebSegments: [],
+        webDomainFavicons: {},
+        webDomainOverrides: {},
       }),
       setHistorySnapshotCache: (snapshot) => {
         assert.equal(snapshot.daySessions, persistedSessions);
@@ -835,6 +859,9 @@ export function runReadModelRuntimeTests() {
         fetchedAtMs: nowMs,
         daySessions: sessions,
         weeklySessions: sessions,
+        dayWebSegments: [],
+        webDomainFavicons: {},
+        webDomainOverrides: {},
       }),
       setHistorySnapshotCache: (snapshot) => {
         assert.equal(snapshot.daySessions, sessions);

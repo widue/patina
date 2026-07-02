@@ -5,9 +5,11 @@ import {
   type DataTrendRangeSelection,
   type ResolvedDataTrendRange,
 } from "./dataTrendRange.ts";
+import { getCachedDataIconsForExecutables } from "./dataIconService.ts";
 
 export interface DataTrendSnapshot {
   fetchedAtMs: number;
+  icons: Record<string, string>;
   range: ResolvedDataTrendRange;
   sessions: AggregateSessionRecord[];
 }
@@ -19,6 +21,29 @@ export interface DataTrendSnapshotDependencies {
 const snapshotCache = new Map<string, DataTrendSnapshot>();
 const sessionPromises = new Map<string, Promise<AggregateSessionRecord[]>>();
 const DATA_TREND_SNAPSHOT_CACHE_LIMIT = 4;
+
+function collectDataIconExecutables(sessions: AggregateSessionRecord[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const session of sessions) {
+    const exeName = session.exeName.trim();
+    if (!exeName || seen.has(exeName)) continue;
+
+    seen.add(exeName);
+    result.push(exeName);
+  }
+
+  return result;
+}
+
+function getCachedDataIconMap(
+  sessions: AggregateSessionRecord[],
+): Record<string, string> {
+  return getCachedDataIconsForExecutables(
+    collectDataIconExecutables(sessions),
+  );
+}
 
 function touchSnapshotCacheEntry(key: string, snapshot: DataTrendSnapshot): void {
   snapshotCache.delete(key);
@@ -60,7 +85,8 @@ export async function loadDataTrendSnapshot(
   });
   if (!pending) sessionPromises.set(range.cacheKey, sessionPromise);
   return sessionPromise.then((sessions) => {
-    const snapshot = { fetchedAtMs: nowMs, range, sessions };
+    const icons = getCachedDataIconMap(sessions);
+    const snapshot = { fetchedAtMs: nowMs, icons, range, sessions };
     setDataTrendSnapshotCache(snapshot);
     return snapshot;
   });

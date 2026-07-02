@@ -71,7 +71,8 @@ function buildDraftState(overrides: Partial<ClassificationDraftState> = {}): Cla
     overrides: {},
     webDomainOverrides: {},
     categoryColorOverrides: {},
-    customCategories: [],
+    categoryLabelOverrides: {},
+    persistedCategoryIds: [],
     deletedCategories: [],
     ...overrides,
   };

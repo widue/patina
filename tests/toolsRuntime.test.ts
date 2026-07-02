@@ -129,9 +129,12 @@ function classificationBootstrap(
 ): ClassificationBootstrapData {
   return {
     observed,
+    observedWebDomains: [],
     loadedOverrides: {},
+    loadedWebDomainOverrides: {},
     loadedCategoryColorOverrides: {},
-    loadedCustomCategories: [],
+    loadedCategoryLabelOverrides: {},
+    loadedPersistedCategoryIds: [],
     loadedDeletedCategories: [],
   };
 }

@@ -1,8 +1,11 @@
 import { loadDashboardSnapshot, type DashboardSnapshot } from "../../features/dashboard/services/dashboardReadModel.ts";
-import { loadHistorySnapshot, type HistorySnapshot } from "../../features/history/services/historyReadModel.ts";
+import type { HistorySnapshot } from "../../features/history/services/historyReadModel.ts";
 import { ensureProcessMapperRuntimeReady } from "./processMapperRuntimeGate.ts";
 import { setDashboardSnapshotCache } from "../../features/dashboard/services/dashboardSnapshotCache.ts";
-import { setHistorySnapshotCache } from "../../features/history/services/historySnapshotCache.ts";
+import {
+  loadHistorySnapshotWithCache,
+  setHistorySnapshotCache,
+} from "../../features/history/services/historySnapshotCache.ts";
 import {
   loadDataTrendSnapshot,
   type DataTrendSnapshot,
@@ -41,7 +44,7 @@ const dashboardRuntimeSnapshotDeps: DashboardRuntimeSnapshotDeps = {
 
 const historyRuntimeSnapshotDeps: HistoryRuntimeSnapshotDeps = {
   ensureProcessMapperRuntimeReady,
-  loadHistorySnapshot,
+  loadHistorySnapshot: loadHistorySnapshotWithCache,
   setHistorySnapshotCache,
 };
 

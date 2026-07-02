@@ -1,26 +1,29 @@
-import { RotateCcw, Trash2 } from "lucide-react";
+import { PencilLine, RotateCcw, Trash2 } from "lucide-react";
 import type { AppCategory } from "../../../shared/classification/categoryTokens";
 import QuietColorField from "../../../shared/components/QuietColorField";
 import QuietIconAction from "../../../shared/components/QuietIconAction";
 import type { ColorDisplayFormat } from "../../../shared/lib/colorFormatting";
-import { AppClassification } from "../../../shared/classification/appClassification.ts";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 
 interface Props {
   categories: AppCategory[];
   colorFormat: ColorDisplayFormat;
+  getCategoryLabel: (category: AppCategory) => string;
   getCategoryColor: (category: AppCategory) => string;
   onColorFormatChange: (nextFormat: ColorDisplayFormat) => void;
   onApplyColor: (category: AppCategory, color: string | null) => void;
+  onRenameCategory: (category: AppCategory) => void;
   onDeleteCategory: (category: AppCategory) => void;
 }
 
 export default function CategoryColorControls({
   categories,
   colorFormat,
+  getCategoryLabel,
   getCategoryColor,
   onColorFormatChange,
   onApplyColor,
+  onRenameCategory,
   onDeleteCategory,
 }: Props) {
   if (categories.length === 0) {
@@ -30,7 +33,7 @@ export default function CategoryColorControls({
   return (
     <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2">
       {categories.map((category) => {
-        const label = AppClassification.getCategoryLabel(category);
+        const label = getCategoryLabel(category);
         const color = getCategoryColor(category);
 
         return (
@@ -44,7 +47,13 @@ export default function CategoryColorControls({
                   className="h-3.5 w-3.5 shrink-0 rounded-full border border-[var(--qp-bg-panel)]"
                   style={{ backgroundColor: color }}
                 />
-                <span className="truncate text-sm font-semibold text-[var(--qp-text-primary)]">{label}</span>
+                <span className="min-w-0 truncate text-sm font-semibold text-[var(--qp-text-primary)]">{label}</span>
+                <QuietIconAction
+                  icon={<PencilLine size={13} />}
+                  className="qp-icon-action-dimmed"
+                  onClick={() => onRenameCategory(category)}
+                  title={UI_TEXT.mapping.renameCategory(label)}
+                />
               </div>
 
               <div className="flex shrink-0 items-center gap-1.5">

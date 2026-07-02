@@ -53,6 +53,9 @@ import {
 } from "./services/appSettingsRuntimeService.ts";
 import {
   createPreloadableViewComponent,
+  getPreloadableViewChunkStatus,
+  preloadLazyViewChunk,
+  type PreloadableView,
 } from "./services/viewChunkPreloadService";
 import { watchCurrentWindowForegroundState, watchCurrentWindowMaximized } from "../platform/desktop/windowControlGateway";
 import ToolsSidebarStatusEntry from "../features/tools/components/ToolsSidebarStatusEntry.tsx";
@@ -72,6 +75,20 @@ const Settings = createPreloadableViewComponent("settings");
 const About = createPreloadableViewComponent("about");
 const AppMapping = createPreloadableViewComponent("mapping");
 const Tools = createPreloadableViewComponent("tools");
+
+function getPreloadableNavigationView(view: View): PreloadableView | null {
+  switch (view) {
+    case "about":
+    case "data":
+    case "history":
+    case "mapping":
+    case "settings":
+    case "tools":
+      return view;
+    case "dashboard":
+      return null;
+  }
+}
 
 type HistoryDateRequest = {
   dateKey: string;
@@ -110,7 +127,9 @@ function AppShellContent() {
   const [isWindowForegroundLike, setIsWindowForegroundLike] = useState(true);
   const [historyDateRequest, setHistoryDateRequest] = useState<HistoryDateRequest | null>(null);
   const [toolsInitialTarget, setToolsInitialTarget] = useState<ToolsOpenTarget | null>(null);
+  const [renderedView, setRenderedView] = useState<View>("dashboard");
   const backgroundEnteredAtMsRef = useRef<number | null>(null);
+  const renderedViewRequestRef = useRef(0);
   const wasForegroundReadyRef = useRef<boolean | null>(null);
   const warmupRuntimeReadyResolveRef = useRef<(() => void) | null>(null);
   const warmupRuntimeReadyPromiseRef = useRef<Promise<void> | null>(null);
@@ -137,6 +156,40 @@ function AppShellContent() {
     setUiTextLanguage(uiTextLanguage);
     setSyncedUiTextLanguage(uiTextLanguage);
   }, [uiTextLanguage]);
+
+  useEffect(() => {
+    const preloadableView = getPreloadableNavigationView(currentView);
+    renderedViewRequestRef.current += 1;
+    const requestId = renderedViewRequestRef.current;
+
+    if (!preloadableView) {
+      setRenderedView(currentView);
+      return undefined;
+    }
+
+    if (getPreloadableViewChunkStatus(preloadableView) === "resolved") {
+      setRenderedView(currentView);
+      return undefined;
+    }
+
+    let cancelled = false;
+    void preloadLazyViewChunk(preloadableView)
+      .then(() => {
+        if (!cancelled && renderedViewRequestRef.current === requestId) {
+          setRenderedView(currentView);
+        }
+      })
+      .catch((error) => {
+        console.warn(`Failed to preload ${preloadableView} view before navigation`, error);
+        if (!cancelled && renderedViewRequestRef.current === requestId) {
+          setRenderedView(currentView);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentView]);
 
   useAppThemeMode(
     settingsThemeModePreview ?? appSettings.themeMode,
@@ -373,13 +426,29 @@ function AppShellContent() {
     }));
   }, [handleNavigate]);
 
-  const handleSidebarNavigate = useCallback((nextView: View) => {
+  const handleSidebarNavigate = useCallback(async (nextView: View) => {
     setHistoryDateRequest(null);
     if (nextView === "tools") {
       setToolsInitialTarget(null);
     }
-    void handleNavigate(nextView);
+    const preloadableView = getPreloadableNavigationView(nextView);
+    if (preloadableView) {
+      void preloadLazyViewChunk(preloadableView).catch((error) => {
+        console.warn(`Failed to preload ${preloadableView} view on navigation intent`, error);
+      });
+    }
+    const result = await handleNavigate(nextView);
+    return result.navigated;
   }, [handleNavigate]);
+
+  const handleSidebarPreviewNavigate = useCallback((nextView: View) => {
+    const preloadableView = getPreloadableNavigationView(nextView);
+    if (!preloadableView) return;
+
+    void preloadLazyViewChunk(preloadableView).catch((error) => {
+      console.warn(`Failed to preload ${preloadableView} view on navigation preview`, error);
+    });
+  }, []);
 
   return (
     <div className={isWindowMaximized ? "qp-app-frame qp-app-frame-maximized" : "qp-app-frame"}>
@@ -392,6 +461,7 @@ function AppShellContent() {
         <AppSidebar
           currentView={currentView}
           onNavigate={handleSidebarNavigate}
+          onPreviewNavigate={handleSidebarPreviewNavigate}
           footerContent={<ToolsSidebarStatusEntry onOpenSection={handleToolsStatusChipOpen} uiText={uiText} />}
           {...sidebarUpdateEntry}
         />
@@ -408,7 +478,7 @@ function AppShellContent() {
               key={currentView}
               className="qp-view-container flex-1 min-h-0 flex flex-col h-full overflow-hidden"
             >
-              {currentView === "dashboard" && (
+              {renderedView === "dashboard" && (
                 <Dashboard
                   key="dashboard"
                   dashboard={dashboard}
@@ -421,7 +491,7 @@ function AppShellContent() {
                   onHourlyActivityChartModeChange={handleHourlyActivityChartModeChange}
                 />
               )}
-              {currentView === "history" && (
+              {renderedView === "history" && (
                 <History
                   key="history"
                   icons={icons}
@@ -440,7 +510,7 @@ function AppShellContent() {
                   webActivityEnabled={appSettings.webActivityEnabled}
                 />
               )}
-              {currentView === "data" && (
+              {renderedView === "data" && (
                 <Data
                   key="data"
                   icons={icons}
@@ -452,7 +522,7 @@ function AppShellContent() {
                   uiLanguage={uiTextLanguage}
                 />
               )}
-              {currentView === "tools" && (
+              {renderedView === "tools" && (
                 <Tools
                   key="tools"
                   initialTarget={toolsInitialTarget}
@@ -462,7 +532,7 @@ function AppShellContent() {
                   uiText={uiText}
                 />
               )}
-              {currentView === "settings" && (
+              {renderedView === "settings" && (
                 <Settings
                   key="settings"
                   onSettingsChanged={(nextSettings: AppSettings) => {
@@ -486,14 +556,14 @@ function AppShellContent() {
                   onToast={pushToast}
                 />
               )}
-              {currentView === "about" && (
+              {renderedView === "about" && (
                 <About
                   key="about"
                   {...settingsUpdateEntry}
                   onToast={pushToast}
                 />
               )}
-              {currentView === "mapping" && (
+              {renderedView === "mapping" && (
                 <AppMapping
                   key="mapping"
                   icons={icons}

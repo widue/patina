@@ -1,9 +1,9 @@
 import type { UserAssignableAppCategory } from "./categoryTokens.ts";
 
-type BuiltinAssignableCategoryForDefaultColor = Exclude<UserAssignableAppCategory, "other">;
+type SeededAssignableCategoryForDefaultColor = Exclude<UserAssignableAppCategory, "other">;
 
 export const RELEASE_DEFAULT_CATEGORY_COLOR_ASSIGNMENTS: Record<
-  BuiltinAssignableCategoryForDefaultColor,
+  SeededAssignableCategoryForDefaultColor,
   string
 > = {
   ai: "#3293C8",

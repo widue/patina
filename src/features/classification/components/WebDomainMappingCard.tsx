@@ -1,4 +1,4 @@
-import { Globe2, Pencil, RotateCcw, Trash2 } from "lucide-react";
+import { Globe2, ListPlus, ListX, PencilLine, RotateCcw, Trash2 } from "lucide-react";
 import type { ObservedWebDomainCandidate } from "../../../shared/types/webActivity.ts";
 import type { UserAssignableAppCategory } from "../../../shared/classification/categoryTokens.ts";
 import type { ColorDisplayFormat } from "../../../shared/lib/colorFormatting.ts";
@@ -95,7 +95,7 @@ export default function WebDomainMappingCard({
                 </span>
               )}
               <QuietIconAction
-                icon={<Pencil size={13} />}
+                icon={<PencilLine size={13} />}
                 title={UI_TEXT.mapping.editWebDomainName}
                 disabled={isBusy}
                 onClick={onStartNameEdit}
@@ -143,8 +143,9 @@ export default function WebDomainMappingCard({
               onClick={onToggleRecording}
               tone={recordingEnabled ? "warning" : "accent"}
               title={recordingEnabled ? UI_TEXT.mapping.disableWebTracking : UI_TEXT.mapping.enableWebTracking}
+              leadingIcon={recordingEnabled ? <ListX size={12} /> : <ListPlus size={12} />}
             >
-              {recordingEnabled ? UI_TEXT.mapping.statsEnabled : UI_TEXT.mapping.noStats}
+              {recordingEnabled ? UI_TEXT.mapping.excludeStats : UI_TEXT.mapping.restoreStats}
             </QuietInlineAction>
             <QuietInlineAction
               disabled={isBusy}

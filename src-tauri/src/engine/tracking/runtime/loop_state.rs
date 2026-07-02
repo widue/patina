@@ -9,11 +9,13 @@ use crate::data::repositories::tracker_settings::{
 };
 use crate::data::tracking_runtime::TrackingRuntimeDataStore;
 use crate::domain::tracking::TrackingStatusSnapshot;
+use crate::engine::tracking::pause_state::TrackingPauseRuntimeState;
 use crate::platform::windows::foreground as tracker;
 use std::collections::HashMap;
 
 const TRACKER_TIMESTAMP_PERSIST_INTERVAL_MS: i64 = 3_000;
 const TRACKING_SETTINGS_CACHE_TTL_MS: i64 = 5_000;
+const TRACKING_PAUSE_VERIFY_INTERVAL_MS: i64 = 60_000;
 const DEFAULT_CONTINUITY_WINDOW_SECS: u64 = 180;
 const DEFAULT_SUSTAINED_PARTICIPATION_SECS: u64 = 900;
 
@@ -88,6 +90,7 @@ pub(super) async fn persist_tracker_runtime_timestamps(
 
 pub(super) async fn load_tracking_loop_state(
     data: &TrackingRuntimeDataStore,
+    pause_state: &TrackingPauseRuntimeState,
     window_info: &tracker::WindowInfo,
     now_ms: i64,
     previous_state: &SustainedParticipationRuntimeState,
@@ -96,7 +99,7 @@ pub(super) async fn load_tracking_loop_state(
     let cached_settings = settings_cache.load_tracking_settings(data, now_ms).await;
     let continuity_window_secs = cached_settings.continuity_window_secs;
     let sustained_participation_secs = cached_settings.sustained_participation_secs;
-    let tracking_paused = load_tracking_paused(data).await;
+    let tracking_paused = load_tracking_paused(data, pause_state, now_ms).await;
     let capture_window_title = settings_cache
         .load_capture_window_title_setting(data, &window_info.exe_name, now_ms)
         .await;
@@ -225,12 +228,29 @@ impl TrackingSettingsCache {
     }
 }
 
-async fn load_tracking_paused(data: &TrackingRuntimeDataStore) -> bool {
+async fn load_tracking_paused(
+    data: &TrackingRuntimeDataStore,
+    pause_state: &TrackingPauseRuntimeState,
+    now_ms: i64,
+) -> bool {
+    if !pause_state.should_verify(now_ms, TRACKING_PAUSE_VERIFY_INTERVAL_MS) {
+        return pause_state
+            .snapshot()
+            .map(|snapshot| snapshot.tracking_paused)
+            .unwrap_or(false);
+    }
+
     match data.load_tracking_paused_setting().await {
-        Ok(value) => value,
+        Ok(value) => {
+            pause_state.set_verified(value, now_ms);
+            value
+        }
         Err(error) => {
             log_tracker_error(format!("failed to load tracking pause setting: {error}"));
-            false
+            pause_state
+                .snapshot()
+                .map(|snapshot| snapshot.tracking_paused)
+                .unwrap_or(false)
         }
     }
 }
@@ -265,22 +285,25 @@ mod tests {
     }
 
     #[test]
-    fn tracking_pause_setting_is_loaded_fresh() {
+    fn tracking_pause_setting_uses_memory_until_slow_verification() {
         tauri::async_runtime::block_on(async {
             let pool = setup_test_db().await;
             let data = TrackingRuntimeDataStore::new(pool.clone());
+            let pause_state = TrackingPauseRuntimeState::default();
 
-            assert!(!load_tracking_paused(&data).await);
+            assert!(!load_tracking_paused(&data, &pause_state, 1_000).await);
 
             tracker_settings::save_tracking_paused_setting(&pool, true)
                 .await
                 .unwrap();
-            assert!(load_tracking_paused(&data).await);
+            assert!(!load_tracking_paused(&data, &pause_state, 2_000).await);
+            assert!(load_tracking_paused(&data, &pause_state, 61_000).await);
 
             tracker_settings::save_tracking_paused_setting(&pool, false)
                 .await
                 .unwrap();
-            assert!(!load_tracking_paused(&data).await);
+            assert!(load_tracking_paused(&data, &pause_state, 62_000).await);
+            assert!(!load_tracking_paused(&data, &pause_state, 122_000).await);
         });
     }
 }

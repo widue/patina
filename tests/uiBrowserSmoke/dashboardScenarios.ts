@@ -22,6 +22,7 @@ export async function runDashboardScenarios(context: BrowserSmokeContext) {
         })()
       `);
       assert.equal(clicked, true);
+      await waitForExpression(client!, sessionId, `Boolean(document.querySelector(".dashboard-pulse-card"))`);
       await waitForExpression(client!, sessionId, `
         document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1
       `);
