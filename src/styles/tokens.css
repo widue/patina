@@ -76,7 +76,9 @@
 
   --qp-motion-fast: 120ms;
   --qp-motion-base: 180ms;
+  --qp-motion-spring-duration: 250ms;
   --qp-motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  --qp-motion-ease-spring: cubic-bezier(0.25, 1.25, 0.4, 1);
 
   --qp-widget-height: 48px;
   --qp-widget-expanded-width: 228px;

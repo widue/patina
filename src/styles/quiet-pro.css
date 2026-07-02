@@ -594,7 +594,7 @@
   border-radius: 999px;
   background: var(--qp-accent-default);
   transform: translate3d(0, calc(var(--qp-active-nav-index) * 3.125rem), 0);
-  transition: transform var(--qp-motion-base) var(--qp-motion-ease);
+  transition: transform var(--qp-motion-spring-duration) var(--qp-motion-ease-spring);
 }
 
 .qp-button-primary {
