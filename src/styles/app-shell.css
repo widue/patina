@@ -1009,7 +1009,7 @@ body[data-window-label="widget"] {
 }
 
 .qp-content-fade-in {
-  animation: qp-fade-in 180ms ease-out both;
+  animation: qp-fade-in var(--qp-motion-base) var(--qp-motion-ease) both;
 }
 
 @keyframes qp-fade-in {

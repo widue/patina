@@ -1871,6 +1871,10 @@
   font-weight: 600;
   line-height: 1;
   color: var(--qp-text-secondary);
+  transition:
+    background-color var(--qp-motion-fast) var(--qp-motion-ease),
+    border-color var(--qp-motion-fast) var(--qp-motion-ease),
+    color var(--qp-motion-fast) var(--qp-motion-ease);
 }
 
 .qp-segmented-filter-item:hover:not(:disabled) {
