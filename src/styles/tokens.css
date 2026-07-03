@@ -109,6 +109,14 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+.qp-dynamic-effects-off {
+  --qp-motion-fast: 0ms;
+  --qp-motion-base: 0ms;
+  --qp-motion-spring-duration: 0ms;
+  --qp-motion-view-duration: 0ms;
+  --qp-widget-tray-motion: 0ms;
+}
+
 :root[data-theme="dark"] {
   --qp-bg-app: #212121;
   --qp-bg-canvas: #262626;
