@@ -475,8 +475,9 @@ export default function ReminderToolPanel({
           />
         </div>
 
-        {reminderMode === "event" ? (
-          <>
+        <div key={reminderMode} className="tools-mode-content-pane">
+          {reminderMode === "event" ? (
+            <>
             <div className="tools-subpanel">
               <div className="tools-subpanel-header tools-reminder-subpanel-header">
                 <h3>{UI_TEXT.tools.newReminder}</h3>
@@ -585,17 +586,18 @@ export default function ReminderToolPanel({
                 </div>
               )}
             </div>
-          </>
-        ) : (
-          <SoftwareReminderPanel
-            ruleRows={softwareReminderRuleRows}
-            candidates={softwareReminderAppCandidates}
-            icons={icons}
-            busyAction={busyAction}
-            onCreateRule={onCreateSoftwareReminderRule}
-            onDisableRule={onDisableSoftwareReminderRule}
-          />
-        )}
+            </>
+          ) : (
+            <SoftwareReminderPanel
+              ruleRows={softwareReminderRuleRows}
+              candidates={softwareReminderAppCandidates}
+              icons={icons}
+              busyAction={busyAction}
+              onCreateRule={onCreateSoftwareReminderRule}
+              onDisableRule={onDisableSoftwareReminderRule}
+            />
+          )}
+        </div>
       </div>
     </section>
   );
