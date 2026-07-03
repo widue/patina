@@ -334,11 +334,16 @@ await runTest("app shell keeps History and Data snapshot loaders on their owning
 
 await runTest("Data regular view avoids visible loading and skeleton branches", () => {
   const data = readUtf8("src/features/data/components/Data.tsx");
+  const trendPanel = readUtf8("src/features/data/components/DataTrendPanel.tsx");
+  const appTrendPanel = readUtf8("src/features/data/components/DataAppTrendPanel.tsx");
   const heatmapPanel = readUtf8("src/features/data/components/DataHeatmapPanel.tsx");
 
   assert.doesNotMatch(data, /UI_TEXT\.history\.loading/);
   assert.doesNotMatch(data, /data-heatmap-skeleton/);
   assert.doesNotMatch(data, /aria-busy/);
+  assert.doesNotMatch(data, /renderStage/);
+  assert.doesNotMatch(trendPanel, /Loader2|qp-spin/);
+  assert.doesNotMatch(appTrendPanel, /Loader2|qp-spin/);
   assert.doesNotMatch(heatmapPanel, /UI_TEXT\.data\.less/);
   assert.doesNotMatch(heatmapPanel, /UI_TEXT\.data\.more/);
   assert.match(heatmapPanel, /data-heatmap-granularity/);

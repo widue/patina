@@ -1,5 +1,5 @@
 import { memo, type MouseEvent, type RefObject } from "react";
-import { Loader2, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import QuietChartTooltip from "../../../shared/components/QuietChartTooltip";
@@ -102,9 +102,6 @@ function DataAppTrendPanel({
 
       {!viewModel ? (
         <div className="relative">
-          <div className="flex items-center justify-center" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
-            <Loader2 size={18} className="qp-spin text-[var(--qp-text-tertiary)]" />
-          </div>
           <div className="data-app-grid invisible pointer-events-none select-none" aria-hidden="true">
             <div className="data-app-sidebar">
               <div className="data-app-search" />

@@ -215,20 +215,6 @@ export default function Data({
   const activeTrendDateRef = useRef<string | null>(null);
   const activeAppTrendDateRef = useRef<string | null>(null);
   const hasInitialBootstrapSnapshotRef = useRef(Boolean(bootstrapSnapshot));
-  const [renderStage, setRenderStage] = useState(0);
-
-  useEffect(() => {
-    const trendTimer = window.setTimeout(() => setRenderStage(1), 100);
-    const heatmapTimer = window.setTimeout(() => setRenderStage(2), 250);
-    const appTrendTimer = window.setTimeout(() => setRenderStage(3), 400);
-
-    return () => {
-      window.clearTimeout(trendTimer);
-      window.clearTimeout(heatmapTimer);
-      window.clearTimeout(appTrendTimer);
-    };
-  }, []);
-
   useEffect(() => {
     if (bootstrapSnapshot) return;
 
@@ -696,7 +682,7 @@ export default function Data({
         <div className="data-overview-grid">
           <DataTrendPanel
             selection={selectedTrendRange}
-            viewModel={renderStage >= 1 ? visibleTrendViewModel : null}
+            viewModel={visibleTrendViewModel}
             chartRef={overviewTrendChart.chartRef}
             initialDimension={overviewTrendChart.initialDimension}
             canOpenHistory={canOpenTrendHistory}
@@ -719,13 +705,13 @@ export default function Data({
             onGranularityChange={setHeatmapGranularity}
             onSelectAdjacentHeatmapView={selectAdjacentHeatmapView}
             onOpenHistoryDate={onOpenHistoryDate}
-            loading={heatmapLoading || renderStage < 2}
+            loading={heatmapLoading}
           />
         </div>
 
         <DataAppTrendPanel
           selection={selectedAppTrendRange}
-          viewModel={renderStage >= 3 ? visibleAppTrendViewModel : null}
+          viewModel={visibleAppTrendViewModel}
           selectedApp={selectedAppTrendApp}
           filteredAppOptions={filteredAppOptions}
           appSearchQuery={appSearchQuery}

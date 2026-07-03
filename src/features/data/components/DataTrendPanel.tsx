@@ -1,5 +1,5 @@
 import { memo, type MouseEvent, type RefObject } from "react";
-import { CalendarDays, Clock3, Loader2 } from "lucide-react";
+import { CalendarDays, Clock3 } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import QuietChartTooltip from "../../../shared/components/QuietChartTooltip";
@@ -127,11 +127,7 @@ function DataTrendPanel({
                 />
               </AreaChart>
             </ResponsiveContainer>
-          ) : (
-            <div className="flex flex-col items-center justify-center gap-2 h-full">
-              <Loader2 size={18} className="qp-spin text-[var(--qp-text-tertiary)]" />
-            </div>
-          )}
+          ) : null}
         </div>
       </div>
     </div>
