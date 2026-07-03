@@ -194,6 +194,15 @@ function AppShellContent() {
   }
 
   useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+
+    document.documentElement.classList.toggle("qp-dynamic-effects-off", !dynamicEffects);
+    return () => {
+      document.documentElement.classList.remove("qp-dynamic-effects-off");
+    };
+  }, [dynamicEffects]);
+
+  useEffect(() => {
     setUiTextLanguage(uiTextLanguage);
     setSyncedUiTextLanguage(uiTextLanguage);
   }, [uiTextLanguage]);

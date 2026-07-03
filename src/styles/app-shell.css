@@ -994,7 +994,8 @@ body[data-window-label="widget"] {
 
 .qp-dynamic-effects-off .qp-view-container,
 .qp-dynamic-effects-off .qp-nav-active-bg,
-.qp-dynamic-effects-off .qp-nav-active-indicator {
+.qp-dynamic-effects-off .qp-nav-active-indicator,
+.qp-dynamic-effects-off .qp-toast-entry {
   animation: none;
   transition: none;
 }

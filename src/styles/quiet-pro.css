@@ -812,6 +812,14 @@
   transform-origin: bottom center;
 }
 
+.qp-dynamic-effects-off .history-calendar-popover,
+.qp-dynamic-effects-off .history-activity-popover,
+.qp-dynamic-effects-off .qp-dialog-backdrop,
+.qp-dynamic-effects-off .qp-dialog-surface {
+  animation: none;
+  transition: none;
+}
+
 @keyframes qp-popover-fade-in {
   from {
     opacity: 0;
