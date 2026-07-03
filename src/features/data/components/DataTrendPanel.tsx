@@ -31,7 +31,7 @@ interface DataTrendPanelProps {
   onMouseLeave: () => void;
 }
 
-const DataTrendPanel = memo(function DataTrendPanel({
+function DataTrendPanel({
   selection,
   viewModel,
   chartRef,
@@ -136,6 +136,6 @@ const DataTrendPanel = memo(function DataTrendPanel({
       </div>
     </div>
   );
-});
+}
 
-export default DataTrendPanel;
+export default memo(DataTrendPanel);
