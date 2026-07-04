@@ -95,129 +95,131 @@ export default function TimerToolPanel({
           />
         </div>
 
-        <div className="tools-time-display">
-          <span>{viewModel.helperLabel}</span>
-          <strong>{viewModel.displayTime}</strong>
-        </div>
+        <div key={effectiveMode} className="tools-mode-content-pane">
+          <div className="tools-time-display">
+            <span>{viewModel.helperLabel}</span>
+            <strong>{viewModel.displayTime}</strong>
+          </div>
 
-        <div className="tools-timer-controls">
-          <div className="tools-timer-config">
-            <label className="tools-form-field">
-              <span>{UI_TEXT.tools.timerLabel}</span>
-              <input
-                type="text"
-                value={label}
-                disabled={hasActiveTimer}
-                onChange={(event) => setLabel(event.target.value)}
-                placeholder={UI_TEXT.tools.timerLabelPlaceholder}
-                className="qp-input"
-              />
-            </label>
-            {effectiveMode === "countdown" ? (
-              <div className="tools-form-field">
-                <span>{UI_TEXT.tools.countdownDuration}</span>
+          <div className="tools-timer-controls">
+            <div className="tools-timer-config">
+              <label className="tools-form-field">
+                <span>{UI_TEXT.tools.timerLabel}</span>
                 <input
-                  id="tools-countdown-duration"
-                  type="number"
-                  min={1}
-                  max={180}
-                  value={countdownMinutes}
+                  type="text"
+                  value={label}
                   disabled={hasActiveTimer}
-                  onChange={(event) => setCountdownMinutes(event.target.value)}
-                  className="qp-input tools-small-number-input"
+                  onChange={(event) => setLabel(event.target.value)}
+                  placeholder={UI_TEXT.tools.timerLabelPlaceholder}
+                  className="qp-input"
                 />
-              </div>
-            ) : null}
-          </div>
-
-          <div className="tools-action-row tools-timer-action-row">
-            {viewModel.status === "idle" || viewModel.status === "completed" ? (
-              <button
-                type="button"
-                disabled={starting || !canStartTimer}
-                onClick={() => {
-                  const durationMinutes = effectiveMode === "countdown"
-                    ? parsedCountdownMinutes
-                    : 1;
-                  if (durationMinutes === null) return;
-
-                  void onStartTimer(effectiveMode, durationMinutes, label.trim() || undefined);
-                }}
-                aria-label={UI_TEXT.accessibility.tools.startTimer}
-                className="qp-button-primary tools-action-button"
-              >
-                <Play size={14} />
-                {UI_TEXT.tools.start}
-              </button>
-            ) : null}
-            {viewModel.status === "running" ? (
-              <>
-                <button
-                  type="button"
-                  disabled={busyAction === "pause-timer"}
-                  onClick={() => void onPauseTimer()}
-                  aria-label={UI_TEXT.accessibility.tools.pauseTimer}
-                  className="qp-button-secondary tools-action-button"
-                >
-                  <Pause size={14} />
-                  {UI_TEXT.tools.pause}
-                </button>
-                <button
-                  type="button"
-                  disabled={busyAction === "add-timer-lap"}
-                  onClick={() => void onAddTimerLap()}
-                  aria-label={UI_TEXT.accessibility.tools.addTimerLap}
-                  className="qp-button-secondary tools-action-button"
-                >
-                  <Flag size={14} />
-                  {UI_TEXT.tools.lap}
-                </button>
-              </>
-            ) : null}
-            {viewModel.status === "paused" ? (
-              <button
-                type="button"
-                disabled={busyAction === "resume-timer"}
-                onClick={() => void onResumeTimer()}
-                aria-label={UI_TEXT.accessibility.tools.resumeTimer}
-                className="qp-button-primary tools-action-button"
-              >
-                <Play size={14} />
-                {UI_TEXT.tools.resume}
-              </button>
-            ) : null}
-            {viewModel.status !== "idle" ? (
-              <button
-                type="button"
-                disabled={busyAction === "reset-timer"}
-                onClick={() => void handleResetTimer()}
-                aria-label={UI_TEXT.accessibility.tools.resetTimer}
-                className="qp-button-secondary tools-action-button"
-              >
-                <RotateCcw size={14} />
-                {UI_TEXT.tools.reset}
-              </button>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="tools-list-section">
-          <h3>{UI_TEXT.tools.lapsTitle}</h3>
-          {snapshot.timerLaps.length === 0 ? (
-            <div className="tools-empty-state">{UI_TEXT.tools.lapsEmpty}</div>
-          ) : (
-            <div className="tools-lap-list">
-              {snapshot.timerLaps.map((lap) => (
-                <div key={lap.id} className="tools-lap-row">
-                  <div>
-                    <strong>{UI_TEXT.tools.lapIndex(lap.lapIndex)}</strong>
-                    <span>{new Date(lap.startedAt).toLocaleTimeString()} - {new Date(lap.endedAt).toLocaleTimeString()}</span>
-                  </div>
-                  <span className="tools-tabular">{formatHms(lap.durationMs)}</span>
+              </label>
+              {effectiveMode === "countdown" ? (
+                <div className="tools-form-field">
+                  <span>{UI_TEXT.tools.countdownDuration}</span>
+                  <input
+                    id="tools-countdown-duration"
+                    type="number"
+                    min={1}
+                    max={180}
+                    value={countdownMinutes}
+                    disabled={hasActiveTimer}
+                    onChange={(event) => setCountdownMinutes(event.target.value)}
+                    className="qp-input tools-small-number-input"
+                  />
                 </div>
-              ))}
+              ) : null}
             </div>
-          )}
+
+            <div className="tools-action-row tools-timer-action-row">
+              {viewModel.status === "idle" || viewModel.status === "completed" ? (
+                <button
+                  type="button"
+                  disabled={starting || !canStartTimer}
+                  onClick={() => {
+                    const durationMinutes = effectiveMode === "countdown"
+                      ? parsedCountdownMinutes
+                      : 1;
+                    if (durationMinutes === null) return;
+
+                    void onStartTimer(effectiveMode, durationMinutes, label.trim() || undefined);
+                  }}
+                  aria-label={UI_TEXT.accessibility.tools.startTimer}
+                  className="qp-button-primary tools-action-button"
+                >
+                  <Play size={14} />
+                  {UI_TEXT.tools.start}
+                </button>
+              ) : null}
+              {viewModel.status === "running" ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={busyAction === "pause-timer"}
+                    onClick={() => void onPauseTimer()}
+                    aria-label={UI_TEXT.accessibility.tools.pauseTimer}
+                    className="qp-button-secondary tools-action-button"
+                  >
+                    <Pause size={14} />
+                    {UI_TEXT.tools.pause}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busyAction === "add-timer-lap"}
+                    onClick={() => void onAddTimerLap()}
+                    aria-label={UI_TEXT.accessibility.tools.addTimerLap}
+                    className="qp-button-secondary tools-action-button"
+                  >
+                    <Flag size={14} />
+                    {UI_TEXT.tools.lap}
+                  </button>
+                </>
+              ) : null}
+              {viewModel.status === "paused" ? (
+                <button
+                  type="button"
+                  disabled={busyAction === "resume-timer"}
+                  onClick={() => void onResumeTimer()}
+                  aria-label={UI_TEXT.accessibility.tools.resumeTimer}
+                  className="qp-button-primary tools-action-button"
+                >
+                  <Play size={14} />
+                  {UI_TEXT.tools.resume}
+                </button>
+              ) : null}
+              {viewModel.status !== "idle" ? (
+                <button
+                  type="button"
+                  disabled={busyAction === "reset-timer"}
+                  onClick={() => void handleResetTimer()}
+                  aria-label={UI_TEXT.accessibility.tools.resetTimer}
+                  className="qp-button-secondary tools-action-button"
+                >
+                  <RotateCcw size={14} />
+                  {UI_TEXT.tools.reset}
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="tools-list-section">
+            <h3>{UI_TEXT.tools.lapsTitle}</h3>
+            {snapshot.timerLaps.length === 0 ? (
+              <div className="tools-empty-state">{UI_TEXT.tools.lapsEmpty}</div>
+            ) : (
+              <div className="tools-lap-list">
+                {snapshot.timerLaps.map((lap) => (
+                  <div key={lap.id} className="tools-lap-row">
+                    <div>
+                      <strong>{UI_TEXT.tools.lapIndex(lap.lapIndex)}</strong>
+                      <span>{new Date(lap.startedAt).toLocaleTimeString()} - {new Date(lap.endedAt).toLocaleTimeString()}</span>
+                    </div>
+                    <span className="tools-tabular">{formatHms(lap.durationMs)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </section>

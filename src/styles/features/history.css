@@ -19,6 +19,10 @@
   flex: 0 0 auto;
 }
 
+.history-day-distribution-progress {
+  transition: width var(--qp-motion-base) var(--qp-motion-ease);
+}
+
 .history-day-summary-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);

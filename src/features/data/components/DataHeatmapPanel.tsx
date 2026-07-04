@@ -27,6 +27,7 @@ interface DataHeatmapPanelProps {
   onGranularityChange: (granularity: HeatmapGranularity) => void;
   onSelectAdjacentHeatmapView: (delta: number) => void;
   onOpenHistoryDate?: (dateKey: string) => void;
+  loading?: boolean;
 }
 
 function formatHeatmapShortDate(dateKey: string) {
@@ -83,6 +84,7 @@ function DataHeatmapPanel({
   onGranularityChange,
   onSelectAdjacentHeatmapView,
   onOpenHistoryDate,
+  loading = false,
 }: DataHeatmapPanelProps) {
   const heatmapWeeksRef = useRef<HTMLDivElement | null>(null);
   const weeklyHeatmapCells = useMemo(() => buildWeeklyHeatmapCells(rows), [rows]);
@@ -140,7 +142,9 @@ function DataHeatmapPanel({
       <div className="data-heatmap data-heatmap-calendar mt-5">
         <div className="data-heatmap-content">
           <div
-            className="data-heatmap-scroll"
+            className={`data-heatmap-scroll ${rows.length > 0 ? "qp-content-fade-in" : ""} ${
+              loading ? "data-heatmap-loading-state" : ""
+            }`}
             style={{ "--data-heatmap-week-count": rows.length } as CSSProperties}
           >
             <div className="data-heatmap-months" aria-hidden>

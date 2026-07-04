@@ -1,6 +1,5 @@
 import type { RefObject } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion } from "framer-motion";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import { formatTime } from "../services/historyFormatting.ts";
 
@@ -30,16 +29,11 @@ export default function HistoryTimelineDetailsPopover({
   popover,
   popoverRef,
 }: HistoryTimelineDetailsPopoverProps) {
-  return createPortal((
-    <AnimatePresence>
-      {popover && (
-        <motion.div
+  return createPortal(
+    popover ? (
+        <div
           ref={popoverRef}
-          initial={{ opacity: 0, y: -4, scale: 0.99 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -4, scale: 0.99 }}
-          transition={{ duration: 0.12, ease: "easeOut" }}
-          className={`history-activity-popover history-activity-popover-${popover.placement}`}
+          className={`history-activity-popover qp-motion-popover-enter history-activity-popover-${popover.placement}`}
           style={{
             left: popover.left,
             top: popover.top,
@@ -64,8 +58,8 @@ export default function HistoryTimelineDetailsPopover({
               </div>
             ))}
           </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  ), document.body);
+        </div>
+      ) : null,
+    document.body,
+  );
 }

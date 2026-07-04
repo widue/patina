@@ -476,13 +476,24 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
     assert.ok(zoomedTimelineState.windowStart);
     assert.ok(zoomedTimelineState.windowEnd);
     const panStartBefore = zoomedTimelineState.windowStart;
+    const panEndBefore = zoomedTimelineState.windowEnd;
+    const timelinePanDeltaY = await evaluate(client!, sessionId, `
+      (() => {
+        const startMs = Number(${jsonString(panStartBefore)});
+        const endMs = Number(${jsonString(panEndBefore)});
+        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 120;
+        const dayStartMs = new Date(startMs).setHours(0, 0, 0, 0);
+        const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
+        return endMs >= dayEndMs ? -120 : 120;
+      })()
+    `);
     assert.equal(
       await evaluate(client!, sessionId, `
         (() => {
           const target = document.querySelector(".history-timeline-zoom-dialog-timeline");
           if (!target) return false;
           target.dispatchEvent(new WheelEvent("wheel", {
-            deltaY: 120,
+            deltaY: ${timelinePanDeltaY},
             bubbles: true,
             cancelable: true,
           }));

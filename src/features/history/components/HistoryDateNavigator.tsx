@@ -1,5 +1,4 @@
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { addLocalMonths } from "../../../shared/lib/localDate.ts";
 import { formatDateLabel } from "../services/historyFormatting.ts";
@@ -43,14 +42,13 @@ export default function HistoryDateNavigator({
 }: HistoryDateNavigatorProps) {
   return (
     <div className="flex items-center gap-2 shrink-0">
-      <motion.button
-        whileTap={{ scale: 0.995 }}
-        transition={{ duration: 0.1, ease: "easeOut" }}
+      <button
+        type="button"
         onClick={() => onChangeDate(-1)}
         className="qp-control w-9 h-9 !min-h-0 flex items-center justify-center text-[var(--qp-text-secondary)] hover:text-[var(--qp-text-primary)]"
       >
         <ChevronLeft size={16} />
-      </motion.button>
+      </button>
       <div ref={datePickerRef} className="relative">
         <span
           role="button"
@@ -80,15 +78,14 @@ export default function HistoryDateNavigator({
           onSelectDate={onSelectCalendarDate}
         />
       </div>
-      <motion.button
-        whileTap={{ scale: 0.995 }}
-        transition={{ duration: 0.1, ease: "easeOut" }}
+      <button
+        type="button"
         onClick={() => onChangeDate(1)}
         disabled={isToday}
         className="qp-control w-9 h-9 !min-h-0 flex items-center justify-center text-[var(--qp-text-secondary)] hover:text-[var(--qp-text-primary)] disabled:opacity-35 disabled:cursor-not-allowed"
       >
         <ChevronRight size={16} />
-      </motion.button>
+      </button>
     </div>
   );
 }

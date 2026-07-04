@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { getUiText, setUiTextLanguage } from "../shared/copy/index.ts";
 import AppSidebar from "./components/AppSidebar";
 import AppTitleBar from "./components/AppTitleBar";
@@ -47,6 +47,7 @@ import { useAppShellNavigation } from "./hooks/useAppShellNavigation";
 import { useAppShellToasts } from "./hooks/useAppShellToasts";
 import { useAppShellUpdateEntry } from "./hooks/useAppShellUpdateEntry";
 import { useAppThemeMode } from "./hooks/useAppThemeMode.ts";
+import { useQuietMotionPreference } from "../shared/motion/useQuietMotionPreference.ts";
 import {
   saveHourlyActivityChartModeSetting,
   saveMinSessionSecsSetting,
@@ -99,6 +100,8 @@ type HistoryDateRequest = {
   requestId: number;
 };
 
+const VIEW_ORDER: View[] = ["dashboard", "history", "data", "mapping", "tools", "settings", "about"];
+
 export default function AppShell() {
   return (
     <UpdateDialogProvider>
@@ -132,6 +135,34 @@ function AppShellContent() {
   const [historyDateRequest, setHistoryDateRequest] = useState<HistoryDateRequest | null>(null);
   const [toolsInitialTarget, setToolsInitialTarget] = useState<ToolsOpenTarget | null>(null);
   const [renderedView, setRenderedView] = useState<View>("dashboard");
+  const prevViewIndexRef = useRef(0);
+  const [viewTransitionStyle, setViewTransitionStyle] = useState<CSSProperties>({
+    "--qp-view-transition-offset": "12px",
+    "--qp-view-transition-duration": "220ms",
+  } as CSSProperties);
+
+  const changeRenderedView = useCallback((nextView: View) => {
+    const prevIndex = prevViewIndexRef.current;
+    const nextIndex = VIEW_ORDER.indexOf(nextView);
+
+    if (prevIndex !== nextIndex && nextIndex !== -1) {
+      const diff = nextIndex - prevIndex;
+      const direction = diff > 0 ? 1 : -1;
+      const absDiff = Math.abs(diff);
+      const offsetVal = 6 + Math.min(3, absDiff) * 4;
+      const durationVal = Math.max(170, 230 - absDiff * 15);
+
+      setViewTransitionStyle({
+        "--qp-view-transition-offset": `${direction * offsetVal}px`,
+        "--qp-view-transition-duration": `${durationVal}ms`,
+      } as CSSProperties);
+
+      prevViewIndexRef.current = nextIndex;
+    }
+
+    setRenderedView(nextView);
+  }, []);
+
   const backgroundEnteredAtMsRef = useRef<number | null>(null);
   const renderedViewRequestRef = useRef(0);
   const wasForegroundReadyRef = useRef<boolean | null>(null);
@@ -150,11 +181,22 @@ function AppShellContent() {
   const [syncedUiTextLanguage, setSyncedUiTextLanguage] = useState<AppLanguage>(appSettings.language);
   const uiTextLanguage = settingsLanguagePreview ?? appSettings.language;
   const uiText = getUiText(uiTextLanguage);
+  const dynamicEffects = appSettings.dynamicEffects;
+  const quietMotionMode = useQuietMotionPreference(dynamicEffects);
   if (!warmupRuntimeReadyPromiseRef.current) {
     warmupRuntimeReadyPromiseRef.current = new Promise((resolve) => {
       warmupRuntimeReadyResolveRef.current = resolve;
     });
   }
+
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+
+    document.documentElement.dataset.qpMotion = quietMotionMode;
+    return () => {
+      delete document.documentElement.dataset.qpMotion;
+    };
+  }, [quietMotionMode]);
 
   useEffect(() => {
     setUiTextLanguage(uiTextLanguage);
@@ -167,12 +209,12 @@ function AppShellContent() {
     const requestId = renderedViewRequestRef.current;
 
     if (!preloadableView) {
-      setRenderedView(currentView);
+      changeRenderedView(currentView);
       return undefined;
     }
 
     if (getPreloadableViewChunkStatus(preloadableView) === "resolved") {
-      setRenderedView(currentView);
+      changeRenderedView(currentView);
       return undefined;
     }
 
@@ -180,20 +222,20 @@ function AppShellContent() {
     void preloadLazyViewChunk(preloadableView)
       .then(() => {
         if (!cancelled && renderedViewRequestRef.current === requestId) {
-          setRenderedView(currentView);
+          changeRenderedView(currentView);
         }
       })
       .catch((error) => {
         console.warn(`Failed to preload ${preloadableView} view before navigation`, error);
         if (!cancelled && renderedViewRequestRef.current === requestId) {
-          setRenderedView(currentView);
+          changeRenderedView(currentView);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [currentView]);
+  }, [currentView, changeRenderedView]);
 
   useAppThemeMode(
     settingsThemeModePreview ?? appSettings.themeMode,
@@ -477,7 +519,13 @@ function AppShellContent() {
   }, []);
 
   return (
-    <div className={isWindowMaximized ? "qp-app-frame qp-app-frame-maximized" : "qp-app-frame"}>
+    <div
+      data-qp-motion={quietMotionMode}
+      className={[
+        "qp-app-frame",
+        isWindowMaximized ? "qp-app-frame-maximized" : "",
+      ].filter(Boolean).join(" ")}
+    >
       <AppTitleBar isMaximized={isWindowMaximized} />
 
       <div className="qp-shell flex-1 min-h-0 p-4 md:p-5 lg:p-6 flex gap-4 md:gap-5 lg:gap-6 overflow-hidden">
@@ -500,6 +548,11 @@ function AppShellContent() {
               </div>
             }
           >
+            <div
+              key={renderedView}
+              style={viewTransitionStyle}
+              className="qp-view-container qp-motion-view-enter flex-1 min-h-0 flex flex-col h-full overflow-hidden"
+            >
               {renderedView === "dashboard" && (
                 <Dashboard
                   key="dashboard"
@@ -610,6 +663,7 @@ function AppShellContent() {
                   webActivityEnabled={appSettings.webActivityEnabled}
                 />
               )}
+            </div>
           </Suspense>
         </main>
       </div>

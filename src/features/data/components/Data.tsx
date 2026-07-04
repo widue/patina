@@ -215,7 +215,6 @@ export default function Data({
   const activeTrendDateRef = useRef<string | null>(null);
   const activeAppTrendDateRef = useRef<string | null>(null);
   const hasInitialBootstrapSnapshotRef = useRef(Boolean(bootstrapSnapshot));
-
   useEffect(() => {
     if (bootstrapSnapshot) return;
 
@@ -680,58 +679,59 @@ export default function Data({
       />
 
       <div className="data-dashboard-grid">
-      <div className="data-overview-grid">
-        <DataTrendPanel
-          selection={selectedTrendRange}
-          viewModel={visibleTrendViewModel}
-          chartRef={overviewTrendChart.chartRef}
-          initialDimension={overviewTrendChart.initialDimension}
-          canOpenHistory={canOpenTrendHistory}
-          onSelectionChange={setSelectedTrendRange}
-          onMouseDownCapture={handleTrendMouseDownCapture}
-          onDoubleClickCapture={handleTrendDoubleClickCapture}
-          onMouseMove={handleTrendMouseMove}
-          onMouseLeave={handleTrendMouseLeave}
-        />
+        <div className="data-overview-grid">
+          <DataTrendPanel
+            selection={selectedTrendRange}
+            viewModel={visibleTrendViewModel}
+            chartRef={overviewTrendChart.chartRef}
+            initialDimension={overviewTrendChart.initialDimension}
+            canOpenHistory={canOpenTrendHistory}
+            onSelectionChange={setSelectedTrendRange}
+            onMouseDownCapture={handleTrendMouseDownCapture}
+            onDoubleClickCapture={handleTrendDoubleClickCapture}
+            onMouseMove={handleTrendMouseMove}
+            onMouseLeave={handleTrendMouseLeave}
+          />
 
-        <DataHeatmapPanel
-          selectedHeatmapView={selectedHeatmapView}
-          selectedHeatmapViewKey={selectedHeatmapViewKey}
-          selectedHeatmapViewLabel={selectedHeatmapViewLabel}
-          rows={visibleHeatmapRows}
-          granularity={heatmapGranularity}
-          granularityOptions={heatmapGranularityOptions}
-          canSelectOlderHeatmapView={canSelectOlderHeatmapView}
-          canSelectNewerHeatmapView={canSelectNewerHeatmapView}
-          onGranularityChange={setHeatmapGranularity}
-          onSelectAdjacentHeatmapView={selectAdjacentHeatmapView}
-          onOpenHistoryDate={onOpenHistoryDate}
-        />
-      </div>
+          <DataHeatmapPanel
+            selectedHeatmapView={selectedHeatmapView}
+            selectedHeatmapViewKey={selectedHeatmapViewKey}
+            selectedHeatmapViewLabel={selectedHeatmapViewLabel}
+            rows={visibleHeatmapRows}
+            granularity={heatmapGranularity}
+            granularityOptions={heatmapGranularityOptions}
+            canSelectOlderHeatmapView={canSelectOlderHeatmapView}
+            canSelectNewerHeatmapView={canSelectNewerHeatmapView}
+            onGranularityChange={setHeatmapGranularity}
+            onSelectAdjacentHeatmapView={selectAdjacentHeatmapView}
+            onOpenHistoryDate={onOpenHistoryDate}
+            loading={heatmapLoading}
+          />
+        </div>
 
-      <DataAppTrendPanel
-        selection={selectedAppTrendRange}
-        viewModel={visibleAppTrendViewModel}
-        selectedApp={selectedAppTrendApp}
-        filteredAppOptions={filteredAppOptions}
-        appSearchQuery={appSearchQuery}
-        hasAppSearchQuery={hasAppSearchQuery}
-        chartData={appTrendChartData}
-        chartAxis={appTrendChartAxis}
-        peakDay={appTrendPeakDay}
-        dataIcons={dataIcons}
-        appListRef={appListRef}
-        chartRef={appTrendChart.chartRef}
-        initialDimension={appTrendChart.initialDimension}
-        canOpenHistory={canOpenAppTrendHistory}
-        onSelectionChange={setSelectedAppTrendRange}
-        onSearchQueryChange={handleAppSearchQueryChange}
-        onAppSelect={setSelectedAppKey}
-        onMouseDownCapture={handleAppTrendMouseDownCapture}
-        onDoubleClickCapture={handleAppTrendDoubleClickCapture}
-        onMouseMove={handleAppTrendMouseMove}
-        onMouseLeave={handleAppTrendMouseLeave}
-      />
+        <DataAppTrendPanel
+          selection={selectedAppTrendRange}
+          viewModel={visibleAppTrendViewModel}
+          selectedApp={selectedAppTrendApp}
+          filteredAppOptions={filteredAppOptions}
+          appSearchQuery={appSearchQuery}
+          hasAppSearchQuery={hasAppSearchQuery}
+          chartData={appTrendChartData}
+          chartAxis={appTrendChartAxis}
+          peakDay={appTrendPeakDay}
+          dataIcons={dataIcons}
+          appListRef={appListRef}
+          chartRef={appTrendChart.chartRef}
+          initialDimension={appTrendChart.initialDimension}
+          canOpenHistory={canOpenAppTrendHistory}
+          onSelectionChange={setSelectedAppTrendRange}
+          onSearchQueryChange={handleAppSearchQueryChange}
+          onAppSelect={setSelectedAppKey}
+          onMouseDownCapture={handleAppTrendMouseDownCapture}
+          onDoubleClickCapture={handleAppTrendDoubleClickCapture}
+          onMouseMove={handleAppTrendMouseMove}
+          onMouseLeave={handleAppTrendMouseLeave}
+        />
       </div>
     </div>
   );

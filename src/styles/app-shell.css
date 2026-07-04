@@ -802,8 +802,8 @@ body[data-window-label="widget"] {
   overflow: hidden;
   padding: 0 7px;
   transition:
-    opacity var(--qp-motion-fast) var(--qp-motion-ease),
-    transform var(--qp-motion-fast) var(--qp-motion-ease);
+    opacity var(--qp-motion-base) var(--qp-motion-ease),
+    transform var(--qp-motion-base) var(--qp-motion-ease);
 }
 
 .widget-shell-left .widget-pill-tray {
@@ -983,13 +983,11 @@ body[data-window-label="widget"] {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
+:root[data-qp-motion="reduced"] *,
+:root[data-qp-motion="reduced"] *::before,
+:root[data-qp-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }

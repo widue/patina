@@ -71,7 +71,7 @@ function DataAppTrendPanel({
   onMouseLeave,
 }: DataAppTrendPanelProps) {
   return (
-    <div className="qp-panel p-5 data-app-panel">
+    <div className="qp-panel p-5 data-app-panel relative">
       <div className="data-app-panel-header">
         <div>
           <h3 className="font-semibold text-[var(--qp-text-primary)] text-sm">
@@ -101,34 +101,36 @@ function DataAppTrendPanel({
       </div>
 
       {!viewModel ? (
-        <div className="data-app-grid invisible pointer-events-none select-none" aria-hidden="true">
-          <div className="data-app-sidebar">
-            <div className="data-app-search" />
-            <div className="data-app-list data-app-trend-list" />
-          </div>
-          <div className="data-app-chart-column">
-            <div className="data-app-metric-strip">
-              <div className="data-app-metric">
-                <span>-</span>
-                <strong>-</strong>
-              </div>
-              <div className="data-app-metric">
-                <span>-</span>
-                <strong>-</strong>
-              </div>
-              <div className="data-app-metric">
-                <span>-</span>
-                <strong>-</strong>
-              </div>
-              <div className="data-app-metric">
-                <span>-</span>
-                <strong>-</strong>
-              </div>
+        <div className="relative">
+          <div className="data-app-grid invisible pointer-events-none select-none" aria-hidden="true">
+            <div className="data-app-sidebar">
+              <div className="data-app-search" />
+              <div className="data-app-list data-app-trend-list" />
             </div>
-            <div
-              ref={chartRef}
-              className="data-app-chart data-chart-placeholder"
-            />
+            <div className="data-app-chart-column">
+              <div className="data-app-metric-strip">
+                <div className="data-app-metric">
+                  <span>-</span>
+                  <strong>-</strong>
+                </div>
+                <div className="data-app-metric">
+                  <span>-</span>
+                  <strong>-</strong>
+                </div>
+                <div className="data-app-metric">
+                  <span>-</span>
+                  <strong>-</strong>
+                </div>
+                <div className="data-app-metric">
+                  <span>-</span>
+                  <strong>-</strong>
+                </div>
+              </div>
+              <div
+                ref={chartRef}
+                className="data-app-chart data-chart-placeholder"
+              />
+            </div>
           </div>
         </div>
       ) : viewModel.appOptions.length === 0 ? (
@@ -136,7 +138,7 @@ function DataAppTrendPanel({
           {UI_TEXT.data.appTrendEmpty}
         </div>
       ) : (
-        <div className="data-app-grid">
+        <div className="data-app-grid qp-content-fade-in">
           <div className="data-app-sidebar">
             <label className="data-app-search">
               <Search size={14} aria-hidden />
@@ -208,7 +210,7 @@ function DataAppTrendPanel({
             </div>
             <div
               ref={chartRef}
-              className={`data-app-chart ${canOpenHistory ? "data-chart-openable" : ""}`}
+              className={`data-app-chart qp-content-fade-in ${canOpenHistory ? "data-chart-openable" : ""}`}
               onMouseDownCapture={onMouseDownCapture}
               onDoubleClickCapture={onDoubleClickCapture}
             >

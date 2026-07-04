@@ -130,6 +130,7 @@ export default function AppMapping(props: Props) {
     setObjectMode(mode);
     rememberClassificationObjectMode(mode);
   };
+  const contentPaneKey = `${effectiveObjectMode}:${filter}`;
 
   return (
     <div className="flex h-full min-w-0 flex-col gap-4 md:gap-5 overflow-hidden">
@@ -232,64 +233,68 @@ export default function AppMapping(props: Props) {
 
       <div className="qp-panel flex-1 min-h-0 p-4">
         {effectiveObjectMode === "web" ? (
-          filteredWebDomainCandidates.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-sm text-[var(--qp-text-tertiary)]">
-              {UI_TEXT.mapping.webEmptyState}
-            </div>
-          ) : (
-            <div className="h-full overflow-y-auto custom-scrollbar pr-1">
-              <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
-                {filteredWebDomainCandidates.map((candidate) => {
-                  const displayName = resolveWebDomainDisplayName(candidate);
-                  const displayColor = resolveWebDomainColor(candidate);
-                  const assignedCategory = resolveWebDomainCategory(candidate);
-                  const recordingEnabled = resolveWebDomainEnabled(candidate);
-                  const isBusy = saving || deletingSessionsExe === candidate.normalizedDomain;
-                  const isEditingName = editingWebDomain === candidate.normalizedDomain;
-                  const inputValue = webNameDrafts[candidate.normalizedDomain] ?? displayName;
-
-                  return (
-                    <WebDomainMappingCard
-                      key={candidate.normalizedDomain}
-                      candidate={candidate}
-                      displayName={displayName}
-                      displayColor={displayColor}
-                      assignedCategory={assignedCategory}
-                      recordingEnabled={recordingEnabled}
-                      isBusy={isBusy}
-                      isEditingName={isEditingName}
-                      inputValue={inputValue}
-                      colorFormat={colorFormat}
-                      categoryOptions={candidateCategoryOptions}
-                      onNameDraftChange={(nextValue) => syncWebNameDraftToPageDraft(candidate, nextValue)}
-                      onNameBlur={() => {
-                        handleWebNameBlur(candidate);
-                      }}
-                      onNameEditCancel={() => {
-                        handleWebNameEditCancel(candidate);
-                      }}
-                      onStartNameEdit={() => {
-                        startWebNameEdit(candidate);
-                      }}
-                      onColorAssign={(nextColor) => handleWebDomainColorAssign(candidate, nextColor)}
-                      onColorFormatChange={setColorFormat}
-                      onCategoryAssign={(value) => handleWebDomainCategoryAssign(candidate, value)}
-                      onToggleRecording={() => handleWebDomainTrackingToggle(candidate, !recordingEnabled)}
-                      onDeleteHistory={() => {
-                        void handleDeleteWebDomainHistory(candidate);
-                      }}
-                    />
-                  );
-                })}
+          <div key={contentPaneKey} className="qp-classification-object-pane h-full">
+            {filteredWebDomainCandidates.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-sm text-[var(--qp-text-tertiary)]">
+                {UI_TEXT.mapping.webEmptyState}
               </div>
-            </div>
-          )
+            ) : (
+              <div className="h-full overflow-y-auto custom-scrollbar pr-1">
+                <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+                  {filteredWebDomainCandidates.map((candidate) => {
+                    const displayName = resolveWebDomainDisplayName(candidate);
+                    const displayColor = resolveWebDomainColor(candidate);
+                    const assignedCategory = resolveWebDomainCategory(candidate);
+                    const recordingEnabled = resolveWebDomainEnabled(candidate);
+                    const isBusy = saving || deletingSessionsExe === candidate.normalizedDomain;
+                    const isEditingName = editingWebDomain === candidate.normalizedDomain;
+                    const inputValue = webNameDrafts[candidate.normalizedDomain] ?? displayName;
+
+                    return (
+                      <WebDomainMappingCard
+                        key={candidate.normalizedDomain}
+                        candidate={candidate}
+                        displayName={displayName}
+                        displayColor={displayColor}
+                        assignedCategory={assignedCategory}
+                        recordingEnabled={recordingEnabled}
+                        isBusy={isBusy}
+                        isEditingName={isEditingName}
+                        inputValue={inputValue}
+                        colorFormat={colorFormat}
+                        categoryOptions={candidateCategoryOptions}
+                        onNameDraftChange={(nextValue) => syncWebNameDraftToPageDraft(candidate, nextValue)}
+                        onNameBlur={() => {
+                          handleWebNameBlur(candidate);
+                        }}
+                        onNameEditCancel={() => {
+                          handleWebNameEditCancel(candidate);
+                        }}
+                        onStartNameEdit={() => {
+                          startWebNameEdit(candidate);
+                        }}
+                        onColorAssign={(nextColor) => handleWebDomainColorAssign(candidate, nextColor)}
+                        onColorFormatChange={setColorFormat}
+                        onCategoryAssign={(value) => handleWebDomainCategoryAssign(candidate, value)}
+                        onToggleRecording={() => handleWebDomainTrackingToggle(candidate, !recordingEnabled)}
+                        onDeleteHistory={() => {
+                          void handleDeleteWebDomainHistory(candidate);
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         ) : filteredCandidates.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-sm text-[var(--qp-text-tertiary)]">
-            {UI_TEXT.mapping.emptyState}
+          <div key={contentPaneKey} className="qp-classification-object-pane h-full">
+            <div className="h-full flex items-center justify-center text-sm text-[var(--qp-text-tertiary)]">
+              {UI_TEXT.mapping.emptyState}
+            </div>
           </div>
         ) : (
-          <div className="h-full overflow-y-auto custom-scrollbar pr-1">
+          <div key={contentPaneKey} className="qp-classification-object-pane h-full overflow-y-auto custom-scrollbar pr-1">
             <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
               {filteredCandidates.map((candidate) => {
                 const displayName = resolveEffectiveDisplayName(candidate);
