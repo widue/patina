@@ -463,9 +463,9 @@
 }
 
 .history-timeline-dialog-toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding-bottom: 10px;
   border-bottom: 1px solid var(--qp-border-subtle);
@@ -480,13 +480,42 @@
 }
 
 .history-timeline-dialog-toolbar-main {
-  flex: 1 1 auto;
+  justify-self: start;
 }
 
 .history-timeline-dialog-actions {
-  flex: 0 1 auto;
+  justify-self: end;
   justify-content: flex-end;
   flex-wrap: wrap;
+}
+
+.history-timeline-dialog-date-switch {
+  display: inline-grid;
+  grid-template-columns: 24px minmax(58px, auto) 24px;
+  justify-self: center;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.history-timeline-dialog-date-button.qp-button-secondary {
+  width: 24px;
+  height: 24px;
+  min-height: 0;
+  flex: 0 0 24px;
+}
+
+.history-timeline-dialog-date-label {
+  overflow: hidden;
+  min-width: 58px;
+  max-width: 92px;
+  color: var(--qp-text-secondary);
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .history-timeline-dialog-meta {
@@ -630,6 +659,7 @@
   }
 
   .history-timeline-dialog-toolbar {
+    display: flex;
     align-items: flex-start;
     flex-direction: column;
   }
@@ -651,6 +681,10 @@
   .history-timeline-dialog-actions,
   .history-timeline-zoom-dialog-toolbar {
     justify-content: flex-start;
+  }
+
+  .history-timeline-dialog-date-switch {
+    justify-self: start;
   }
 
   .history-timeline-window-controls,

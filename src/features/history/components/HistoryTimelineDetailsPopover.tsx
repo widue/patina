@@ -1,12 +1,14 @@
 import type { RefObject } from "react";
 import { createPortal } from "react-dom";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
-import { formatTime } from "../services/historyFormatting.ts";
+import { formatDuration, formatTime } from "../services/historyFormatting.ts";
 
 export type TimelineDetailTitle = {
   title: string;
   startTime: number;
   endTime: number | null;
+  duration?: number;
+  isUntitled?: boolean;
 };
 
 export interface HistoryTimelineDetailsPopoverState {
@@ -25,10 +27,21 @@ interface HistoryTimelineDetailsPopoverProps {
   popoverRef: RefObject<HTMLDivElement | null>;
 }
 
+function getTitleDetailDuration(sample: TimelineDetailTitle, nowMs: number) {
+  if (typeof sample.duration === "number") {
+    return Math.max(0, sample.duration);
+  }
+
+  const endTime = sample.endTime ?? nowMs;
+  return Math.max(0, endTime - sample.startTime);
+}
+
 export default function HistoryTimelineDetailsPopover({
   popover,
   popoverRef,
 }: HistoryTimelineDetailsPopoverProps) {
+  const nowMs = Date.now();
+
   return createPortal(
     popover ? (
         <div
@@ -49,11 +62,16 @@ export default function HistoryTimelineDetailsPopover({
                 className="history-activity-popover-item"
               >
                 <span className="history-activity-popover-item-title">
-                  {sample.title}
+                  {sample.isUntitled ? UI_TEXT.history.webTimelineUntitledPage : sample.title}
                 </span>
                 <span className="history-activity-popover-item-time">
-                  {formatTime(sample.startTime)}
-                  {sample.endTime ? ` - ${formatTime(sample.endTime)}` : ` ${UI_TEXT.history.untilNow}`}
+                  <span className="history-activity-popover-item-duration">
+                    {formatDuration(getTitleDetailDuration(sample, nowMs))}
+                  </span>
+                  <span className="history-activity-popover-item-range">
+                    {formatTime(sample.startTime)}
+                    {sample.endTime ? ` - ${formatTime(sample.endTime)}` : ` ${UI_TEXT.history.untilNow}`}
+                  </span>
                 </span>
               </div>
             ))}

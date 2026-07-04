@@ -9,6 +9,7 @@ import {
   clearPendingUpdateRelaunchViewRestore,
   consumePendingUpdateRelaunchView,
   markPendingUpdateRelaunchViewRestore,
+  readLastActiveView,
   rememberLastActiveView,
 } from "../src/app/services/updateRelaunchViewStorage.ts";
 import { setUiTextLanguage } from "../src/shared/copy/index.ts";
@@ -277,6 +278,8 @@ runTest("install error keeps retry install as primary action", () => {
 runTest("update relaunch view storage persists current keys", () => {
   withWindowStorage(new MemoryStorage(), () => {
     rememberLastActiveView("settings");
+    assert.equal(readLastActiveView(), "settings");
+
     markPendingUpdateRelaunchViewRestore();
     assert.equal(consumePendingUpdateRelaunchView(), "settings");
     assert.equal(window.localStorage.getItem("patina:last-active-view"), "settings");

@@ -13,7 +13,7 @@ const MAIN_WINDOW_WIDTH: f64 = 1100.0;
 const MAIN_WINDOW_HEIGHT: f64 = 736.0;
 const MAIN_WINDOW_MIN_WIDTH: f64 = 900.0;
 const MAIN_WINDOW_MIN_HEIGHT: f64 = 636.0;
-const MAIN_WINDOW_DESTROY_AFTER_BACKGROUND_SECS: u64 = 5 * 60;
+const MAIN_WINDOW_DESTROY_AFTER_BACKGROUND_SECS: u64 = 3 * 60;
 
 pub(crate) fn show_main_window<R: Runtime + 'static>(app: &AppHandle<R>) {
     app.state::<MainWindowLifecycleState>().show();

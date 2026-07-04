@@ -24,6 +24,14 @@ export function rememberLastActiveView(view: View) {
   storage.setItem(LAST_ACTIVE_VIEW_KEY, view);
 }
 
+export function readLastActiveView(): View | null {
+  const storage = getStorage();
+  if (!storage) return null;
+
+  const storedView = storage.getItem(LAST_ACTIVE_VIEW_KEY);
+  return isView(storedView) ? storedView : null;
+}
+
 export function markPendingUpdateRelaunchViewRestore() {
   const storage = getStorage();
   if (!storage) return;
@@ -47,6 +55,5 @@ export function consumePendingUpdateRelaunchView(): View | null {
   }
 
   storage.removeItem(PENDING_UPDATE_RELAUNCH_VIEW_KEY);
-  const storedView = storage.getItem(LAST_ACTIVE_VIEW_KEY);
-  return isView(storedView) ? storedView : null;
+  return readLastActiveView();
 }

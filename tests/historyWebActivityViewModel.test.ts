@@ -30,6 +30,12 @@ function runTest(name: string, fn: () => void) {
   console.log(`PASS ${name}`);
 }
 
+function sumTitleDetailDurations(
+  item: ReturnType<typeof buildWebTimelineItems>[number],
+) {
+  return item.titleSampleDetails.reduce((total, sample) => total + sample.duration, 0);
+}
+
 runTest("web domain distribution clips segments and applies domain overrides", () => {
   const items = buildWebDomainDistribution([
     makeSegment({
@@ -160,7 +166,7 @@ runTest("web favicon view models prefer domain cache with segment fallback", () 
   assert.equal(timelineItems.find((item) => item.normalizedDomain === "docs.rs")?.faviconUrl, "https://docs.rs/favicon.ico");
 });
 
-runTest("web timeline merges same-domain rows with matching visible titles within threshold", () => {
+runTest("web timeline merges same-domain rows and folds matching titles within threshold", () => {
   const items = buildWebTimelineItems([
     makeSegment({
       id: 1,
@@ -188,9 +194,17 @@ runTest("web timeline merges same-domain rows with matching visible titles withi
   assert.equal(items[0].startTime, 0);
   assert.equal(items[0].endTime, 10_000);
   assert.equal(items[0].faviconUrl, "data:image/png;base64,abc");
+  assert.equal(items[0].mergedCount, 2);
+  assert.deepEqual(items[0].titleSamples, ["Ceceliaee/patina"]);
+  assert.deepEqual(items[0].titleSampleDetails, [{
+    title: "Ceceliaee/patina",
+    startTime: 0,
+    endTime: 10_000,
+    duration: 8_000,
+  }]);
 });
 
-runTest("web timeline keeps same-domain rows split when visible titles differ", () => {
+runTest("web timeline treats domain like app and keeps page titles as details", () => {
   const items = buildWebTimelineItems([
     makeSegment({
       id: 1,
@@ -210,12 +224,29 @@ runTest("web timeline keeps same-domain rows split when visible titles differ", 
     }),
   ], { startMs: 0, endMs: 20_000 }, 20_000, {}, {}, 5);
 
-  assert.equal(items.length, 2);
-  assert.equal(items[0].id, "2");
-  assert.equal(items[1].id, "1");
+  assert.equal(items.length, 1);
+  assert.equal(items[0].id, "1_2");
+  assert.equal(items[0].label, "github.com");
+  assert.equal(items[0].mergedCount, 2);
+  assert.deepEqual(items[0].titleSamples, ["Issues · Patina", "Pull requests · Patina"]);
+  assert.deepEqual(items[0].titleSampleDetails, [
+    {
+      title: "Issues · Patina",
+      startTime: 0,
+      endTime: 5_000,
+      duration: 5_000,
+    },
+    {
+      title: "Pull requests · Patina",
+      startTime: 7_000,
+      endTime: 10_000,
+      duration: 3_000,
+    },
+  ]);
+  assert.equal(sumTitleDetailDurations(items[0]), items[0].duration);
 });
 
-runTest("web timeline filters short rows after title merge like app timeline", () => {
+runTest("web timeline filters short rows after domain merge like app timeline", () => {
   const shortItems = buildWebTimelineItems([
     makeSegment({
       id: 1,
@@ -255,6 +286,127 @@ runTest("web timeline filters short rows after title merge like app timeline", (
 
   assert.equal(shortItems.length, 0);
   assert.equal(longItems.length, 1);
+  assert.equal(longItems[0].mergedCount, 2);
+});
+
+runTest("web timeline preserves domain switches between same-domain rows", () => {
+  const items = buildWebTimelineItems([
+    makeSegment({
+      id: 1,
+      domain: "github.com",
+      normalizedDomain: "github.com",
+      title: "Issue",
+      startTime: 0,
+      endTime: 5_000,
+    }),
+    makeSegment({
+      id: 2,
+      domain: "docs.rs",
+      normalizedDomain: "docs.rs",
+      title: "Docs",
+      startTime: 5_000,
+      endTime: 7_000,
+    }),
+    makeSegment({
+      id: 3,
+      domain: "github.com",
+      normalizedDomain: "github.com",
+      title: "Pull request",
+      startTime: 7_000,
+      endTime: 12_000,
+    }),
+  ], { startMs: 0, endMs: 20_000 }, 20_000, {}, {}, 60);
+
+  assert.equal(items.length, 3);
+  assert.deepEqual(
+    items.map((item) => item.normalizedDomain),
+    ["github.com", "docs.rs", "github.com"],
+  );
+  assert.deepEqual(
+    items.map((item) => item.id),
+    ["3", "2", "1"],
+  );
+});
+
+runTest("web timeline keeps untitled domain rows explainable without counting titles", () => {
+  const items = buildWebTimelineItems([
+    makeSegment({
+      id: 1,
+      domain: "example.com",
+      normalizedDomain: "example.com",
+      title: null,
+      startTime: 0,
+      endTime: 70_000,
+    }),
+  ], { startMs: 0, endMs: 80_000 }, 80_000, {}, {}, 5, 60);
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].label, "example.com");
+  assert.equal(items[0].mergedCount, 1);
+  assert.deepEqual(items[0].titleSamples, []);
+  assert.deepEqual(items[0].titleSampleDetails, [{
+    title: "",
+    startTime: 0,
+    endTime: 70_000,
+    duration: 70_000,
+    isUntitled: true,
+  }]);
+  assert.equal(sumTitleDetailDurations(items[0]), items[0].duration);
+});
+
+runTest("web timeline title details cover row duration when some segments are untitled", () => {
+  const items = buildWebTimelineItems([
+    makeSegment({
+      id: 1,
+      domain: "github.com",
+      normalizedDomain: "github.com",
+      title: "Issue",
+      startTime: 0,
+      endTime: 60_000,
+    }),
+    makeSegment({
+      id: 2,
+      domain: "github.com",
+      normalizedDomain: "github.com",
+      title: null,
+      startTime: 60_000,
+      endTime: 90_000,
+    }),
+    makeSegment({
+      id: 3,
+      domain: "github.com",
+      normalizedDomain: "github.com",
+      title: "Pull request",
+      startTime: 90_000,
+      endTime: 150_000,
+    }),
+  ], { startMs: 0, endMs: 180_000 }, 180_000, {}, {}, 5, 0);
+
+  assert.equal(items.length, 1);
+  assert.equal(items[0].duration, 150_000);
+  assert.deepEqual(items[0].titleSamples, ["Issue", "Pull request"]);
+  assert.deepEqual(items[0].titleSampleDetails, [
+    {
+      title: "Issue",
+      startTime: 0,
+      endTime: 60_000,
+      duration: 60_000,
+    },
+    {
+      title: "",
+      startTime: 60_000,
+      endTime: 90_000,
+      duration: 30_000,
+      isUntitled: true,
+    },
+    {
+      title: "Pull request",
+      startTime: 90_000,
+      endTime: 150_000,
+      duration: 60_000,
+    },
+  ]);
+  assert.equal(sumTitleDetailDurations(items[0]), items[0].duration);
 });
 
 runTest("web timeline keeps only in-range rows and sorts newest first", () => {
@@ -286,8 +438,17 @@ runTest("web timeline keeps only in-range rows and sorts newest first", () => {
   assert.equal(items[0].id, "2");
   assert.equal(items[0].label, "Rust Docs");
   assert.equal(items[0].duration, 6_000);
+  assert.equal(items[0].mergedCount, 1);
+  assert.deepEqual(items[0].titleSamples, ["Docs"]);
+  assert.deepEqual(items[0].titleSampleDetails, [{
+    title: "Docs",
+    startTime: 12_000,
+    endTime: null,
+    duration: 6_000,
+  }]);
   assert.equal(items[1].id, "1");
   assert.equal(items[1].duration, 5_000);
+  assert.deepEqual(items[1].titleSamples, ["Old"]);
 });
 
 console.log(`Passed ${passed} history web activity view model tests`);

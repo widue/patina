@@ -38,6 +38,8 @@ const ZH_CN_ACCESSIBILITY_COPY = {
     history: {
       previousMonth: "上个月",
       nextMonth: "下个月",
+      previousDay: (dateLabel: string) => `切到前一天：${dateLabel}`,
+      nextDay: (dateLabel: string) => `切到后一天：${dateLabel}`,
       decreaseMinDuration: "减少显示分钟 1 分钟",
       increaseMinDuration: "增加显示分钟 1 分钟",
       toggleActivityDetails: (expanded: boolean, appName: string) => (
@@ -131,6 +133,8 @@ const EN_US_ACCESSIBILITY_COPY = {
     history: {
       previousMonth: "Previous month",
       nextMonth: "Next month",
+      previousDay: (dateLabel: string) => `Switch to previous day: ${dateLabel}`,
+      nextDay: (dateLabel: string) => `Switch to next day: ${dateLabel}`,
       decreaseMinDuration: "Decrease display minutes by 1 minute",
       increaseMinDuration: "Increase display minutes by 1 minute",
       toggleActivityDetails: (expanded: boolean, appName: string) => (

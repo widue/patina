@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, ChevronUp, Globe2 } from "lucide-react";
-import { getUiLocale, UI_TEXT } from "../../../shared/copy/index.ts";
+import { UI_TEXT } from "../../../shared/copy/index.ts";
 import { AppClassification } from "../../../shared/classification/appClassification.ts";
 import { formatDuration, formatTime } from "../services/historyFormatting.ts";
 import type { TimelineSession } from "../../../shared/lib/sessionReadCompiler.ts";
@@ -27,16 +27,14 @@ interface HistoryTimelineListProps {
 interface HistoryWebTimelineListProps {
   loading: boolean;
   items: WebTimelineItem[];
+  detailsPopover: HistoryTimelineDetailsPopoverState | null;
   className?: string;
-}
-
-function getWebTimelineItemAriaLabel(item: WebTimelineItem) {
-  const timeLabel = `${formatTime(item.startTime)} - ${item.endTime ? formatTime(item.endTime) : UI_TEXT.history.untilNow}`;
-  const durationLabel = formatDuration(item.duration);
-  if (getUiLocale() === "en-US") {
-    return `${item.label}, ${item.title ?? UI_TEXT.history.webTimelineUntitledPage}, ${timeLabel}, ${durationLabel}`;
-  }
-  return `${item.label}，${item.title ?? UI_TEXT.history.webTimelineUntitledPage}，${timeLabel}，${durationLabel}`;
+  onToggleSessionDetails: (
+    sessionId: number | string,
+    appName: string,
+    titleSampleDetails: TimelineDetailTitle[],
+    trigger: HTMLElement,
+  ) => void;
 }
 
 export function HistoryTimelineList({
@@ -153,7 +151,9 @@ export function HistoryTimelineList({
 export function HistoryWebTimelineList({
   loading,
   items,
+  detailsPopover,
   className = "",
+  onToggleSessionDetails,
 }: HistoryWebTimelineListProps) {
   if (loading) {
     return <div className="flex-1" aria-hidden="true" />;
@@ -169,45 +169,77 @@ export function HistoryWebTimelineList({
 
   return (
     <div className={`history-timeline-list flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1 ${className}`.trim()}>
-      {items.map((item) => (
-          <div
-            key={item.id}
-            tabIndex={0}
-            aria-label={getWebTimelineItemAriaLabel(item)}
-            className="flex items-center gap-3 p-3 border border-[var(--qp-border-subtle)] bg-[var(--qp-bg-elevated)] rounded-[10px] hover:border-[var(--qp-border-strong)] hover:bg-[var(--qp-bg-panel)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--qp-focus-ring)] transition-colors"
-          >
+      {items.map((item) => {
+          const titleSampleDetails: TimelineDetailTitle[] = item.titleSampleDetails;
+          const hasDetails = titleSampleDetails.length > 0;
+          const titleCount = item.titleSamples.length;
+          const isExpanded = detailsPopover?.sessionId === item.id;
+          const detailPlacement = isExpanded && detailsPopover ? detailsPopover.placement : "bottom";
+
+          return (
             <div
-              className="w-1 self-stretch rounded-full flex-shrink-0"
-              style={{ backgroundColor: item.color }}
-            />
-            <div className="w-8 h-8 rounded-[8px] bg-[var(--qp-bg-panel)] border border-[var(--qp-border-subtle)] flex items-center justify-center flex-shrink-0 overflow-hidden p-1.5">
-              {item.faviconUrl ? (
-                <img src={item.faviconUrl} className="w-full h-full object-contain" alt="" />
-              ) : (
-                <Globe2 size={15} className="text-[var(--qp-text-tertiary)]" aria-hidden="true" />
-              )}
-            </div>
-            <div className="flex min-w-0 flex-1 items-center gap-2">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold text-[var(--qp-text-primary)]">
-                  {item.label}
+              key={item.id}
+              className="flex items-center gap-3 p-3 border border-[var(--qp-border-subtle)] bg-[var(--qp-bg-elevated)] rounded-[10px] hover:border-[var(--qp-border-strong)] hover:bg-[var(--qp-bg-panel)] transition-colors"
+            >
+              <div
+                className="w-1 self-stretch rounded-full flex-shrink-0"
+                style={{ backgroundColor: item.color }}
+              />
+              <div className="w-8 h-8 rounded-[8px] bg-[var(--qp-bg-panel)] border border-[var(--qp-border-subtle)] flex items-center justify-center flex-shrink-0 overflow-hidden p-1.5">
+                {item.faviconUrl ? (
+                  <img src={item.faviconUrl} className="w-full h-full object-contain" alt="" />
+                ) : (
+                  <Globe2 size={15} className="text-[var(--qp-text-tertiary)]" aria-hidden="true" />
+                )}
+              </div>
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
+                <div className="flex min-w-0 flex-1 items-end gap-1.5">
+                  <div className="min-w-0 truncate text-sm font-semibold text-[var(--qp-text-primary)]">
+                    {item.label}
+                  </div>
+                  {titleCount > 0 && (
+                    <span className="inline-flex h-[18px] shrink-0 items-center gap-1 rounded-[5px] border border-[var(--qp-border-subtle)] bg-[var(--qp-bg-panel)] px-1.5 text-[9px] font-semibold leading-none text-[var(--qp-text-tertiary)]">
+                      {UI_TEXT.history.titleRowCount(titleCount)}
+                    </span>
+                  )}
+                  {hasDetails && (
+                    <button
+                      type="button"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => onToggleSessionDetails(
+                        item.id,
+                        item.label,
+                        titleSampleDetails,
+                        event.currentTarget,
+                      )}
+                      aria-expanded={isExpanded}
+                      aria-label={UI_TEXT.accessibility.history.toggleActivityDetails(
+                        isExpanded,
+                        item.label,
+                      )}
+                      className="qp-button-secondary inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] p-0 text-[var(--qp-text-tertiary)]"
+                    >
+                      {isExpanded
+                        ? detailPlacement === "top"
+                          ? <ChevronUp size={11} aria-hidden="true" />
+                          : <ChevronDown size={11} aria-hidden="true" />
+                        : <ChevronRight size={11} aria-hidden="true" />}
+                    </button>
+                  )}
                 </div>
-                <div className="mt-0.5 truncate text-[11px] text-[var(--qp-text-tertiary)]">
-                  {item.title || item.url || item.domain}
+              </div>
+              <div className="text-right flex-shrink-0">
+                <div className="text-xs font-semibold text-[var(--qp-text-primary)] tabular-nums">
+                  {formatDuration(item.duration || 0)}
+                </div>
+                <div className="text-[10px] text-[var(--qp-text-tertiary)] mt-0.5 tabular-nums">
+                  {formatTime(item.startTime)}
+                  {item.endTime ? ` - ${formatTime(item.endTime)}` : ` ${UI_TEXT.history.untilNow}`}
                 </div>
               </div>
             </div>
-            <div className="text-right flex-shrink-0">
-              <div className="text-xs font-semibold text-[var(--qp-text-primary)] tabular-nums">
-                {formatDuration(item.duration || 0)}
-              </div>
-              <div className="text-[10px] text-[var(--qp-text-tertiary)] mt-0.5 tabular-nums">
-                {formatTime(item.startTime)}
-                {item.endTime ? ` - ${formatTime(item.endTime)}` : ` ${UI_TEXT.history.untilNow}`}
-              </div>
-            </div>
-          </div>
-        ))}
+          );
+        })}
     </div>
   );
 }

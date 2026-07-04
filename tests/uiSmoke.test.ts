@@ -361,8 +361,14 @@ await runTest("History regular view avoids visible loading copy", () => {
 await runTest("History separates timeline list dialog from zoom dialog", () => {
   const history = readUtf8("src/features/history/components/History.tsx");
   const historyCopy = readUtf8("src/shared/copy/domains/historyCopy.ts");
+  const historyDetailsPopover = readUtf8("src/features/history/components/HistoryTimelineDetailsPopover.tsx");
+  const historyTimelineDateControls = readUtf8("src/features/history/components/HistoryTimelineDialogDateControls.tsx");
   const historyTimeline = readUtf8("src/features/history/services/historyTimelineViewModel.ts");
   const historyCss = readUtf8("src/styles/features/history.css");
+  const quietProCss = readUtf8("src/styles/quiet-pro.css");
+  const selectedDateEffect = history.match(
+    /useEffect\(\(\) => \{\s*timelineDetailsTriggerRef\.current = null;[\s\S]*?\}, \[resetTimelineViewportForDate, selectedDate\]\);/,
+  )?.[0] ?? "";
 
   assert.match(history, /HISTORY_TIMELINE_ZOOM_OPTIONS/);
   assert.match(history, /readHistoryTimelineZoomHours/);
@@ -377,6 +383,12 @@ await runTest("History separates timeline list dialog from zoom dialog", () => {
   assert.match(history, /timelineZoomTimelineView/);
   assert.match(history, /history-timeline-open/);
   assert.match(history, /history-timeline-zoom-open/);
+  assert.match(history, /HistoryTimelineDialogDateControls/);
+  assert.match(historyTimelineDateControls, /history-timeline-dialog-date-switch/);
+  assert.match(historyTimelineDateControls, /qp-button-secondary inline-flex h-6 w-6 items-center justify-center rounded-\[6px\] p-0/);
+  assert.match(historyTimelineDateControls, /onClick=\{\(\) => onChangeDate\(-1\)\}/);
+  assert.match(historyTimelineDateControls, /onClick=\{\(\) => onChangeDate\(1\)\}/);
+  assert.match(historyTimelineDateControls, /disabled=\{isToday\}/);
   assert.match(history, /history-timeline-zoom-switch/);
   assert.match(history, /history-timeline-zoom-dialog-surface/);
   assert.match(historyCopy, /emptyTimelineWindow: "当前时间段暂无记录"/);
@@ -384,6 +396,9 @@ await runTest("History separates timeline list dialog from zoom dialog", () => {
   assert.match(history, /handleTimelineViewportWheel/);
   assert.match(history, /viewportDurationMs \/ 6/);
   assert.match(history, /onWheel=\{handleTimelineViewportWheel\}/);
+  assert.match(history, /if \(timelineDialogOpen\) return;\s*setTimelineDialogSyncedHeight\(null\);/s);
+  assert.ok(selectedDateEffect);
+  assert.doesNotMatch(selectedDateEffect, /setTimelineDialogSyncedHeight\(null\)/);
   assert.match(history, /variant="expanded"/);
   assert.doesNotMatch(history, /timelineViewportWasPannedRef\.current.*localStorage/s);
   assert.match(historyTimeline, /export const HISTORY_TIMELINE_ZOOM_OPTIONS = \[24, 12, 8, 4, 1\] as const/);
@@ -391,8 +406,16 @@ await runTest("History separates timeline list dialog from zoom dialog", () => {
   assert.match(historyTimeline, /export function normalizeHistoryTimelineViewport/);
   assert.match(historyTimeline, /export function normalizeHistoryTimelineViewportAroundFocus/);
   assert.match(historyTimeline, /export function snapHistoryTimelineFocusToNearestHalfHour/);
+  assert.match(historyCss, /grid-template-columns: minmax\(0, 1fr\) auto minmax\(0, 1fr\)/);
+  assert.match(historyCss, /\.history-timeline-dialog-date-switch/);
+  assert.match(historyCss, /\.history-timeline-dialog-date-label/);
   assert.match(historyCss, /\.history-timeline-zoom-dialog-timeline/);
   assert.match(historyCss, /overscroll-behavior: contain/);
+  assert.match(historyDetailsPopover, /formatDuration\(getTitleDetailDuration\(sample, nowMs\)\)/);
+  assert.match(historyDetailsPopover, /history-activity-popover-item-duration/);
+  assert.match(historyDetailsPopover, /history-activity-popover-item-range/);
+  assert.match(quietProCss, /\.history-activity-popover-item-duration/);
+  assert.match(quietProCss, /\.history-activity-popover-item-range/);
 });
 
 await runTest("operation-oriented pages keep explicit busy feedback", () => {
@@ -524,11 +547,15 @@ await runTest("settings services only expose web sync and remote push controls",
 await runTest("web activity views are gated by saved web sync setting", () => {
   const shell = readUtf8("src/app/AppShell.tsx");
   const history = readUtf8("src/features/history/components/History.tsx");
+  const historyTimelineLists = readUtf8("src/features/history/components/HistoryTimelineLists.tsx");
   const mapping = readUtf8("src/features/classification/components/AppMapping.tsx");
   const mappingState = readUtf8("src/features/classification/hooks/useAppMappingState.ts");
   const mappingDerivedState = readUtf8("src/features/classification/hooks/useAppMappingDerivedState.ts");
   const historyBranch = shell.slice(shell.indexOf("<History"), shell.indexOf("<Data"));
   const mappingBranch = shell.slice(shell.indexOf("<AppMapping"), shell.indexOf("</Suspense>"));
+  const webTimelineListBranch = historyTimelineLists.slice(
+    historyTimelineLists.indexOf("export function HistoryWebTimelineList"),
+  );
 
   assert.match(historyBranch, /webActivityEnabled=\{appSettings\.webActivityEnabled\}/);
   assert.match(mappingBranch, /webActivityEnabled=\{appSettings\.webActivityEnabled\}/);
@@ -538,6 +565,9 @@ await runTest("web activity views are gated by saved web sync setting", () => {
   assert.match(history, /const effectiveTimelineDialogMode = webActivityEnabled \? timelineDialogMode : "app"/);
   assert.match(history, /webActivityEnabled && \(/);
   assert.match(history, /if \(!webActivityEnabled\) return \[\]/);
+  assert.doesNotMatch(webTimelineListBranch, /activitySegmentCount\(item\.mergedCount\)/);
+  assert.match(webTimelineListBranch, /const titleCount = item\.titleSamples\.length/);
+  assert.match(webTimelineListBranch, /titleRowCount\(titleCount\)/);
   assert.match(mapping, /const \{ webActivityEnabled = false \} = props/);
   assert.match(mapping, /const effectiveObjectMode = webActivityEnabled \? objectMode : "app"/);
   assert.match(mapping, /webActivityEnabled && \(/);
@@ -618,6 +648,15 @@ await runTest("app shell uses feature-owned page cache lifecycle exits", () => {
   assert.match(cleanupEffect, /appSettings\.backgroundOptimization/);
   assert.doesNotMatch(shell, /DASHBOARD_SNAPSHOT_CACHE/);
   assert.doesNotMatch(shell, /HISTORY_SNAPSHOT_CACHE/);
+});
+
+await runTest("app shell restores the last active primary view on startup", () => {
+  const navigation = readUtf8("src/app/hooks/useAppShellNavigation.ts");
+  const viewStorage = readUtf8("src/app/services/updateRelaunchViewStorage.ts");
+
+  assert.match(navigation, /consumePendingUpdateRelaunchView\(\) \?\? readLastActiveView\(\) \?\? "dashboard"/);
+  assert.match(navigation, /rememberLastActiveView\(currentView\)/);
+  assert.match(viewStorage, /export function readLastActiveView/);
 });
 
 await runTest("app shell invalidates Tools page caches after app mapping changes", () => {
@@ -779,16 +818,22 @@ await runTest("pomodoro alert dialog offers a pause action without changing othe
   assert.match(dialog, /UI_TEXT\.tools\.alertDismiss/);
 });
 
-await runTest("app shell uses one five minute threshold for long background behavior", () => {
+await runTest("app shell keeps long background navigation persistent", () => {
   const policy = readUtf8("src/app/services/backgroundReturnHomePolicy.ts");
   const shell = readUtf8("src/app/AppShell.tsx");
+  const navigation = readUtf8("src/app/hooks/useAppShellNavigation.ts");
+  const mainWindow = readUtf8("src-tauri/src/app/main_window.rs");
+  const widgetWindow = readUtf8("src-tauri/src/app/widget.rs");
 
-  assert.match(policy, /LONG_BACKGROUND_DELAY_MS = 5 \* 60 \* 1000/);
+  assert.match(policy, /LONG_BACKGROUND_DELAY_MS = 3 \* 60 \* 1000/);
+  assert.match(mainWindow, /MAIN_WINDOW_DESTROY_AFTER_BACKGROUND_SECS: u64 = 3 \* 60/);
+  assert.match(widgetWindow, /WIDGET_DESTROY_AFTER_IDLE_SECS: u64 = 3 \* 60/);
   assert.doesNotMatch(shell, /15 \* 60 \* 1000/);
   assert.doesNotMatch(shell, /10 \* 60 \* 1000/);
   assert.match(shell, /const BACKGROUND_CACHE_RELEASE_DELAY_MS = LONG_BACKGROUND_DELAY_MS/);
-  assert.match(shell, /resetToDashboardAfterLongBackground/);
-  assert.match(shell, /backgroundEnteredAtMsRef/);
+  assert.doesNotMatch(shell, /resetToDashboardAfterLongBackground/);
+  assert.doesNotMatch(shell, /backgroundEnteredAtMsRef/);
+  assert.doesNotMatch(navigation, /shouldReturnHomeAfterBackground/);
 });
 
 await runTest("Dashboard first snapshot load is not gated by foreground refresh", () => {

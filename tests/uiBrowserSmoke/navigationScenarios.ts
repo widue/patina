@@ -121,7 +121,7 @@ export async function runNavigationScenarios(context: BrowserSmokeContext) {
     );
   });
 
-  await runTest("long background return from browsing views opens Dashboard", async () => {
+  await runTest("long background return preserves the active browsing view", async () => {
     const simulateLongBackgroundReturn = async (label: string) => {
       assert.equal(
         await evaluate(client!, sessionId, `
@@ -156,7 +156,7 @@ export async function runNavigationScenarios(context: BrowserSmokeContext) {
       await waitForExpression(
         client!,
         sessionId,
-        `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("今天"))} + ']')?.className.includes("qp-nav-item-active")`,
+        `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify(label))} + ']')?.className.includes("qp-nav-item-active")`,
       );
       assert.equal(
         await evaluate(client!, sessionId, `document.body.innerText.includes(${jsonString(APP_LOADING_VIEW)})`),

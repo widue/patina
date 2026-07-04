@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import {
-  LONG_BACKGROUND_DELAY_MS,
-  shouldReturnHomeAfterBackground,
-} from "../src/app/services/backgroundReturnHomePolicy.ts";
+import { readFileSync } from "node:fs";
+import { LONG_BACKGROUND_DELAY_MS } from "../src/app/services/backgroundReturnHomePolicy.ts";
 
 let passed = 0;
 
@@ -12,62 +10,24 @@ function runTest(name: string, fn: () => void) {
   console.log(`PASS ${name}`);
 }
 
-runTest("Data returns home after a long background interval", () => {
-  assert.equal(
-    shouldReturnHomeAfterBackground({
-      backgroundDurationMs: LONG_BACKGROUND_DELAY_MS,
-      currentView: "data",
-      hasDirtyDraft: false,
-    }),
-    true,
-  );
+function readUtf8(path: string) {
+  return readFileSync(path, "utf8");
+}
+
+runTest("background delay is only the cache release budget", () => {
+  assert.equal(LONG_BACKGROUND_DELAY_MS, 3 * 60 * 1000);
 });
 
-runTest("Data keeps its view after a short background interval", () => {
-  assert.equal(
-    shouldReturnHomeAfterBackground({
-      backgroundDurationMs: LONG_BACKGROUND_DELAY_MS - 1,
-      currentView: "data",
-      hasDirtyDraft: false,
-    }),
-    false,
-  );
+runTest("long background return does not reset navigation", () => {
+  const shell = readUtf8("src/app/AppShell.tsx");
+  const navigation = readUtf8("src/app/hooks/useAppShellNavigation.ts");
+  const policy = readUtf8("src/app/services/backgroundReturnHomePolicy.ts");
+
+  assert.doesNotMatch(shell, /resetToDashboardAfterLongBackground/);
+  assert.doesNotMatch(shell, /backgroundEnteredAtMsRef/);
+  assert.doesNotMatch(navigation, /shouldReturnHomeAfterBackground/);
+  assert.doesNotMatch(navigation, /setCurrentView\("dashboard"\)/);
+  assert.doesNotMatch(policy, /shouldReturnHomeAfterBackground/);
 });
 
-runTest("History returns home after a long background interval", () => {
-  assert.equal(
-    shouldReturnHomeAfterBackground({
-      backgroundDurationMs: LONG_BACKGROUND_DELAY_MS,
-      currentView: "history",
-      hasDirtyDraft: false,
-    }),
-    true,
-  );
-});
-
-runTest("non browsing views are not forced home", () => {
-  for (const currentView of ["dashboard", "settings", "mapping", "about"] as const) {
-    assert.equal(
-      shouldReturnHomeAfterBackground({
-        backgroundDurationMs: LONG_BACKGROUND_DELAY_MS,
-        currentView,
-        hasDirtyDraft: false,
-      }),
-      false,
-      `${currentView} should not reset`,
-    );
-  }
-});
-
-runTest("dirty drafts block automatic return home", () => {
-  assert.equal(
-    shouldReturnHomeAfterBackground({
-      backgroundDurationMs: LONG_BACKGROUND_DELAY_MS,
-      currentView: "data",
-      hasDirtyDraft: true,
-    }),
-    false,
-  );
-});
-
-console.log(`Passed ${passed} background return home policy tests`);
+console.log(`Passed ${passed} background persistence policy tests`);

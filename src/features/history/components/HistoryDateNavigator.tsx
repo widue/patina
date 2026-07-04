@@ -60,7 +60,7 @@ export default function HistoryDateNavigator({
               onOpenDatePicker();
             }
           }}
-          className="qp-status relative inline-flex min-w-[102px] cursor-pointer items-center justify-center px-3 py-1.5 text-center text-xs font-semibold text-[var(--qp-text-secondary)]"
+          className="qp-status history-date-label relative inline-flex min-w-[102px] cursor-pointer items-center justify-center px-3 py-1.5 text-center text-xs font-semibold text-[var(--qp-text-secondary)]"
         >
           {formatDateLabel(selectedDate)}
         </span>

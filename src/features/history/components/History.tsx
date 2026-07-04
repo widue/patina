@@ -52,6 +52,7 @@ import {
 } from "../services/historyWebActivityViewModel.ts";
 import { loadHistoryIconsForExecutables } from "../services/historyIconService.ts";
 import {
+  addLocalDays,
   buildMondayFirstCalendarGrid,
   formatLocalDateKey,
   parseLocalDateKey,
@@ -72,6 +73,7 @@ import {
 } from "./HistoryTimelineLists.tsx";
 import HistoryHourlyActivityPanel from "./HistoryHourlyActivityPanel.tsx";
 import HistoryDateNavigator from "./HistoryDateNavigator.tsx";
+import HistoryTimelineDialogDateControls from "./HistoryTimelineDialogDateControls.tsx";
 
 interface Props {
   icons: Record<string, string>;
@@ -120,6 +122,10 @@ type TimelineDialogMode = "app" | "web";
 type TimelineZoomOptionValue = `${HistoryTimelineZoomHours}`;
 
 function cleanTimelineDetailTitle(sample: TimelineDetailTitle, appName: string): TimelineDetailTitle {
+  if (sample.isUntitled) {
+    return sample;
+  }
+
   const normalizedTitle = sample.title.trim();
   const normalizedAppName = appName.trim();
   if (!normalizedTitle || !normalizedAppName) {
@@ -136,7 +142,7 @@ function cleanTimelineDetailTitle(sample: TimelineDetailTitle, appName: string):
 function cleanTimelineDetailTitles(samples: TimelineDetailTitle[], appName: string) {
   return samples
     .map((sample) => cleanTimelineDetailTitle(sample, appName))
-    .filter((sample) => sample.title);
+    .filter((sample) => sample.isUntitled || sample.title);
 }
 
 function resolveTimelineDetailsPopoverPosition(
@@ -401,9 +407,6 @@ export default function History({
   useEffect(() => {
     timelineDetailsTriggerRef.current = null;
     setTimelineDetailsPopover(null);
-    setTimelineDialogOpen(false);
-    setTimelineZoomDialogOpen(false);
-    setTimelineDialogSyncedHeight(null);
     resetTimelineViewportForDate(selectedDate);
   }, [resetTimelineViewportForDate, selectedDate]);
 
@@ -491,9 +494,8 @@ export default function History({
   }, [rawDaySessions, rawWeeklySessions, rawDayWebSegments, refreshEnabled, refreshIntervalSecs, trackerHealth.status, webActivityEnabled]);
 
   const changeDate = (delta: number) => {
-    const nextDate = new Date(selectedDate);
-    nextDate.setDate(nextDate.getDate() + delta);
-    if (nextDate <= new Date()) {
+    const nextDate = addLocalDays(selectedDate, delta);
+    if (startOfDay(nextDate) <= startOfDay(new Date())) {
       setSelectedDate(nextDate);
       setCalendarMonth(startOfMonth(nextDate));
     }
@@ -936,6 +938,11 @@ export default function History({
       return nextMode;
     });
   };
+  const changeTimelineDialogMode = (mode: TimelineDialogMode) => {
+    timelineDetailsTriggerRef.current = null;
+    setTimelineDetailsPopover(null);
+    setTimelineDialogMode(mode);
+  };
   const openTimelineDialog = () => {
     timelineDetailsTriggerRef.current = null;
     setTimelineDetailsPopover(null);
@@ -982,6 +989,7 @@ export default function History({
   }, [
     loading,
     minSessionMinutes,
+    selectedDate,
     timelineDialogMode,
     timelineDialogOpen,
     timelineSessions.length,
@@ -1094,7 +1102,9 @@ export default function History({
     <HistoryWebTimelineList
       loading={loading}
       items={webTimelineItems}
+      detailsPopover={timelineDetailsPopover}
       className={className}
+      onToggleSessionDetails={toggleTimelineSessionDetails}
     />
   );
   const renderDayDistribution = () => (
@@ -1198,7 +1208,7 @@ export default function History({
                 <QuietSegmentedFilter<TimelineDialogMode>
                   value={effectiveTimelineDialogMode}
                   options={timelineDialogModeOptions}
-                  onChange={setTimelineDialogMode}
+                  onChange={changeTimelineDialogMode}
                   className="history-timeline-dialog-mode-switch"
                 />
               )}
@@ -1208,6 +1218,12 @@ export default function History({
                 )}
               </span>
             </div>
+            <HistoryTimelineDialogDateControls
+              selectedDate={selectedDate}
+              isToday={isToday}
+              onChangeDate={changeDate}
+              className="history-timeline-dialog-date-controls"
+            />
             <div className="history-timeline-dialog-actions">
               {renderTimelineDurationControls("history-timeline-dialog-duration-controls")}
             </div>

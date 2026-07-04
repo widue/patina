@@ -3,9 +3,9 @@ import { UI_TEXT } from "../../shared/copy/index.ts";
 import type { View } from "../types/view";
 import {
   consumePendingUpdateRelaunchView,
+  readLastActiveView,
   rememberLastActiveView,
 } from "../services/updateRelaunchViewStorage.ts";
-import { shouldReturnHomeAfterBackground } from "../services/backgroundReturnHomePolicy.ts";
 
 type SaveHandler = (() => Promise<boolean>) | null;
 
@@ -37,7 +37,7 @@ export function useAppShellNavigation({ confirm }: UseAppShellNavigationParams) 
   const settingsSaveHandlerRef = useRef<SaveHandler>(null);
   const mappingSaveHandlerRef = useRef<SaveHandler>(null);
   const [currentView, setCurrentView] = useState<View>(
-    () => consumePendingUpdateRelaunchView() ?? "dashboard",
+    () => consumePendingUpdateRelaunchView() ?? readLastActiveView() ?? "dashboard",
   );
   const [viewDirtyState, setViewDirtyState] = useState<ViewDirtyState>(INITIAL_DIRTY_STATE);
 
@@ -60,20 +60,6 @@ export function useAppShellNavigation({ confirm }: UseAppShellNavigationParams) 
   const setMappingDirty = useCallback((dirty: boolean) => {
     setViewDirtyState((current) => ({ ...current, mapping: dirty }));
   }, []);
-
-  const resetToDashboardAfterLongBackground = useCallback((backgroundDurationMs: number): boolean => {
-    const hasDirtyDraft = viewDirtyState.settings || viewDirtyState.mapping;
-    const shouldReset = shouldReturnHomeAfterBackground({
-      backgroundDurationMs,
-      currentView,
-      hasDirtyDraft,
-    });
-
-    if (!shouldReset) return false;
-
-    setCurrentView("dashboard");
-    return true;
-  }, [currentView, viewDirtyState]);
 
   const handleNavigate = useCallback(async (nextView: View): Promise<NavigationResult> => {
     if (nextView === currentView) {
@@ -123,7 +109,6 @@ export function useAppShellNavigation({ confirm }: UseAppShellNavigationParams) 
     handleNavigate,
     registerSettingsSaveHandler,
     registerMappingSaveHandler,
-    resetToDashboardAfterLongBackground,
     setSettingsDirty,
     setMappingDirty,
   };

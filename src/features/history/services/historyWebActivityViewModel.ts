@@ -21,14 +21,21 @@ export interface WebTimelineItem {
   domain: string;
   normalizedDomain: string;
   label: string;
-  title: string | null;
-  url: string | null;
   faviconUrl: string | null;
   startTime: number;
   endTime: number | null;
   duration: number;
   color: string;
   category: AppCategory;
+  mergedCount: number;
+  titleSamples: string[];
+  titleSampleDetails: Array<{
+    title: string;
+    startTime: number;
+    endTime: number | null;
+    duration: number;
+    isUntitled?: boolean;
+  }>;
 }
 
 function stableDomainColor(normalizedDomain: string) {
@@ -104,21 +111,83 @@ function resolveWebFaviconUrl(
   );
 }
 
-function getWebTimelineSubtitle(item: WebTimelineItem) {
-  return (item.title || item.url || item.domain).trim();
-}
-
-function getWebTimelineMergeKey(item: WebTimelineItem) {
-  return `${item.normalizedDomain}\n${getWebTimelineSubtitle(item)}`;
-}
-
 function getWebTimelineItemEndTime(item: WebTimelineItem) {
   return item.endTime ?? item.startTime + item.duration;
+}
+
+function getWebTimelineTitleSample(
+  segment: WebActivitySegment,
+  clipped: { startTime: number; endTime: number | null; duration: number },
+): WebTimelineItem["titleSampleDetails"][number] {
+  const title = segment.title?.trim();
+
+  if (title) {
+    return {
+      title,
+      startTime: clipped.startTime,
+      endTime: clipped.endTime,
+      duration: clipped.duration,
+    };
+  }
+
+  return {
+    title: title ?? "",
+    startTime: clipped.startTime,
+    endTime: clipped.endTime,
+    duration: clipped.duration,
+    isUntitled: true,
+  };
+}
+
+function getWebTitleSampleEndTime(sample: { startTime: number; endTime: number | null }) {
+  return sample.endTime ?? sample.startTime;
+}
+
+function mergeWebTitleSampleDetails(
+  current: WebTimelineItem["titleSampleDetails"],
+  next: WebTimelineItem["titleSampleDetails"],
+) {
+  const sorted = [...current, ...next]
+    .filter((sample) => (
+      (sample.isUntitled || sample.title.trim())
+      && (sample.endTime === null || getWebTitleSampleEndTime(sample) > sample.startTime)
+    ))
+    .map((sample) => ({ ...sample, title: sample.title.trim() }))
+    .sort((left, right) => left.startTime - right.startTime || getWebTitleSampleEndTime(left) - getWebTitleSampleEndTime(right));
+
+  return sorted.reduce<WebTimelineItem["titleSampleDetails"]>((merged, sample) => {
+    const previous = merged[merged.length - 1];
+    const sameTitleDetail = previous
+      && Boolean(previous.isUntitled) === Boolean(sample.isUntitled)
+      && (sample.isUntitled || previous.title === sample.title);
+
+    if (sameTitleDetail) {
+      previous.endTime = previous.endTime === null || sample.endTime === null
+        ? null
+        : Math.max(previous.endTime, sample.endTime);
+      previous.duration += sample.duration;
+      return merged;
+    }
+
+    merged.push(sample);
+    return merged;
+  }, []);
+}
+
+function getWebTitleSamples(titleSampleDetails: WebTimelineItem["titleSampleDetails"]) {
+  return titleSampleDetails
+    .filter((sample) => !sample.isUntitled)
+    .map((sample) => sample.title);
 }
 
 function mergeWebTimelineItems(current: WebTimelineItem, next: WebTimelineItem): WebTimelineItem {
   const currentEnd = getWebTimelineItemEndTime(current);
   const nextEnd = getWebTimelineItemEndTime(next);
+  const titleSampleDetails = mergeWebTitleSampleDetails(
+    current.titleSampleDetails,
+    next.titleSampleDetails,
+  );
+
   return {
     ...current,
     id: `${current.id}_${next.id}`,
@@ -126,10 +195,13 @@ function mergeWebTimelineItems(current: WebTimelineItem, next: WebTimelineItem):
     startTime: Math.min(current.startTime, next.startTime),
     endTime: current.endTime === null || next.endTime === null ? null : Math.max(currentEnd, nextEnd),
     duration: current.duration + next.duration,
+    mergedCount: current.mergedCount + next.mergedCount,
+    titleSamples: getWebTitleSamples(titleSampleDetails),
+    titleSampleDetails,
   };
 }
 
-function mergeWebTimelineItemsByTitle(
+function mergeWebTimelineItemsByDomain(
   items: WebTimelineItem[],
   mergeThresholdSecs: number,
 ) {
@@ -138,39 +210,21 @@ function mergeWebTimelineItemsByTitle(
   const mergeThresholdMs = Math.max(0, mergeThresholdSecs) * 1000;
   const ordered = items.slice().sort((left, right) => left.startTime - right.startTime);
   const merged: WebTimelineItem[] = [];
-  let index = 0;
 
-  while (index < ordered.length) {
-    let current = { ...ordered[index]! };
-    const currentMergeKey = getWebTimelineMergeKey(current);
-    let nextIndex = index + 1;
-
-    while (nextIndex < ordered.length) {
-      const nextCandidate = ordered[nextIndex]!;
-      const previousCandidate = ordered[nextIndex - 1]!;
-      const gapToNext = nextCandidate.startTime - getWebTimelineItemEndTime(previousCandidate);
-
-      if (gapToNext > mergeThresholdMs) {
-        break;
-      }
-
-      if (getWebTimelineMergeKey(nextCandidate) === currentMergeKey) {
-        const gapFromCurrent = nextCandidate.startTime - getWebTimelineItemEndTime(current);
-        if (gapFromCurrent <= mergeThresholdMs) {
-          current = mergeWebTimelineItems(current, nextCandidate);
-          index = nextIndex;
-          nextIndex += 1;
-          continue;
-        }
-
-        break;
-      }
-
-      nextIndex += 1;
+  for (const item of ordered) {
+    const current = merged[merged.length - 1];
+    if (!current) {
+      merged.push({ ...item });
+      continue;
     }
 
-    merged.push(current);
-    index += 1;
+    const gapFromCurrent = item.startTime - getWebTimelineItemEndTime(current);
+    if (item.normalizedDomain === current.normalizedDomain && gapFromCurrent >= 0 && gapFromCurrent <= mergeThresholdMs) {
+      merged[merged.length - 1] = mergeWebTimelineItems(current, item);
+      continue;
+    }
+
+    merged.push({ ...item });
   }
 
   return merged;
@@ -253,25 +307,28 @@ export function buildWebTimelineItems(
       const clipped = clampSegmentToRange(segment, range.startMs, range.endMs, nowMs);
       if (clipped.duration <= 0) return null;
       const category = resolveWebCategory(segment.normalizedDomain, overrides);
+      const titleSample = getWebTimelineTitleSample(segment, clipped);
+      const titleSampleDetails: WebTimelineItem["titleSampleDetails"] = [titleSample];
       return {
         id: String(segment.id),
         domain: segment.domain || segment.normalizedDomain,
         normalizedDomain: segment.normalizedDomain,
         label: resolveWebLabel(segment, overrides),
-        title: segment.title,
-        url: segment.url,
         faviconUrl: resolveWebFaviconUrl(segment, webDomainFavicons),
         startTime: clipped.startTime,
         endTime: clipped.endTime,
         duration: clipped.duration,
         color: resolveWebColor(segment.normalizedDomain, category, overrides, iconThemeColors),
         category,
+        mergedCount: 1,
+        titleSamples: getWebTitleSamples(titleSampleDetails),
+        titleSampleDetails,
       } satisfies WebTimelineItem;
     })
     .filter((item): item is WebTimelineItem => Boolean(item));
 
   return filterWebTimelineItemsForDisplay(
-    mergeWebTimelineItemsByTitle(items, mergeThresholdSecs),
+    mergeWebTimelineItemsByDomain(items, mergeThresholdSecs),
     minSessionSecs,
   )
     .sort((left, right) => right.startTime - left.startTime);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import type { BrowserSmokeContext } from "./scenarioTypes.ts";
 import { evaluate, jsonString, titleDetailsButtonExpression, waitForExpression } from "./browserHarness.ts";
-import { HISTORY_TITLE_DETAIL_COUNT } from "./constants.ts";
+import { DATE_TEXT, HISTORY_TITLE_DETAIL_COUNT } from "./constants.ts";
 
 export async function runHistoryScenarios(context: BrowserSmokeContext) {
   const { appUrl, client, sessionId, runTest } = context;
@@ -327,6 +327,7 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
           const dialog = document.querySelector(".history-timeline-dialog-surface");
           const dialogList = document.querySelector(".history-timeline-dialog-body .history-timeline-list");
           const dialogDurationControls = document.querySelector(".history-timeline-dialog-duration-controls");
+          const dialogDateSwitch = document.querySelector(".history-timeline-dialog-date-switch");
           const compactTrack = document.querySelector(".history-overview-timeline-card .history-horizontal-timeline-track");
           return Boolean(
             dialog
@@ -334,6 +335,7 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
             && dialog.getAttribute("aria-label") === "时间线"
             && dialogList
             && dialogDurationControls
+            && dialogDateSwitch
             && compactTrack
             && !document.querySelector(".history-timeline-dialog-body .history-horizontal-timeline-track")
             && !document.querySelector(".history-timeline-dialog-body .history-timeline-zoom-switch")
@@ -341,6 +343,69 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
         })()
       `),
       true,
+    );
+    const initialDialogDateState = JSON.parse(String(await evaluate(client!, sessionId, `
+      (() => {
+        const previousButton = document.querySelector(".history-timeline-dialog-date-previous");
+        const nextButton = document.querySelector(".history-timeline-dialog-date-next");
+        return JSON.stringify({
+          dialogLabel: document.querySelector(".history-timeline-dialog-date-label")?.textContent?.trim() ?? null,
+          outerLabel: document.querySelector(".history-date-label")?.textContent?.trim() ?? null,
+          hasPreviousButton: Boolean(previousButton),
+          nextDisabled: Boolean(nextButton?.disabled),
+        });
+      })()
+    `))) as {
+      dialogLabel: string | null;
+      outerLabel: string | null;
+      hasPreviousButton: boolean;
+      nextDisabled: boolean;
+    };
+    assert.deepEqual(initialDialogDateState, {
+      dialogLabel: DATE_TEXT.today,
+      outerLabel: DATE_TEXT.today,
+      hasPreviousButton: true,
+      nextDisabled: true,
+    });
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const previousButton = document.querySelector(".history-timeline-dialog-date-previous");
+          if (!previousButton) return false;
+          previousButton.click();
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `
+        document.querySelector(".history-timeline-dialog-date-label")?.textContent?.trim() === ${jsonString(DATE_TEXT.yesterday)}
+        && document.querySelector(".history-date-label")?.textContent?.trim() === ${jsonString(DATE_TEXT.yesterday)}
+        && Boolean(document.querySelector(".history-timeline-dialog-surface"))
+      `,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const nextButton = document.querySelector(".history-timeline-dialog-date-next");
+          if (!nextButton || nextButton.disabled) return false;
+          nextButton.click();
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `
+        document.querySelector(".history-timeline-dialog-date-label")?.textContent?.trim() === ${jsonString(DATE_TEXT.today)}
+        && document.querySelector(".history-date-label")?.textContent?.trim() === ${jsonString(DATE_TEXT.today)}
+        && document.querySelector(".history-timeline-dialog-date-next")?.disabled === true
+      `,
     );
     assert.equal(
       await evaluate(client!, sessionId, `

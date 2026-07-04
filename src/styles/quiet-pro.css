@@ -799,10 +799,27 @@
 }
 
 .history-activity-popover-item-time {
+  display: grid;
+  min-width: 58px;
+  justify-items: end;
+  gap: 2px;
   color: var(--qp-text-tertiary);
   font-size: 9px;
   font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  text-align: right;
   white-space: nowrap;
+}
+
+.history-activity-popover-item-duration {
+  color: var(--qp-text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.history-activity-popover-item-range {
+  color: var(--qp-text-tertiary);
+  font-size: 9px;
 }
 
 .data-heatmap {

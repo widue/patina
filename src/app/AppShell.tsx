@@ -118,7 +118,6 @@ function AppShellContent() {
     handleNavigate,
     registerSettingsSaveHandler,
     registerMappingSaveHandler,
-    resetToDashboardAfterLongBackground,
     setSettingsDirty,
     setMappingDirty,
   } = useAppShellNavigation({ confirm });
@@ -163,9 +162,7 @@ function AppShellContent() {
     setRenderedView(nextView);
   }, []);
 
-  const backgroundEnteredAtMsRef = useRef<number | null>(null);
   const renderedViewRequestRef = useRef(0);
-  const wasForegroundReadyRef = useRef<boolean | null>(null);
   const warmupRuntimeReadyResolveRef = useRef<(() => void) | null>(null);
   const warmupRuntimeReadyPromiseRef = useRef<Promise<void> | null>(null);
   const isForegroundReady = isDocumentVisible && isWindowForegroundLike;
@@ -412,34 +409,6 @@ function AppShellContent() {
       window.clearTimeout(timer);
     };
   }, [classificationReady, isForegroundReady, mappingVersion, uiTextLanguage]);
-
-  useEffect(() => {
-    const wasForegroundReady = wasForegroundReadyRef.current;
-    wasForegroundReadyRef.current = isForegroundReady;
-
-    if (wasForegroundReady === null) {
-      if (!isForegroundReady) {
-        backgroundEnteredAtMsRef.current = Date.now();
-      }
-      return;
-    }
-
-    if (wasForegroundReady && !isForegroundReady) {
-      backgroundEnteredAtMsRef.current = Date.now();
-      return;
-    }
-
-    if (!wasForegroundReady && isForegroundReady) {
-      const backgroundEnteredAtMs = backgroundEnteredAtMsRef.current;
-      backgroundEnteredAtMsRef.current = null;
-      if (backgroundEnteredAtMs === null) return;
-
-      const backgroundDurationMs = Date.now() - backgroundEnteredAtMs;
-      if (resetToDashboardAfterLongBackground(backgroundDurationMs)) {
-        setHistoryDateRequest(null);
-      }
-    }
-  }, [isForegroundReady, resetToDashboardAfterLongBackground]);
 
   useEffect(() => {
     if (isForegroundReady || !appSettings.backgroundOptimization) return undefined;
