@@ -115,10 +115,10 @@ IPC 契约应保持稳定、可解析、可测试。
 
 ### 4.3 前端本地 SQLite 通道
 
-前端当前保留受控的本地 SQLite 访问，用于：
+前端当前保留受控的本地 SQLite 读访问，用于：
 
-- settings 读写
-- classification 读写
+- settings 读取
+- classification 读取
 - history / dashboard 读模型查询
 
 这条通道不是默认自由边界，而是显式受控边界。规则如下：
@@ -126,10 +126,13 @@ IPC 契约应保持稳定、可解析、可测试。
 - 页面组件不能直接写 SQL
 - feature 不能直接跳过边界访问底层 DB
 - SQLite 访问应通过 `platform/persistence/*` 暴露的明确出口
-- settings 原始读写、tracker health 时间戳与类似本地持久化适配，默认归 `platform/persistence/*`
+- `src/platform/persistence/sqlite.ts` 只暴露读连接；前端生产代码不应再调用 `execute` / `executeWrite` / `executeWriteBatch`
+- settings、classification、backup settings、数据清理与类似写侧操作默认通过 typed Rust command 完成
+- main window capability 不应包含 `sql:allow-execute`
+- settings 原始读取、tracker health 时间戳与类似本地持久化适配，默认归 `platform/persistence/*`
 - `app/services/*` 只保留应用启动、运行时同步或全局偏好写入所需的薄协调，不从 `features/settings/*` 借基础能力
 - `features/settings/*` 只保留 settings 页面的保存、cleanup、backup、restore 与外链打开等 feature 私有流程
-- 涉及运行时写侧和平台副作用的操作，优先迁往 Rust command
+- 涉及运行时写侧、数据写侧和平台副作用的操作，优先迁往 Rust command
 
 ### 4.4 命名与跨层协议
 
@@ -363,6 +366,8 @@ src-tauri/src/
 `app/*` 不负责：
 
 - 仓储细节
+- SQLite pool 获取或 SQL 事务
+- `data::repositories::*` 直连
 - 厚领域判断
 - 第二套业务中心
 
@@ -611,8 +616,10 @@ Rust 侧允许为了稳定演进保留少量入口协调或兼容封装，但规
 
 边界门禁的当前入口包括：
 
+- `npm run check:types`
 - `npm run check:architecture`
 - `npm run check:naming`
+- `npm run check:hotspots`
 - `npm run check:rust-boundaries`
 
 如果某次结构性改动无法通过这些最小验证之一，应优先解释风险或补验证，而不是直接跳过。
