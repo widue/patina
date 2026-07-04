@@ -229,6 +229,7 @@ export function runRuntimeEffectsTests() {
       },
       setAppSettings: (updater) => {
         trackedPausedValue = updater({
+          ...DEFAULT_SETTINGS,
           refreshIntervalSecs: 5,
           minSessionSecs: 30,
           timelineMergeGapSecs: 180,

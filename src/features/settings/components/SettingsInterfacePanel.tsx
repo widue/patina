@@ -76,6 +76,10 @@ type InterfaceInlineFieldProps = {
 };
 
 type WebActivityHelpDetail = (typeof UI_TEXT.settings.webActivityHelpSteps)[number]["details"][number];
+type WebActivityHelpLink = {
+  href: string;
+  label: string;
+};
 type WebActivityHelpCopiedField = "port" | "token";
 
 const WEB_ACTIVITY_PORT_MIN = 1024;
@@ -262,7 +266,9 @@ function WebActivityHelpDetailItem({ detail }: { detail: WebActivityHelpDetail }
     );
   }
 
-  const links = "links" in detail ? (detail.links ?? []) : [];
+  const links: WebActivityHelpLink[] = "links" in detail && Array.isArray(detail.links)
+    ? detail.links
+    : [];
   return (
     <>
       <span>{detail.text}</span>

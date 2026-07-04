@@ -157,7 +157,6 @@ function buildPreview(overrides: Partial<BackupPreview> = {}): BackupPreview {
     restoreMessage: "Looks good",
     sessionCount: 42,
     titleSampleCount: 12,
-    webActivitySegmentCount: 0,
     settingCount: 10,
     iconCacheCount: 5,
     toolReminderCount: 0,

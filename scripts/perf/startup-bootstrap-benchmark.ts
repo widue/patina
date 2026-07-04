@@ -1,9 +1,10 @@
 import { loadAppRuntimeBootstrapSnapshotWithDeps } from "../../src/app/services/appRuntimeBootstrapService.ts";
 import { resolveTrackerHealth } from "../../src/shared/types/tracking.ts";
-import type { AppSettings } from "../../src/shared/settings/appSettings.ts";
+import { DEFAULT_SETTINGS, type AppSettings } from "../../src/shared/settings/appSettings.ts";
 import { measureAsyncBenchmark, printBenchmarkReport } from "./benchmarkUtils.ts";
 
 const SETTINGS: AppSettings = {
+  ...DEFAULT_SETTINGS,
   idleTimeoutSecs: 300,
   timelineMergeGapSecs: 180,
   refreshIntervalSecs: 1,

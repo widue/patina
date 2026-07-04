@@ -86,7 +86,10 @@ interface StartupWarmupDeps {
   getDashboardSnapshotCache: (date?: Date) => unknown | null;
   getHistorySnapshotCache: (date?: Date, rollingDayCount?: number) => unknown | null;
   loadDashboardRuntimeSnapshot: (date?: Date) => Promise<unknown>;
-  loadDataTrendRuntimeSnapshot: typeof loadDataTrendRuntimeSnapshot;
+  loadDataTrendRuntimeSnapshot: (
+    selection: Parameters<typeof loadDataTrendRuntimeSnapshot>[0],
+    nowMs?: number,
+  ) => Promise<unknown>;
   loadHistoryRuntimeSnapshot: (date: Date, rollingDayCount?: number) => Promise<unknown>;
   loadPersistedDataBootstrapSnapshot: typeof loadPersistedDataBootstrapSnapshot;
   preloadLazyViewChunk: (view: PreloadableView) => Promise<unknown>;

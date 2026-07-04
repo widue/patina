@@ -109,6 +109,37 @@ function findRustBoundaryViolations(files: SourceFile[]): BoundaryViolation[] {
         });
       }
 
+      if (isAppSource(file.path) && !inTestModule && line.includes("crate::data::repositories")) {
+        violations.push({
+          path: file.path,
+          line: index + 1,
+          rule: "app-no-data-repository-import",
+          text: line,
+        });
+      }
+
+      if (isAppSource(file.path) && !inTestModule && line.includes("wait_for_sqlite_pool")) {
+        violations.push({
+          path: file.path,
+          line: index + 1,
+          rule: "app-no-sqlite-pool-access",
+          text: line,
+        });
+      }
+
+      if (
+        isAppSource(file.path)
+        && !inTestModule
+        && (/\bPool\s*<\s*Sqlite\s*>/.test(line) || /\bSqlitePool\b/.test(line))
+      ) {
+        violations.push({
+          path: file.path,
+          line: index + 1,
+          rule: "app-no-sqlite-pool-type",
+          text: line,
+        });
+      }
+
       if (isPlatformSource(file.path) && line.includes("crate::data::")) {
         violations.push({
           path: file.path,
@@ -152,6 +183,18 @@ function runSelfTest() {
       content: "let row = sqlx::query_scalar(\"SELECT 1\");",
     },
     {
+      path: "src-tauri/src/app/tray.rs",
+      content: [
+        "use crate::data::repositories::tracker_settings;",
+        "use crate::data::sqlite_pool::wait_for_sqlite_pool;",
+        "fn takes_pool(pool: Pool<Sqlite>) {}",
+      ].join("\n"),
+    },
+    {
+      path: "src-tauri/src/app/tray.rs",
+      content: "#[cfg(test)]\nmod tests {\nuse sqlx::SqlitePool;\n}",
+    },
+    {
       path: "src-tauri/src/lib.rs",
       content: "let row = sqlx::query_as::<_, Row>(\"SELECT 1\");",
     },
@@ -171,6 +214,9 @@ function runSelfTest() {
 
   const rules = violations.map((violation) => violation.rule).sort();
   const expectedRules = [
+    "app-no-data-repository-import",
+    "app-no-sqlite-pool-access",
+    "app-no-sqlite-pool-type",
     "commands-no-sqlite-pool-type",
     "domain-no-data-import",
     "domain-no-platform-import",

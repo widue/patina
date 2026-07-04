@@ -87,6 +87,7 @@ export function runReadModelRuntimeTests() {
       daySessions: [],
       weeklySessions: [],
       dayWebSegments: [],
+      icons: {},
       webDomainFavicons: {},
       webDomainOverrides: {},
     };
@@ -135,7 +136,7 @@ export function runReadModelRuntimeTests() {
 
     await applyTrackingDataChangedPayload({
       reason: "startup-sealed",
-      changed_at_ms: nowMs,
+      changedAtMs: nowMs,
     }, {
       loadLatestTrackingPauseSetting: async () => {
         pauseSettingLoadCalls += 1;
@@ -185,6 +186,7 @@ export function runReadModelRuntimeTests() {
           daySessions: sessions,
           weeklySessions: sessions,
           dayWebSegments: [],
+          icons: {},
           webDomainFavicons: {},
           webDomainOverrides: {},
         };
@@ -254,7 +256,7 @@ export function runReadModelRuntimeTests() {
 
     await applyTrackingDataChangedPayload({
       reason: "backup-restored",
-      changed_at_ms: nowMs,
+      changedAtMs: nowMs,
     }, {
       loadLatestTrackingPauseSetting: async () => {
         pauseSettingLoadCalls += 1;
@@ -293,6 +295,7 @@ export function runReadModelRuntimeTests() {
         daySessions: restoredSessions,
         weeklySessions: restoredSessions,
         dayWebSegments: [],
+        icons: {},
         webDomainFavicons: {},
         webDomainOverrides: {},
       }),
@@ -345,7 +348,7 @@ export function runReadModelRuntimeTests() {
 
     await applyTrackingDataChangedPayload({
       reason: "watchdog-sealed",
-      changed_at_ms: 15_000,
+      changedAtMs: 15_000,
     }, {
       loadLatestTrackingPauseSetting: async () => {
         pauseSettingLoadCalls += 1;
@@ -383,6 +386,7 @@ export function runReadModelRuntimeTests() {
         daySessions: sessions,
         weeklySessions: sessions,
         dayWebSegments: [],
+        icons: {},
         webDomainFavicons: {},
         webDomainOverrides: {},
       }),
@@ -434,7 +438,7 @@ export function runReadModelRuntimeTests() {
 
     await applyTrackingDataChangedPayload({
       reason: "tracking-paused-sealed",
-      changed_at_ms: 22_000,
+      changedAtMs: 22_000,
     }, {
       loadLatestTrackingPauseSetting: async () => {
         pauseSettingLoadCalls += 1;
@@ -472,6 +476,7 @@ export function runReadModelRuntimeTests() {
         daySessions: sessions,
         weeklySessions: sessions,
         dayWebSegments: [],
+        icons: {},
         webDomainFavicons: {},
         webDomainOverrides: {},
       }),
@@ -525,7 +530,7 @@ export function runReadModelRuntimeTests() {
 
     await applyTrackingDataChangedPayload({
       reason: "session-ended-lock",
-      changed_at_ms: 20_000,
+      changedAtMs: 20_000,
     }, {
       loadLatestTrackingPauseSetting: async () => {
         pauseSettingLoadCalls += 1;
@@ -563,6 +568,7 @@ export function runReadModelRuntimeTests() {
         daySessions: sessions,
         weeklySessions: sessions,
         dayWebSegments: [],
+        icons: {},
         webDomainFavicons: {},
         webDomainOverrides: {},
       }),
@@ -614,7 +620,7 @@ export function runReadModelRuntimeTests() {
 
     await applyTrackingDataChangedPayload({
       reason: "session-ended-suspend",
-      changed_at_ms: 24_000,
+      changedAtMs: 24_000,
     }, {
       loadLatestTrackingPauseSetting: async () => {
         pauseSettingLoadCalls += 1;
@@ -652,6 +658,7 @@ export function runReadModelRuntimeTests() {
         daySessions: sessions,
         weeklySessions: sessions,
         dayWebSegments: [],
+        icons: {},
         webDomainFavicons: {},
         webDomainOverrides: {},
       }),
@@ -718,7 +725,7 @@ export function runReadModelRuntimeTests() {
 
     await applyTrackingDataChangedPayload({
       reason: "startup-sealed",
-      changed_at_ms: 18_000,
+      changedAtMs: 18_000,
     }, {
       loadLatestTrackingPauseSetting: async () => {
         pauseSettingLoadCalls += 1;
@@ -756,6 +763,7 @@ export function runReadModelRuntimeTests() {
         daySessions: persistedSessions,
         weeklySessions: persistedSessions,
         dayWebSegments: [],
+        icons: {},
         webDomainFavicons: {},
         webDomainOverrides: {},
       }),
@@ -822,7 +830,7 @@ export function runReadModelRuntimeTests() {
 
     await applyTrackingDataChangedPayload({
       reason: "session-transition",
-      changed_at_ms: 25_000,
+      changedAtMs: 25_000,
     }, {
       loadLatestTrackingPauseSetting: async () => {
         pauseSettingLoadCalls += 1;
@@ -860,6 +868,7 @@ export function runReadModelRuntimeTests() {
         daySessions: sessions,
         weeklySessions: sessions,
         dayWebSegments: [],
+        icons: {},
         webDomainFavicons: {},
         webDomainOverrides: {},
       }),

@@ -1195,7 +1195,7 @@ export default function History({
           <div className="history-timeline-dialog-toolbar">
             <div className="history-timeline-dialog-toolbar-main">
               {webActivityEnabled && (
-                <QuietSegmentedFilter
+                <QuietSegmentedFilter<TimelineDialogMode>
                   value={effectiveTimelineDialogMode}
                   options={timelineDialogModeOptions}
                   onChange={setTimelineDialogMode}

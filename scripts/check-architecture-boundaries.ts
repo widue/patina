@@ -88,6 +88,10 @@ function isPlatformSource(path: string) {
   return /^src\/platform\//.test(path);
 }
 
+function isAppSource(path: string) {
+  return /^src\/app\//.test(path);
+}
+
 function isAppComponentOrHook(path: string) {
   return /^src\/app\/(components|hooks)\//.test(path);
 }
@@ -197,6 +201,28 @@ function findArchitectureViolations(files: SourceFile[]): ArchitectureViolation[
           text: lineText.trim(),
         });
       }
+
+      if (isAppSource(file.path) && lineText.includes("@tauri-apps/api")) {
+        violations.push({
+          path: file.path,
+          line: index + 1,
+          rule: "app-no-tauri-api",
+          text: lineText.trim(),
+        });
+      }
+
+      if (
+        !file.path.endsWith("src/platform/persistence/sqlite.ts")
+        && !file.path.endsWith("src/platform/persistence/sqliteTransactions.ts")
+        && /\bexecuteWrite(?:Batch)?\b/.test(lineText)
+      ) {
+        violations.push({
+          path: file.path,
+          line: index + 1,
+          rule: "frontend-no-sql-execute-write",
+          text: lineText.trim(),
+        });
+      }
     });
   }
 
@@ -224,6 +250,11 @@ function assertRuntimeBoundaryGuards() {
   const widgetPermissionText = JSON.stringify(widgetCapability.permissions ?? []);
   if (widgetPermissionText.includes("sql:allow-execute")) {
     throw new Error("Widget capability must not include sql:allow-execute");
+  }
+
+  const defaultPermissionText = JSON.stringify(defaultCapability.permissions ?? []);
+  if (defaultPermissionText.includes("sql:allow-execute")) {
+    throw new Error("Default capability must not include sql:allow-execute");
   }
 
   const appShell = readFileSync("src/app/AppShell.tsx", "utf8");
@@ -286,14 +317,24 @@ function runSelfTest() {
       path: "src/platform/runtime/trackingRuntimeGateway.ts",
       content: "import { invoke } from '@tauri-apps/api/core';",
     },
+    {
+      path: "src/app/widget/badGateway.ts",
+      content: "import { invoke } from '@tauri-apps/api/core';",
+    },
+    {
+      path: "src/platform/persistence/badWrite.ts",
+      content: "import { executeWrite } from './sqlite.ts';",
+    },
   ]);
 
   const rules = violations.map((violation) => violation.rule).sort();
   const expectedRules = [
+    "app-no-tauri-api",
     "app-shell-no-direct-persistence-import",
     "app-component-no-feature-import",
     "feature-ui-no-direct-invoke",
     "feature-ui-no-platform-import",
+    "frontend-no-sql-execute-write",
     "platform-no-feature-import",
     "shared-no-app-import",
     "shared-no-feature-import",

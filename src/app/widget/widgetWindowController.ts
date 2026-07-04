@@ -6,6 +6,13 @@ import type {
   WidgetWindowSize,
 } from "../../platform/desktop/widgetRuntimeGateway.ts";
 
+export type {
+  WidgetMonitorLike,
+  WidgetWindowPosition,
+  WidgetWindowRect,
+  WidgetWindowSize,
+};
+
 interface WidgetWindowControllerDeps {
   loadPlacement: () => Promise<WidgetPlacement | null>;
   persistExpanded: (expanded: boolean, showObjectSlot: boolean) => Promise<void>;

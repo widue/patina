@@ -131,7 +131,7 @@ function tauriStubFor(path: string) {
 
 function createRechartsStub() {
   const React = require("react") as typeof import("react");
-  const Container = ({ children }: { children?: unknown }) => (
+  const Container = ({ children }: { children?: import("react").ReactNode }) => (
     React.createElement("div", null, children)
   );
   const Empty = () => null;
@@ -184,6 +184,12 @@ function installSmokeRenderHooks() {
   const originalCss = require.extensions[".css"];
   const originalPng = require.extensions[".png"];
 
+  const compileModule = (module: NodeJS.Module, code: string, filename: string) => {
+    (module as NodeJS.Module & {
+      _compile: (code: string, filename: string) => void;
+    })._compile(code, filename);
+  };
+
   const transpile = (module: NodeJS.Module, filename: string) => {
     const source = readFileSync(filename, "utf8")
       .replaceAll("import.meta.env.DEV", "false");
@@ -198,16 +204,16 @@ function installSmokeRenderHooks() {
         target: ts.ScriptTarget.ES2020,
       },
     }).outputText;
-    module._compile(output, filename);
+    compileModule(module, output, filename);
   };
 
   require.extensions[".ts"] = transpile;
   require.extensions[".tsx"] = transpile;
   require.extensions[".css"] = (module) => {
-    module._compile("module.exports = {};", "");
+    compileModule(module, "module.exports = {};", "");
   };
   require.extensions[".png"] = (module) => {
-    module._compile("module.exports = 'data:image/png;base64,';", "");
+    compileModule(module, "module.exports = 'data:image/png;base64,';", "");
   };
 
   Module._load = function smokeLoad(request: string, parent: unknown, isMain: boolean) {

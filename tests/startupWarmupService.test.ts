@@ -158,6 +158,7 @@ function makeHistorySnapshot(fetchedAtMs: number) {
     fetchedAtMs,
     weeklySessions: [],
     dayWebSegments: [],
+    icons: {},
     webDomainFavicons: {},
     webDomainOverrides: {},
   };

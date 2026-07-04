@@ -277,7 +277,7 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
           ?.getBoundingClientRect().height ?? 0
       ) >= 68`,
     );
-    const wideTimelineMetrics = JSON.parse(await evaluate(client!, sessionId, `
+    const wideTimelineMetrics = JSON.parse(String(await evaluate(client!, sessionId, `
       (() => {
         const track = document.querySelector(".history-overview-timeline-card .history-horizontal-timeline-track");
         return JSON.stringify({
@@ -287,7 +287,7 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
           viewportHeight: window.innerHeight,
         });
       })()
-    `));
+    `)));
     assert.ok(
       wideTimelineMetrics.trackHeight >= 68,
       `wide timeline track height should scale, got ${JSON.stringify(wideTimelineMetrics)}`,
@@ -410,7 +410,7 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
       sessionId,
       `Boolean(document.querySelector(".history-timeline-zoom-dialog-surface"))`,
     );
-    const initialZoomDialogState = JSON.parse(await evaluate(client!, sessionId, `
+    const initialZoomDialogState = JSON.parse(String(await evaluate(client!, sessionId, `
       (() => {
         const dialog = document.querySelector(".history-timeline-zoom-dialog-surface");
         const timeline = document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline");
@@ -427,7 +427,7 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
           hasList: Boolean(document.querySelector(".history-timeline-zoom-dialog-surface .history-timeline-list")),
         });
       })()
-    `));
+    `)));
     assert.equal(initialZoomDialogState.hasDialog, true);
     assert.equal(initialZoomDialogState.zoomHours, "24");
     assert.equal(initialZoomDialogState.hasTrack, true);
@@ -451,7 +451,7 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
       `document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline")
         ?.getAttribute("data-history-timeline-zoom-hours") === "4"`,
     );
-    const zoomedTimelineState = JSON.parse(await evaluate(client!, sessionId, `
+    const zoomedTimelineState = JSON.parse(String(await evaluate(client!, sessionId, `
       (() => {
         const timeline = document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline");
         const axisLabels = Array.from(document.querySelectorAll(
@@ -464,7 +464,7 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
           axisLabels,
         });
       })()
-    `));
+    `)));
     assert.equal(zoomedTimelineState.zoomHours, "4");
     assert.equal(zoomedTimelineState.axisLabels.length, 5);
     assert.equal(

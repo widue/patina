@@ -884,33 +884,31 @@ await runTest("gateway invokes commands, parses event payloads, and disposes lis
   let receivedAlertId = "";
 
   const gateway = createToolsRuntimeGateway({
-    async invoke(command, payload) {
+    async invoke<T>(command, payload): Promise<T> {
       calls.push({ command, payload });
       if (command === "cmd_get_tool_alerts") {
-        return [rawAlert()] as unknown;
+        return [rawAlert()] as T;
       }
       if (command === "cmd_dismiss_tool_alert") {
-        return undefined as unknown;
+        return undefined as T;
       }
-      return rawSnapshot() as unknown;
+      return rawSnapshot() as T;
     },
-    async listen(eventName, handler) {
+    async listen<T>(eventName, handler) {
       if (eventName === "tools-alert") {
         listenedAlertEventName = eventName;
         emitAlert = () => handler({
           event: eventName,
           id: 2,
-          payload: rawAlert({ id: "reminder:3" }),
-          windowLabel: "main",
-        });
+          payload: rawAlert({ id: "reminder:3" }) as T,
+        } as Parameters<typeof handler>[0]);
       } else {
         listenedEventName = eventName;
         emit = () => handler({
           event: eventName,
           id: 1,
-          payload: rawSnapshot({ next_reminder_at: 3_000_000 }),
-          windowLabel: "main",
-        });
+          payload: rawSnapshot({ next_reminder_at: 3_000_000 }) as T,
+        } as Parameters<typeof handler>[0]);
       }
       return () => {
         disposed = true;
