@@ -21,6 +21,7 @@ import { ProcessMapper, type AppOverride } from "../../../shared/classification/
 import {
   isAppCategory,
   isExtendedCategory,
+  isModernExtendedCategoryId,
   USER_ASSIGNABLE_CATEGORIES,
   type AppCategory,
   type ExtendedAppCategory,
@@ -150,14 +151,46 @@ function toWebDomainOverrideStorageValue(override: WebDomainOverride): string {
   });
 }
 
-function buildLoadedAppOverrides(rows: readonly { key: string; value: string }[]): {
+function repairTruncatedModernCategoryReference(
+  category: AppOverride["category"],
+  knownPersistedCategoryIds: readonly ExtendedAppCategory[],
+): AppOverride["category"] {
+  if (!category || !isModernExtendedCategoryId(category)) {
+    return category;
+  }
+  if (knownPersistedCategoryIds.includes(category)) {
+    return category;
+  }
+
+  const matches = knownPersistedCategoryIds.filter((candidate) => candidate.startsWith(category));
+  return matches.length === 1 ? matches[0] : category;
+}
+
+function repairAppOverrideCategoryReference(
+  override: AppOverride,
+  knownPersistedCategoryIds: readonly ExtendedAppCategory[],
+): AppOverride {
+  const category = repairTruncatedModernCategoryReference(override.category, knownPersistedCategoryIds);
+  if (category === override.category) {
+    return override;
+  }
+  return {
+    ...override,
+    category,
+  };
+}
+
+function buildLoadedAppOverrides(
+  rows: readonly { key: string; value: string }[],
+  knownPersistedCategoryIds: readonly ExtendedAppCategory[] = [],
+): {
   overrides: Record<string, AppOverride>;
   transitionMutations: ClassificationSettingMutation[];
 } {
   const overrides: Record<string, AppOverride> = {};
   const transitionMutations: ClassificationSettingMutation[] = [];
   for (const row of rows) {
-    const result = buildAppOverrideTransition(row.key, row.value);
+    const result = buildAppOverrideTransition(row.key, row.value, knownPersistedCategoryIds);
     if (!result.canonicalExe || !result.override) continue;
     overrides[result.canonicalExe] = result.override;
     transitionMutations.push(...result.mutations);
@@ -186,11 +219,12 @@ async function runLegacyAutoClassificationMigration(): Promise<void> {
   }
 
   const migratedAt = Date.now();
-  const [overrideRows, observed] = await Promise.all([
+  const [overrideRows, observed, persistedCategoryIds] = await Promise.all([
     loadSettingRowsByKeyPrefix(APP_OVERRIDE_KEY_PREFIX),
     loadObservedSessionStats(0, migratedAt),
+    loadPersistedCategoryIds(),
   ]);
-  const { overrides, transitionMutations } = buildLoadedAppOverrides(overrideRows);
+  const { overrides, transitionMutations } = buildLoadedAppOverrides(overrideRows, persistedCategoryIds);
   const mutations = [
     ...transitionMutations,
     ...buildLegacyAutoClassificationMigrationMutations(observed, overrides, migratedAt),
@@ -211,9 +245,12 @@ async function ensureLegacyAutoClassificationMigration(): Promise<void> {
 
 export async function loadAppOverrides(): Promise<Record<string, AppOverride>> {
   await ensureLegacyAutoClassificationMigration();
-  const rows = await loadSettingRowsByKeyPrefix(APP_OVERRIDE_KEY_PREFIX);
+  const [rows, persistedCategoryIds] = await Promise.all([
+    loadSettingRowsByKeyPrefix(APP_OVERRIDE_KEY_PREFIX),
+    loadPersistedCategoryIds(),
+  ]);
 
-  const { overrides, transitionMutations } = buildLoadedAppOverrides(rows);
+  const { overrides, transitionMutations } = buildLoadedAppOverrides(rows, persistedCategoryIds);
 
   await commitClassificationSettingMutations(transitionMutations);
 
@@ -242,6 +279,7 @@ export async function loadWebDomainOverrides(): Promise<Record<string, WebDomain
 export function buildAppOverrideTransition(
   key: string,
   value: string,
+  knownPersistedCategoryIds: readonly ExtendedAppCategory[] = [],
 ): AppOverrideTransitionResult {
   const canonicalExe = resolveCanonicalExecutable(key.slice(APP_OVERRIDE_KEY_PREFIX.length));
   if (!canonicalExe) {
@@ -253,8 +291,9 @@ export function buildAppOverrideTransition(
     return { canonicalExe, override: null, mutations: [] };
   }
 
+  const repaired = repairAppOverrideCategoryReference(parsed, knownPersistedCategoryIds);
   const canonicalKey = `${APP_OVERRIDE_KEY_PREFIX}${canonicalExe}`;
-  const normalizedValue = ProcessMapper.toOverrideStorageValue(parsed);
+  const normalizedValue = ProcessMapper.toOverrideStorageValue(repaired);
   const mutations: ClassificationSettingMutation[] = [];
   if (key !== canonicalKey) {
     mutations.push({ key, value: null });
@@ -265,7 +304,7 @@ export function buildAppOverrideTransition(
 
   return {
     canonicalExe,
-    override: parsed,
+    override: repaired,
     mutations,
   };
 }

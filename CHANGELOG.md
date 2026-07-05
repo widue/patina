@@ -22,6 +22,8 @@ App note en: TBD.
 
 ### Fixed
 
+- Refs #32: 修复自定义分类保存后重新进入分类页可能显示为 `category_...` 新分类的问题，并保守恢复可唯一匹配的截断分类引用。
+
 ### Removed
 
 ### Internal

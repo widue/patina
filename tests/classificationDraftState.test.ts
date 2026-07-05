@@ -300,6 +300,16 @@ await runTest("createCategoryId creates stable non-label category ids", () => {
   assert.notEqual(category, buildLegacyExtendedCategoryId("Focus"));
 });
 
+await runTest("modern stable extended category ids round-trip through app override storage", () => {
+  const category = "custom:category_76fe3862f1e4493badcafe1234567890" as const;
+  const stored = ProcessMapper.toOverrideStorageValue({
+    enabled: true,
+    category,
+  });
+
+  assert.equal(ProcessMapper.fromOverrideStorageValue(stored)?.category, category);
+});
+
 await runTest("createCategoryInDraftState stores stable category label", () => {
   const category = "custom:category_focus" as const;
   const state = createCategoryInDraftState(buildDraftState(), category, "  Focus  ");
@@ -386,6 +396,84 @@ await runTest("encoded extended category app override transitions back to canoni
       }),
     },
   ]);
+});
+
+await runTest("app override transition preserves full modern category ids", () => {
+  const category = "custom:category_76fe3862f1e4493badcafe1234567890" as const;
+  const stored = ProcessMapper.toOverrideStorageValue({
+    category,
+    enabled: true,
+    updatedAt: 123,
+  });
+  const transition = buildAppOverrideTransition("__app_override::notepad.exe", stored);
+
+  assert.equal(transition.canonicalExe, "notepad.exe");
+  assert.equal(transition.override?.category, category);
+  assert.deepEqual(transition.mutations, []);
+});
+
+await runTest("app override transition restores truncated modern category ids when the full category is known", () => {
+  const category = "custom:category_76fe3862f1e4493badcafe1234567890" as const;
+  const truncatedCategory = "custom:category_76fe3862f1e" as const;
+  const transition = buildAppOverrideTransition(
+    "__app_override::notepad.exe",
+    JSON.stringify({ category: truncatedCategory, enabled: true, updatedAt: 123 }),
+    [category],
+  );
+
+  assert.equal(transition.canonicalExe, "notepad.exe");
+  assert.equal(transition.override?.category, category);
+  assert.deepEqual(transition.mutations, [
+    {
+      key: "__app_override::notepad.exe",
+      value: JSON.stringify({
+        category,
+        displayName: null,
+        color: null,
+        track: true,
+        captureTitle: true,
+        enabled: true,
+        updatedAt: 123,
+      }),
+    },
+  ]);
+});
+
+await runTest("app override transition leaves ambiguous truncated modern category ids unchanged", () => {
+  const truncatedCategory = "custom:category_1234567890a" as const;
+  const transition = buildAppOverrideTransition(
+    "__app_override::notepad.exe",
+    JSON.stringify({ category: truncatedCategory, enabled: true, updatedAt: 123 }),
+    [
+      "custom:category_1234567890abcdef1111111111111111",
+      "custom:category_1234567890abcdef2222222222222222",
+    ],
+  );
+
+  assert.equal(transition.canonicalExe, "notepad.exe");
+  assert.equal(transition.override?.category, truncatedCategory);
+  assert.equal(transition.mutations.length, 1);
+  assert.equal(
+    JSON.parse(transition.mutations[0].value ?? "{}").category,
+    truncatedCategory,
+  );
+});
+
+await runTest("app override transition leaves unknown truncated modern category ids unchanged", () => {
+  const truncatedCategory = "custom:category_99999999999" as const;
+  const transition = buildAppOverrideTransition(
+    "__app_override::notepad.exe",
+    JSON.stringify({ category: truncatedCategory, enabled: true, updatedAt: 123 }),
+    ["custom:category_1234567890abcdef1111111111111111"],
+  );
+
+  assert.equal(transition.canonicalExe, "notepad.exe");
+  assert.equal(transition.override?.category, truncatedCategory);
+  assert.equal(transition.mutations.length, 1);
+  assert.equal(
+    JSON.parse(transition.mutations[0].value ?? "{}").category,
+    truncatedCategory,
+  );
 });
 
 await runTest("hasClassificationDraftChanges ignores unsupported deleted categories", () => {

@@ -154,7 +154,14 @@ export function isExtendedCategory(category: string): category is ExtendedAppCat
   return category.startsWith(EXTENDED_CATEGORY_PREFIX) && category.length > EXTENDED_CATEGORY_PREFIX.length;
 }
 
+export function isModernExtendedCategoryId(category: string): category is ExtendedAppCategory {
+  return isExtendedCategory(category) && category.slice(EXTENDED_CATEGORY_PREFIX.length).startsWith("category_");
+}
+
 export function normalizeExtendedCategory(category: ExtendedAppCategory): ExtendedAppCategory {
+  if (isModernExtendedCategoryId(category)) {
+    return category;
+  }
   return buildLegacyExtendedCategoryId(resolveExtendedCategoryLabel(category));
 }
 
