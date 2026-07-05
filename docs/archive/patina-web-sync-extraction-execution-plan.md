@@ -165,7 +165,7 @@ Patina-Web-Sync/
   LICENSE
   .gitignore
   docs/
-    patina-web-activity-protocol.md
+    web-activity-protocol.md
   src/
     chromium/
     firefox/
@@ -244,7 +244,7 @@ Patina-Web-Sync/
 - [x] 在 README 中说明扩展只发送当前活动网页元数据到本机 Patina。
 - [x] 在 README 中链接协议文档。
 - [x] 新建 `CHANGELOG.md`，建立 `Unreleased` 区块。
-- [x] 复制或引用协议文档到 `docs/patina-web-activity-protocol.md`。
+- [x] 复制或引用协议文档到 `docs/web-activity-protocol.md`。
 - [x] 更新隐私政策中的仓库链接，指向新仓库路径。
 - [x] 更新 Chrome Web Store listing draft 中的隐私政策链接，指向新仓库路径。
 
