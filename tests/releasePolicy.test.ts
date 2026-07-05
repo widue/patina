@@ -7,6 +7,7 @@ import {
   readVersionPolicyCurrentCodeVersion,
   renderUpdaterNotes,
   syncVersionPolicyCurrentCodeVersion,
+  validateReleaseNoteVisibleChangeCount,
   validateReleaseVersionFilesText,
   validateVersionPolicyCurrentCodeVersionText,
 } from "../scripts/release.ts";
@@ -140,11 +141,39 @@ function testUpdaterEndpointsKeepGithubFirstAndPreserveMirrors() {
 function testReleaseNotesIncludeAllVisibleBullets() {
   const notes = renderReleaseNotes({
     release: "Ready.",
-    bullets: Array.from({ length: 8 }, (_, index) => `- Change ${index + 1}`),
+    sections: [
+      {
+        heading: "Changed",
+        bullets: Array.from({ length: 7 }, (_, index) => `- Change ${index + 1}`),
+      },
+    ],
   });
 
   assert.match(notes, /- Change 7/);
-  assert.match(notes, /- Change 8/);
+  assert.doesNotMatch(notes, /Internal/);
+}
+
+function testReleaseNotesKeepVisibleSectionsAndSkipInternal() {
+  const notes = renderReleaseNotes({
+    release: "Ready.",
+    sections: [
+      { heading: "Added", bullets: ["- Added item"] },
+      { heading: "Changed", bullets: ["- Changed item"] },
+      { heading: "Fixed", bullets: ["- Fixed item"] },
+      { heading: "Removed", bullets: ["- Removed item"] },
+      { heading: "Internal", bullets: ["- Internal item"] },
+    ],
+  });
+
+  assert.match(notes, /### 新增/);
+  assert.match(notes, /- Added item/);
+  assert.match(notes, /### 改进/);
+  assert.match(notes, /- Changed item/);
+  assert.match(notes, /### 修复/);
+  assert.match(notes, /- Fixed item/);
+  assert.match(notes, /### 移除/);
+  assert.match(notes, /- Removed item/);
+  assert.doesNotMatch(notes, /Internal item/);
 }
 
 function testReleaseNotesOnlyMentionPatinaInstaller() {
@@ -158,6 +187,31 @@ function testReleaseNotesOnlyMentionPatinaInstaller() {
   assert.doesNotMatch(notes, /patina-firefox-extension/);
 }
 
+function testReleaseVisibleChangeCountIgnoresInternal() {
+  assert.equal(
+    validateReleaseNoteVisibleChangeCount({
+      version: "1.6.0",
+      sections: [
+        { heading: "Changed", bullets: Array.from({ length: 7 }, (_, index) => `- Change ${index + 1}`) },
+        { heading: "Internal", bullets: Array.from({ length: 20 }, (_, index) => `- Internal ${index + 1}`) },
+      ],
+    }),
+    null,
+  );
+}
+
+function testReleaseVisibleChangeCountRejectsTooManyUserFacingItems() {
+  assert.equal(
+    validateReleaseNoteVisibleChangeCount({
+      version: "1.6.0",
+      sections: [
+        { heading: "Changed", bullets: Array.from({ length: 8 }, (_, index) => `- Change ${index + 1}`) },
+      ],
+    }),
+    "CHANGELOG.md 1.6.0 has 8 user-visible Added/Changed/Fixed/Removed entries; keep the combined count to 1-7",
+  );
+}
+
 function testReleaseWorkflowDoesNotPublishBrowserExtensionAssets() {
   const workflow = readFileSync(".github/workflows/prepare-release.yml", "utf8");
 
@@ -165,8 +219,35 @@ function testReleaseWorkflowDoesNotPublishBrowserExtensionAssets() {
   assert.doesNotMatch(workflow, /npm run extension:firefox:sign/);
   assert.doesNotMatch(workflow, /CHROMIUM_EXTENSION_ASSET|FIREFOX_EXTENSION_ASSET/);
   assert.doesNotMatch(workflow, /patina-chromium-extension|patina-firefox-extension/);
-  assert.match(workflow, /dist-release\/Patina_\$\{\{ steps\.release\.outputs\.version \}\}_x64-setup\.exe/);
+  assert.match(workflow, /dist-release\/Patina_\$\{\{ needs\.resolve\.outputs\.version \}\}_x64-setup\.exe/);
   assert.match(workflow, /dist-release\/latest\.json/);
+}
+
+function testReleaseWorkflowSplitsQualityGatesBeforePublish() {
+  const workflow = readFileSync(".github/workflows/prepare-release.yml", "utf8");
+
+  assert.match(workflow, /^  version-files:/m);
+  assert.match(workflow, /^  changelog:/m);
+  assert.match(workflow, /^  release-notes:/m);
+  assert.match(workflow, /^  frontend:/m);
+  assert.match(workflow, /^  rust:/m);
+  assert.match(workflow, /^  build:/m);
+  assert.match(workflow, /^  release-assets:/m);
+  assert.match(workflow, /^  github-release:/m);
+  assert.match(workflow, /^  r2-config:/m);
+  assert.match(workflow, /^  r2-upload:/m);
+  assert.match(workflow, /^  r2-clean:/m);
+  assert.match(workflow, /needs: \[resolve, version-files, changelog, release-notes, frontend, rust\]/);
+  assert.match(workflow, /needs: \[resolve, build\]/);
+  assert.match(workflow, /needs: \[resolve, release-notes, release-assets\]/);
+  assert.match(workflow, /needs: \[resolve, github-release\]/);
+  assert.match(workflow, /needs: \[resolve, release-assets, r2-config\]/);
+  assert.match(workflow, /needs: \[resolve, r2-config, r2-upload\]/);
+  assert.match(workflow, /run: npm run check$/m);
+  assert.match(workflow, /run: npm run check:rust$/m);
+  assert.match(workflow, /uses: actions\/upload-artifact@v4/);
+  assert.match(workflow, /uses: actions\/download-artifact@v4/);
+  assert.doesNotMatch(workflow, /run: npm run release:check/);
 }
 
 function testVersionFilesValidationPassesWhenAllVersionsMatch() {
@@ -258,8 +339,12 @@ testUpdaterNotesKeepLocalizedVariants();
 testUpdaterNotesFallsBackToAppNote();
 testUpdaterEndpointsKeepGithubFirstAndPreserveMirrors();
 testReleaseNotesIncludeAllVisibleBullets();
+testReleaseNotesKeepVisibleSectionsAndSkipInternal();
 testReleaseNotesOnlyMentionPatinaInstaller();
+testReleaseVisibleChangeCountIgnoresInternal();
+testReleaseVisibleChangeCountRejectsTooManyUserFacingItems();
 testReleaseWorkflowDoesNotPublishBrowserExtensionAssets();
+testReleaseWorkflowSplitsQualityGatesBeforePublish();
 testVersionFilesValidationPassesWhenAllVersionsMatch();
 testVersionFilesValidationCatchesPackageJsonMismatch();
 testVersionFilesValidationCatchesPackageLockRootMismatch();
@@ -269,4 +354,4 @@ testVersionFilesValidationCatchesPolicyMismatch();
 testVersionFilesValidationCatchesMissingChangelogSection();
 testVersionFilesValidationRejectsInvalidVersion();
 
-console.log("Passed 18 release policy tests");
+console.log("Passed 22 release policy tests");
