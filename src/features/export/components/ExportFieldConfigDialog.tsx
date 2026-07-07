@@ -241,8 +241,12 @@ export default function ExportFieldConfigDialog({ open, selectedFields, uiText, 
     setFields([...DEFAULT_ORDER]);
   };
 
+  const selectedCount = fields.filter((key) => !isHeader(key)).length;
+
   const handleConfirm = () => {
-    onConfirm(fields.filter((k) => !isHeader(k)));
+    const nextFields = fields.filter((key) => !isHeader(key));
+    if (nextFields.length === 0) return;
+    onConfirm(nextFields);
   };
 
   if (!open) return null;
@@ -250,7 +254,8 @@ export default function ExportFieldConfigDialog({ open, selectedFields, uiText, 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
       <div
-        className="qp-panel rounded-[16px] w-full max-w-lg mx-4 max-h-[80vh] flex flex-col shadow-xl"
+        className="qp-panel rounded-[16px] w-full max-w-lg mx-4 max-h-[80vh] flex flex-col"
+        style={{ boxShadow: "var(--qp-shadow-overlay)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-[var(--qp-border-subtle)]">
@@ -295,9 +300,6 @@ export default function ExportFieldConfigDialog({ open, selectedFields, uiText, 
                     transform: showInsertBefore
                       ? "translateY(-50%) scaleX(1)"
                       : "translateY(-50%) scaleX(0.9)",
-                    boxShadow: showInsertBefore
-                      ? "0 0 12px 2px rgba(99, 102, 241, 0.35)"
-                      : "none",
                   }}
                 />
                 <div
@@ -305,7 +307,7 @@ export default function ExportFieldConfigDialog({ open, selectedFields, uiText, 
                   onPointerDown={(e) => handlePointerDown(e, idx)}
                   className={`flex items-center gap-2 rounded-[10px] border px-3 py-2 cursor-grab active:cursor-grabbing select-none transition-all duration-150 touch-none mt-1.5 ${
                     isDragging
-                      ? "bg-[var(--qp-accent-muted)] border-[var(--qp-accent-default)]/50 scale-[0.98] opacity-80 shadow-lg z-20 relative"
+                      ? "bg-[var(--qp-accent-muted)] border-[var(--qp-accent-default)]/50 scale-[0.98] opacity-80 z-20 relative"
                       : "bg-[var(--qp-bg-elevated)] border-[var(--qp-border-subtle)] hover:border-[var(--qp-border-strong)]"
                   }`}
                 >
@@ -341,10 +343,6 @@ export default function ExportFieldConfigDialog({ open, selectedFields, uiText, 
                   dragOverIndex === fields.length && draggingIndex !== null && fields.length > 0
                     ? "translateY(-50%) scaleX(1)"
                     : "translateY(-50%) scaleX(0.9)",
-                boxShadow:
-                  dragOverIndex === fields.length && draggingIndex !== null && fields.length > 0
-                    ? "0 0 12px 2px rgba(99, 102, 241, 0.35)"
-                    : "none",
               }}
             />
           </div>
@@ -358,14 +356,19 @@ export default function ExportFieldConfigDialog({ open, selectedFields, uiText, 
           </div>
         </div>
 
-        <div className="flex items-center justify-between px-5 pb-5 pt-3 border-t border-[var(--qp-border-subtle)]">
-          <button
-            type="button"
-            onClick={handleReset}
-            className="qp-button-ghost rounded-[8px] px-3 py-1.5 text-xs font-semibold text-[var(--qp-text-secondary)]"
-          >
-            {t.configFieldsReset}
-          </button>
+        <div className="flex items-center justify-between gap-3 px-5 pb-5 pt-3 border-t border-[var(--qp-border-subtle)]">
+          <div className="min-w-0">
+            <button
+              type="button"
+              onClick={handleReset}
+              className="qp-button-ghost rounded-[8px] px-3 py-1.5 text-xs font-semibold text-[var(--qp-text-secondary)]"
+            >
+              {t.configFieldsReset}
+            </button>
+            {selectedCount === 0 && (
+              <p className="mt-1 text-xs text-[var(--qp-danger)]">{t.configFieldsEmpty}</p>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -377,7 +380,8 @@ export default function ExportFieldConfigDialog({ open, selectedFields, uiText, 
             <button
               type="button"
               onClick={handleConfirm}
-              className="qp-button-primary rounded-[8px] px-4 py-1.5 text-xs font-semibold"
+              disabled={selectedCount === 0}
+              className="qp-button-primary rounded-[8px] px-4 py-1.5 text-xs font-semibold disabled:opacity-50"
             >
               {uiText.dialog.confirm}
             </button>

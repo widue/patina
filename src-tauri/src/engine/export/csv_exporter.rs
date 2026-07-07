@@ -1,121 +1,63 @@
-use crate::data::sqlite_pool::wait_for_sqlite_pool;
-use chrono::DateTime;
+use super::common::{
+    build_overlap_where_clause, current_time_ms, ms_to_datetime_str, replace_output_file,
+    resolve_export_fields, sanitize_csv_text_for_excel, unique_temp_path, ExportTimeFilter,
+};
 use sqlx::{Pool, Row, Sqlite};
 use std::io::Write;
-use tauri::AppHandle;
-
-const ALL_CSV_FIELDS: &[&str] = &[
-    "record_type",
-    "exe_name",
-    "app_name",
-    "window_title",
-    "domain",
-    "normalized_domain",
-    "url",
-    "page_title",
-    "start_time",
-    "end_time",
-    "duration_ms",
-];
-
-fn ms_to_datetime_str(ms: i64) -> String {
-    let secs = ms / 1000;
-    let nanos = ((ms % 1000) * 1_000_000) as u32;
-    let odt = DateTime::from_timestamp(secs, nanos).unwrap_or_default().with_timezone(&chrono::Local);
-    odt.format("%Y-%m-%d %H:%M:%S").to_string()
-}
-
-fn validate_field_names(selected: &[String]) -> Result<Vec<&'static str>, String> {
-    if selected.is_empty() {
-        return Ok(ALL_CSV_FIELDS.to_vec());
-    }
-    let all_set: std::collections::HashSet<&str> = ALL_CSV_FIELDS.iter().copied().collect();
-    let mut ordered = Vec::new();
-    let mut seen = std::collections::HashSet::new();
-    for s in selected {
-        if seen.contains(s.as_str()) {
-            continue;
-        }
-        if !all_set.contains(s.as_str()) {
-            return Err(format!("unknown csv field: {s}"));
-        }
-        let field = ALL_CSV_FIELDS.iter().find(|&&f| f == s).unwrap();
-        ordered.push(*field);
-        seen.insert(s.as_str());
-    }
-    Ok(ordered)
-}
-
-fn get_csv_value(name: &str, sessions: &[SessionRow], web: &[WebRow], idx: usize) -> String {
-    if idx < sessions.len() {
-        let s = &sessions[idx];
-        match name {
-            "record_type" => "session".to_string(),
-            "exe_name" => s.exe_name.clone(),
-            "app_name" => s.app_name.clone(),
-            "window_title" => s.window_title.clone().unwrap_or_default(),
-            "domain" | "normalized_domain" | "url" | "page_title" => String::new(),
-            "start_time" => ms_to_datetime_str(s.start_time),
-            "end_time" => s.end_time.map(ms_to_datetime_str).unwrap_or_default(),
-            "duration_ms" => s.duration.map(|d| d.to_string()).unwrap_or_default(),
-            _ => String::new(),
-        }
-    } else {
-        let w = &web[idx - sessions.len()];
-        match name {
-            "record_type" => "web".to_string(),
-            "exe_name" | "app_name" | "window_title" => String::new(),
-            "domain" => w.domain.clone(),
-            "normalized_domain" => w.normalized_domain.clone(),
-            "url" => w.url.clone().unwrap_or_default(),
-            "page_title" => w.title.clone().unwrap_or_default(),
-            "start_time" => ms_to_datetime_str(w.start_time),
-            "end_time" => w.end_time.map(ms_to_datetime_str).unwrap_or_default(),
-            "duration_ms" => w.duration.map(|d| d.to_string()).unwrap_or_default(),
-            _ => String::new(),
-        }
-    }
-}
 
 pub async fn export_to_csv(
-    app: &AppHandle,
+    pool: &Pool<Sqlite>,
     output_path: &str,
     start_time: Option<i64>,
     end_time: Option<i64>,
-    selected_fields: &[String],
+    selected_fields: Option<&[String]>,
 ) -> Result<u64, String> {
-    let fields = validate_field_names(selected_fields)?;
+    let fields = resolve_export_fields(selected_fields)?;
+    let filter = ExportTimeFilter {
+        start_time,
+        end_time,
+        effective_now_ms: current_time_ms(),
+    };
 
-    let pool = wait_for_sqlite_pool(app).await?;
-    let sessions = load_sessions(&pool, start_time, end_time).await?;
-    let web = load_web_activity(&pool, start_time, end_time).await?;
+    let sessions = load_sessions(pool, filter).await?;
+    let web = load_web_activity(pool, filter).await?;
     let total_rows = (sessions.len() + web.len()) as u64;
 
-    let mut file = std::fs::File::create(output_path)
-        .map_err(|e| format!("failed to create output file: {e}"))?;
-    file.write_all(&[0xEF, 0xBB, 0xBF])
-        .map_err(|e| format!("failed to write BOM: {e}"))?;
+    let temp_path = unique_temp_path(output_path, "csv")?;
+    let write_result = (|| -> Result<(), String> {
+        let mut file = std::fs::File::create(&temp_path)
+            .map_err(|e| format!("failed to create output file: {e}"))?;
+        file.write_all(&[0xEF, 0xBB, 0xBF])
+            .map_err(|e| format!("failed to write BOM: {e}"))?;
 
-    let mut writer = csv::Writer::from_writer(file);
-    writer
-        .write_record(&fields)
-        .map_err(|e| format!("failed to write csv header: {e}"))?;
-
-    let total = sessions.len() + web.len();
-    for i in 0..total {
-        let record: Vec<String> = fields
-            .iter()
-            .map(|f| get_csv_value(f, &sessions, &web, i))
-            .collect();
+        let mut writer = csv::Writer::from_writer(file);
         writer
-            .write_record(&record)
-            .map_err(|e| format!("failed to write csv row: {e}"))?;
+            .write_record(&fields)
+            .map_err(|e| format!("failed to write csv header: {e}"))?;
+
+        let total = sessions.len() + web.len();
+        for index in 0..total {
+            let record: Vec<String> = fields
+                .iter()
+                .map(|field| get_csv_value(field, &sessions, &web, index))
+                .collect();
+            writer
+                .write_record(&record)
+                .map_err(|e| format!("failed to write csv row: {e}"))?;
+        }
+
+        writer
+            .flush()
+            .map_err(|e| format!("failed to flush csv writer: {e}"))?;
+        Ok(())
+    })();
+
+    if let Err(error) = write_result {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(error);
     }
 
-    writer
-        .flush()
-        .map_err(|e| format!("failed to flush csv writer: {e}"))?;
-
+    replace_output_file(&temp_path, output_path)?;
     Ok(total_rows)
 }
 
@@ -140,38 +82,60 @@ struct WebRow {
     duration: Option<i64>,
 }
 
-fn build_time_clause(start_time: Option<i64>, end_time: Option<i64>) -> (String, Vec<i64>) {
-    let mut clauses = Vec::new();
-    let mut params = Vec::new();
-    if let Some(st) = start_time {
-        clauses.push("start_time >= ?".to_string());
-        params.push(st);
-    }
-    if let Some(et) = end_time {
-        clauses.push("start_time <= ?".to_string());
-        params.push(et);
-    }
-    if clauses.is_empty() {
-        (String::new(), params)
+fn csv_text(value: &str) -> String {
+    sanitize_csv_text_for_excel(value)
+}
+
+fn get_csv_value(name: &str, sessions: &[SessionRow], web: &[WebRow], index: usize) -> String {
+    if index < sessions.len() {
+        let session = &sessions[index];
+        match name {
+            "record_type" => "session".to_string(),
+            "app_name" => csv_text(&session.app_name),
+            "exe_name" => csv_text(&session.exe_name),
+            "window_title" => csv_text(session.window_title.as_deref().unwrap_or_default()),
+            "domain" | "normalized_domain" | "url" | "page_title" => String::new(),
+            "start_time" => ms_to_datetime_str(session.start_time),
+            "end_time" => session.end_time.map(ms_to_datetime_str).unwrap_or_default(),
+            "duration_ms" => session
+                .duration
+                .map(|duration| duration.to_string())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
     } else {
-        (format!("WHERE {}", clauses.join(" AND ")), params)
+        let row = &web[index - sessions.len()];
+        match name {
+            "record_type" => "web".to_string(),
+            "app_name" | "exe_name" | "window_title" => String::new(),
+            "domain" => csv_text(&row.domain),
+            "normalized_domain" => csv_text(&row.normalized_domain),
+            "url" => csv_text(row.url.as_deref().unwrap_or_default()),
+            "page_title" => csv_text(row.title.as_deref().unwrap_or_default()),
+            "start_time" => ms_to_datetime_str(row.start_time),
+            "end_time" => row.end_time.map(ms_to_datetime_str).unwrap_or_default(),
+            "duration_ms" => row
+                .duration
+                .map(|duration| duration.to_string())
+                .unwrap_or_default(),
+            _ => String::new(),
+        }
     }
 }
 
 async fn load_sessions(
     pool: &Pool<Sqlite>,
-    start_time: Option<i64>,
-    end_time: Option<i64>,
+    filter: ExportTimeFilter,
 ) -> Result<Vec<SessionRow>, String> {
-    let (clause, params) = build_time_clause(start_time, end_time);
+    let (clause, params) = build_overlap_where_clause(filter);
     let sql = format!(
         "SELECT app_name, exe_name, window_title, start_time, end_time, duration
          FROM sessions {} ORDER BY id ASC",
         clause
     );
     let mut query = sqlx::query(&sql);
-    for p in &params {
-        query = query.bind(p);
+    for param in params {
+        query = query.bind(param);
     }
     let rows = query
         .fetch_all(pool)
@@ -180,31 +144,30 @@ async fn load_sessions(
 
     Ok(rows
         .into_iter()
-        .map(|r| SessionRow {
-            app_name: r.get("app_name"),
-            exe_name: r.get("exe_name"),
-            window_title: r.get("window_title"),
-            start_time: r.get("start_time"),
-            end_time: r.get("end_time"),
-            duration: r.get("duration"),
+        .map(|row| SessionRow {
+            app_name: row.get("app_name"),
+            exe_name: row.get("exe_name"),
+            window_title: row.get("window_title"),
+            start_time: row.get("start_time"),
+            end_time: row.get("end_time"),
+            duration: row.get("duration"),
         })
         .collect())
 }
 
 async fn load_web_activity(
     pool: &Pool<Sqlite>,
-    start_time: Option<i64>,
-    end_time: Option<i64>,
+    filter: ExportTimeFilter,
 ) -> Result<Vec<WebRow>, String> {
-    let (clause, params) = build_time_clause(start_time, end_time);
+    let (clause, params) = build_overlap_where_clause(filter);
     let sql = format!(
         "SELECT domain, normalized_domain, url, title, start_time, end_time, duration
          FROM web_activity_segments {} ORDER BY id ASC",
         clause
     );
     let mut query = sqlx::query(&sql);
-    for p in &params {
-        query = query.bind(p);
+    for param in params {
+        query = query.bind(param);
     }
     let rows = query
         .fetch_all(pool)
@@ -213,14 +176,14 @@ async fn load_web_activity(
 
     Ok(rows
         .into_iter()
-        .map(|r| WebRow {
-            domain: r.get("domain"),
-            normalized_domain: r.get("normalized_domain"),
-            url: r.get("url"),
-            title: r.get("title"),
-            start_time: r.get("start_time"),
-            end_time: r.get("end_time"),
-            duration: r.get("duration"),
+        .map(|row| WebRow {
+            domain: row.get("domain"),
+            normalized_domain: row.get("normalized_domain"),
+            url: row.get("url"),
+            title: row.get("title"),
+            start_time: row.get("start_time"),
+            end_time: row.get("end_time"),
+            duration: row.get("duration"),
         })
         .collect())
 }

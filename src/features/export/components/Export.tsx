@@ -3,52 +3,19 @@ import { useCallback, useMemo, useState } from "react";
 import QuietPageHeader from "../../../shared/components/QuietPageHeader";
 import type { QuietToastTone } from "../../../shared/components/QuietToast";
 import { UI_TEXT } from "../../../shared/copy/index";
+import {
+  countInclusiveDays,
+  getPresetDateInputs,
+  resolveExportTimeRange,
+  type ExportFormat,
+  type TimeRangePreset,
+} from "../services/exportRange";
 import { exportData, pickExportSaveFile, EXPORT_FIELD_KEYS } from "../services/exportService";
 import ExportFieldConfigDialog from "./ExportFieldConfigDialog";
 
 interface Props {
   onToast?: (message: string, tone?: QuietToastTone) => void;
   embedded?: boolean;
-}
-
-type TimeRangePreset = "today" | "thisWeek" | "thisMonth" | "thisYear" | "custom";
-type ExportFormat = "csv" | "sqlite" | "parquet";
-
-function startOfDay(date: Date): number {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-}
-
-function endOfDay(date: Date): number {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999).getTime();
-}
-
-function getPresetTimeRange(preset: TimeRangePreset): { startTime: number; endTime: number } {
-  const now = new Date();
-  switch (preset) {
-    case "today": {
-      return { startTime: startOfDay(now), endTime: endOfDay(now) };
-    }
-    case "thisWeek": {
-      const dayOfWeek = now.getDay();
-      const monday = new Date(now);
-      monday.setDate(now.getDate() - ((dayOfWeek + 6) % 7));
-      return { startTime: startOfDay(monday), endTime: endOfDay(now) };
-    }
-    case "thisMonth": {
-      const first = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { startTime: startOfDay(first), endTime: endOfDay(now) };
-    }
-    case "thisYear": {
-      const firstYear = new Date(now.getFullYear(), 0, 1);
-      return { startTime: startOfDay(firstYear), endTime: endOfDay(now) };
-    }
-    default:
-      return { startTime: startOfDay(now), endTime: endOfDay(now) };
-  }
-}
-
-function daysBetween(startMs: number, endMs: number): number {
-  return (endMs - startMs) / (1000 * 60 * 60 * 24);
 }
 
 function getRecommendation(
@@ -66,8 +33,9 @@ function getRecommendation(
     return { format: "parquet", label: UI_TEXT.export.recommendationYearly };
   }
   if (preset === "custom" && customStart && customEnd) {
-    const days = daysBetween(new Date(customStart).getTime(), new Date(customEnd).getTime());
-    if (days < 3) {
+    const days = countInclusiveDays(customStart, customEnd);
+    if (days === null) return null;
+    if (days <= 3) {
       return { format: "csv", label: UI_TEXT.export.recommendationCustomShort };
     }
     if (days >= 365) {
@@ -89,27 +57,35 @@ const FORMAT_INFO: { format: ExportFormat; label: string; hint: string }[] = [
 
 export default function Export({ onToast, embedded }: Props) {
   const [timePreset, setTimePreset] = useState<TimeRangePreset>("thisMonth");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
+  const [customRange, setCustomRange] = useState(() => getPresetDateInputs("thisMonth"));
   const [format, setFormat] = useState<ExportFormat>("csv");
   const [exportPath, setExportPath] = useState("");
   const [exporting, setExporting] = useState(false);
   const [exportResult, setExportResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [selectedFields, setSelectedFields] = useState<string[]>([...EXPORT_FIELD_KEYS]);
   const [showFieldConfig, setShowFieldConfig] = useState(false);
+  const customStart = customRange.startDateKey;
+  const customEnd = customRange.endDateKey;
 
   const recommendation = useMemo(
     () => getRecommendation(timePreset, customStart, customEnd),
     [timePreset, customStart, customEnd],
   );
+  const resolvedTimeRange = useMemo(
+    () => resolveExportTimeRange({ preset: timePreset, customStart, customEnd }),
+    [timePreset, customStart, customEnd],
+  );
+  const timeRangeErrorMessage = resolvedTimeRange.error === "missingCustomRange"
+    ? UI_TEXT.export.timeRangeMissing
+    : resolvedTimeRange.error === "invalidCustomRange"
+      ? UI_TEXT.export.timeRangeInvalid
+      : null;
 
   const handlePresetChange = useCallback((preset: TimeRangePreset) => {
     setTimePreset(preset);
     setExportResult(null);
     if (preset !== "custom") {
-      const { startTime, endTime } = getPresetTimeRange(preset);
-      setCustomStart(new Date(startTime).toISOString().slice(0, 10));
-      setCustomEnd(new Date(endTime).toISOString().slice(0, 10));
+      setCustomRange(getPresetDateInputs(preset));
     }
   }, []);
 
@@ -123,16 +99,24 @@ export default function Export({ onToast, embedded }: Props) {
 
   const handleExport = useCallback(async () => {
     if (!exportPath) return;
+    if (selectedFields.length === 0) {
+      setExportResult({ ok: false, message: UI_TEXT.export.configFieldsEmpty });
+      onToast?.(UI_TEXT.export.configFieldsEmpty, "warning");
+      return;
+    }
+    if (timeRangeErrorMessage) {
+      setExportResult({ ok: false, message: timeRangeErrorMessage });
+      onToast?.(timeRangeErrorMessage, "warning");
+      return;
+    }
     setExporting(true);
     setExportResult(null);
     try {
-      const startDate = customStart ? new Date(customStart) : null;
-      const endDate = customEnd ? new Date(customEnd) : null;
       const result = await exportData({
         format,
         outputPath: exportPath,
-        startTime: startDate ? startDate.getTime() : null,
-        endTime: endDate ? new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59, 999).getTime() : null,
+        startTime: resolvedTimeRange.startTime,
+        endTime: resolvedTimeRange.endTime,
         selectedFields,
       });
       const message = `${UI_TEXT.export.exportDone(result.rowCount)}`;
@@ -145,7 +129,7 @@ export default function Export({ onToast, embedded }: Props) {
     } finally {
       setExporting(false);
     }
-  }, [exportPath, format, customStart, customEnd, onToast, selectedFields]);
+  }, [exportPath, format, onToast, resolvedTimeRange.endTime, resolvedTimeRange.startTime, selectedFields, timeRangeErrorMessage]);
 
   return (
     <div className="flex h-full min-w-0 flex-col gap-4 md:gap-5">
@@ -191,7 +175,10 @@ export default function Export({ onToast, embedded }: Props) {
                   <input
                     type="date"
                     value={customStart}
-                    onChange={(e) => { setCustomStart(e.target.value); setExportResult(null); }}
+                    onChange={(e) => {
+                      setCustomRange((prev) => ({ ...prev, startDateKey: e.target.value }));
+                      setExportResult(null);
+                    }}
                     disabled={exporting}
                     className="qp-input rounded-[8px] px-2 py-1 text-xs"
                   />
@@ -201,12 +188,18 @@ export default function Export({ onToast, embedded }: Props) {
                   <input
                     type="date"
                     value={customEnd}
-                    onChange={(e) => { setCustomEnd(e.target.value); setExportResult(null); }}
+                    onChange={(e) => {
+                      setCustomRange((prev) => ({ ...prev, endDateKey: e.target.value }));
+                      setExportResult(null);
+                    }}
                     disabled={exporting}
                     className="qp-input rounded-[8px] px-2 py-1 text-xs"
                   />
                 </div>
               </div>
+            )}
+            {timeRangeErrorMessage && (
+              <p className="mt-2 text-xs text-[var(--qp-danger)]">{timeRangeErrorMessage}</p>
             )}
           </div>
 
@@ -252,9 +245,16 @@ export default function Export({ onToast, embedded }: Props) {
                 <p className="text-sm font-semibold text-[var(--qp-text-primary)]">
                   {UI_TEXT.export.configFields}
                 </p>
-                <p className="text-xs text-[var(--qp-text-tertiary)] mt-0.5">
+                <p className={`text-xs mt-0.5 ${
+                  selectedFields.length === 0
+                    ? "text-[var(--qp-danger)]"
+                    : "text-[var(--qp-text-tertiary)]"
+                }`}>
                   {UI_TEXT.export.configFieldsCount(selectedFields.length, 11)}
                 </p>
+                {selectedFields.length === 0 && (
+                  <p className="mt-1 text-xs text-[var(--qp-danger)]">{UI_TEXT.export.configFieldsEmpty}</p>
+                )}
               </div>
               <button
                 type="button"
@@ -294,7 +294,7 @@ export default function Export({ onToast, embedded }: Props) {
               <button
                 type="button"
                 onClick={() => void handleExport()}
-                disabled={exporting || !exportPath}
+                disabled={exporting || !exportPath || selectedFields.length === 0 || Boolean(timeRangeErrorMessage)}
                 className="qp-button-primary rounded-[8px] px-4 py-1.5 text-xs font-semibold disabled:opacity-50 inline-flex items-center gap-1.5"
               >
                 {exporting ? (
@@ -324,6 +324,7 @@ export default function Export({ onToast, embedded }: Props) {
         onClose={() => setShowFieldConfig(false)}
         onConfirm={(fields) => {
           setSelectedFields(fields);
+          setExportResult(null);
           setShowFieldConfig(false);
         }}
       />

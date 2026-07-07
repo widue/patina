@@ -11,6 +11,8 @@ const ZH_CN_EXPORT_COPY = {
     timeRangePresetCustom: "自定义",
     timeRangeCustomStart: "开始日期",
     timeRangeCustomEnd: "结束日期",
+    timeRangeMissing: "请选择开始日期和结束日期",
+    timeRangeInvalid: "结束日期不能早于开始日期",
     formatLabel: "导出格式",
     formatCSV: "CSV",
     formatCSVHint: "通用表格，Excel 直接打开。时间列显示 ##### 时拉宽列宽即可",
@@ -37,6 +39,7 @@ const ZH_CN_EXPORT_COPY = {
     configFieldsHint: "拖拽排序，点击 × 移除不需要的字段",
     configFieldsReset: "恢复默认",
     configFieldsCount: (n: number, total: number) => `${n} / ${total} 个字段`,
+    configFieldsEmpty: "至少保留一个导出字段",
     groupApps: "应用（来自会话记录）",
     groupWeb: "网页（来自浏览记录）",
     fields: {
@@ -68,6 +71,8 @@ const EN_US_EXPORT_COPY = {
     timeRangePresetCustom: "Custom",
     timeRangeCustomStart: "Start date",
     timeRangeCustomEnd: "End date",
+    timeRangeMissing: "Choose both a start date and an end date",
+    timeRangeInvalid: "End date cannot be earlier than start date",
     formatLabel: "Format",
     formatCSV: "CSV",
     formatCSVHint: "Universal table, open with Excel or Notepad. If timestamps show as #####, widen the column",
@@ -94,6 +99,7 @@ const EN_US_EXPORT_COPY = {
     configFieldsHint: "Drag to reorder, click × to remove fields",
     configFieldsReset: "Reset to default",
     configFieldsCount: (n: number, total: number) => `${n} / ${total} fields`,
+    configFieldsEmpty: "Keep at least one export field",
     groupApps: "Apps (from sessions)",
     groupWeb: "Web (from browsing)",
     fields: {
