@@ -92,6 +92,8 @@ fn register_invoke_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Build
         commands::settings::cmd_set_background_optimization,
         commands::settings::cmd_commit_app_settings,
         commands::settings::cmd_commit_classification_settings,
+        commands::export::cmd_pick_export_save_file,
+        commands::export::cmd_export_data,
         commands::tools::cmd_get_tools_snapshot,
         commands::tools::cmd_get_tool_alerts,
         commands::tools::cmd_dismiss_tool_alert,
@@ -166,7 +168,7 @@ fn register_invoke_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Build
         commands::persistence::cmd_clear_remote_backup_settings,
         commands::persistence::cmd_save_data_bootstrap_snapshot_payload,
         commands::persistence::cmd_clear_data_bootstrap_snapshot_payload,
-        commands::diagnostics::cmd_get_resource_diagnostics
+        commands::diagnostics::cmd_get_resource_diagnostics,
     ])
 }
 
