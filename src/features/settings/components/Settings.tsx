@@ -10,6 +10,7 @@ import QuietPageHeader from "../../../shared/components/QuietPageHeader";
 import SettingsAppearancePanel from "./SettingsAppearancePanel";
 import SettingsDataSafetyPanel from "./SettingsDataSafetyPanel";
 import SettingsInterfacePanel from "./SettingsInterfacePanel";
+import Export from "../../export/components/Export.tsx";
 import SettingsResidentPanel from "./SettingsResidentPanel";
 import SettingsTrackingPanel from "./SettingsTrackingPanel";
 import { useSettingsPageState } from "../hooks/useSettingsPageState";
@@ -261,6 +262,8 @@ export default function Settings({
             onCancelPendingStorageMigration={handleCancelPendingStorageMigration}
             onOpenStorageDirectory={handleOpenStorageDirectory}
           />
+
+          <Export embedded onToast={onToast} />
         </div>
       </div>
     </div>
