@@ -13,7 +13,7 @@ pub struct ExportDataResult {
 pub fn cmd_pick_export_save_file(format: String, initial_path: Option<String>) -> Option<String> {
     let (filter_name, extensions, default_name) = match format.as_str() {
         "csv" => ("CSV files", vec!["csv"], "patina_export.csv"),
-        "sqlite" => ("SQLite files", vec!["db", "sqlite"], "patina_export.db"),
+        "sqlite" => ("SQLite files", vec!["sqlite", "db"], "patina_export.sqlite"),
         "parquet" => ("Parquet files", vec!["parquet"], "patina_export.parquet"),
         _ => return None,
     };

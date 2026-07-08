@@ -1,11 +1,41 @@
 use super::common::{
-    build_overlap_where_clause, current_time_ms, ms_to_datetime_str, replace_output_file,
-    resolve_export_fields, unique_temp_path, ExportTimeFilter,
+    build_overlap_where_clause, current_time_ms, load_export_classification, ms_to_datetime_str,
+    ms_to_local_date, ms_to_local_hour, ms_to_local_month, ms_to_local_week, ms_to_local_weekday,
+    replace_output_file, resolve_export_fields, unique_temp_path, ExportClassification,
+    ExportTimeFilter,
 };
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow};
 use sqlx::{Pool, Row, Sqlite};
-use std::collections::HashSet;
 use std::path::Path;
+
+const SESSION_SOURCE_COLUMNS: &[&str] = &[
+    "id",
+    "app_name",
+    "exe_name",
+    "window_title",
+    "start_time",
+    "end_time",
+    "duration",
+    "COALESCE(continuity_group_start_time, start_time) AS continuity_group_start_time",
+];
+
+const WEB_SOURCE_COLUMNS: &[&str] = &[
+    "id",
+    "browser_client_id",
+    "browser_kind",
+    "browser_exe_name",
+    "domain",
+    "normalized_domain",
+    "url",
+    "title",
+    "favicon_url",
+    "start_time",
+    "end_time",
+    "duration",
+    "source",
+    "created_at",
+    "updated_at",
+];
 
 #[derive(Clone, Copy)]
 enum ColumnKind {
@@ -13,12 +43,22 @@ enum ColumnKind {
     TimeText,
     Integer,
     RecordType,
+    CategoryLabel,
+    CategoryId,
+    CategoryColor,
+    LocalDate,
+    LocalWeek,
+    LocalMonth,
+    Weekday,
+    StartHour,
+    DurationMinutes,
+    SourceKey,
+    SourceName,
 }
 
 #[derive(Clone, Copy)]
 struct ExportColumn {
     output_name: &'static str,
-    source_name: Option<&'static str>,
     nullable: bool,
     kind: ColumnKind,
 }
@@ -36,7 +76,8 @@ pub async fn export_to_sqlite(
     selected_fields: Option<&[String]>,
 ) -> Result<u64, String> {
     let resolved = resolve_sqlite_fields(selected_fields)?;
-    let temp_path = unique_temp_path(output_path, "db")?;
+    let classification = load_export_classification(pool).await?;
+    let temp_path = unique_temp_path(output_path, "sqlite")?;
     let _ = std::fs::remove_file(&temp_path);
 
     let dst = open_output_db(&temp_path).await?;
@@ -47,8 +88,8 @@ pub async fn export_to_sqlite(
     };
 
     let copy_result = async {
-        let session_count = copy_sessions(pool, &dst, filter, &resolved).await?;
-        let web_count = copy_web(pool, &dst, filter, &resolved).await?;
+        let session_count = copy_sessions(pool, &dst, filter, &resolved, &classification).await?;
+        let web_count = copy_web(pool, &dst, filter, &resolved, &classification).await?;
         Ok::<u64, String>((session_count + web_count) as u64)
     }
     .await;
@@ -73,33 +114,92 @@ fn resolve_sqlite_fields(selected_fields: Option<&[String]>) -> Result<ResolvedF
 
     for field in fields {
         match field {
-            "record_type" => {
-                session_cols.push(record_type_col());
-                web_cols.push(record_type_col());
+            "record_type" => push_shared(&mut session_cols, &mut web_cols, record_type_col()),
+            "category" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                computed_col("category", false, ColumnKind::CategoryLabel),
+            ),
+            "category_id" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                computed_col("category_id", false, ColumnKind::CategoryId),
+            ),
+            "category_color" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                computed_col("category_color", false, ColumnKind::CategoryColor),
+            ),
+            "start_time" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                time_col("start_time", false),
+            ),
+            "end_time" => push_shared(&mut session_cols, &mut web_cols, time_col("end_time", true)),
+            "duration_ms" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                integer_col("duration_ms", true),
+            ),
+            "local_date" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                computed_col("local_date", false, ColumnKind::LocalDate),
+            ),
+            "local_week" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                computed_col("local_week", false, ColumnKind::LocalWeek),
+            ),
+            "local_month" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                computed_col("local_month", false, ColumnKind::LocalMonth),
+            ),
+            "weekday" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                computed_col("weekday", false, ColumnKind::Weekday),
+            ),
+            "start_hour" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                computed_col("start_hour", false, ColumnKind::StartHour),
+            ),
+            "duration_minutes" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                computed_col("duration_minutes", true, ColumnKind::DurationMinutes),
+            ),
+            "source_key" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                computed_col("source_key", false, ColumnKind::SourceKey),
+            ),
+            "source_name" => push_shared(
+                &mut session_cols,
+                &mut web_cols,
+                computed_col("source_name", false, ColumnKind::SourceName),
+            ),
+            "app_name" => session_cols.push(text_col("app_name", false)),
+            "exe_name" => session_cols.push(text_col("exe_name", false)),
+            "window_title" => session_cols.push(text_col("window_title", true)),
+            "session_id" => session_cols.push(integer_col("session_id", false)),
+            "continuity_group_start_time" => {
+                session_cols.push(time_col("continuity_group_start_time", false));
             }
-            "app_name" => session_cols.push(text_col("app_name", "app_name", false)),
-            "exe_name" => session_cols.push(text_col("exe_name", "exe_name", false)),
-            "window_title" => {
-                session_cols.push(text_col("window_title", "window_title", true));
-            }
-            "domain" => web_cols.push(text_col("domain", "domain", false)),
-            "normalized_domain" => {
-                web_cols.push(text_col("normalized_domain", "normalized_domain", false));
-            }
-            "url" => web_cols.push(text_col("url", "url", true)),
-            "page_title" => web_cols.push(text_col("page_title", "title", true)),
-            "start_time" => {
-                session_cols.push(time_col("start_time", "start_time", false));
-                web_cols.push(time_col("start_time", "start_time", false));
-            }
-            "end_time" => {
-                session_cols.push(time_col("end_time", "end_time", true));
-                web_cols.push(time_col("end_time", "end_time", true));
-            }
-            "duration_ms" => {
-                session_cols.push(integer_col("duration_ms", "duration", true));
-                web_cols.push(integer_col("duration_ms", "duration", true));
-            }
+            "domain" => web_cols.push(text_col("domain", false)),
+            "normalized_domain" => web_cols.push(text_col("normalized_domain", false)),
+            "url" => web_cols.push(text_col("url", true)),
+            "page_title" => web_cols.push(text_col("page_title", true)),
+            "web_segment_id" => web_cols.push(integer_col("web_segment_id", false)),
+            "browser_client_id" => web_cols.push(text_col("browser_client_id", false)),
+            "browser_kind" => web_cols.push(text_col("browser_kind", false)),
+            "browser_exe_name" => web_cols.push(text_col("browser_exe_name", false)),
+            "favicon_url" => web_cols.push(text_col("favicon_url", true)),
+            "web_source" => web_cols.push(text_col("web_source", false)),
+            "created_at" => web_cols.push(time_col("created_at", false)),
+            "updated_at" => web_cols.push(time_col("updated_at", false)),
             _ => unreachable!("export fields are validated before mapping"),
         }
     }
@@ -110,41 +210,50 @@ fn resolve_sqlite_fields(selected_fields: Option<&[String]>) -> Result<ResolvedF
     })
 }
 
-fn text_col(output_name: &'static str, source_name: &'static str, nullable: bool) -> ExportColumn {
+fn push_shared(
+    session_cols: &mut Vec<ExportColumn>,
+    web_cols: &mut Vec<ExportColumn>,
+    column: ExportColumn,
+) {
+    session_cols.push(column);
+    web_cols.push(column);
+}
+
+fn text_col(output_name: &'static str, nullable: bool) -> ExportColumn {
     ExportColumn {
         output_name,
-        source_name: Some(source_name),
         nullable,
         kind: ColumnKind::Text,
     }
 }
 
-fn time_col(output_name: &'static str, source_name: &'static str, nullable: bool) -> ExportColumn {
+fn time_col(output_name: &'static str, nullable: bool) -> ExportColumn {
     ExportColumn {
         output_name,
-        source_name: Some(source_name),
         nullable,
         kind: ColumnKind::TimeText,
     }
 }
 
-fn integer_col(
-    output_name: &'static str,
-    source_name: &'static str,
-    nullable: bool,
-) -> ExportColumn {
+fn integer_col(output_name: &'static str, nullable: bool) -> ExportColumn {
     ExportColumn {
         output_name,
-        source_name: Some(source_name),
         nullable,
         kind: ColumnKind::Integer,
+    }
+}
+
+fn computed_col(output_name: &'static str, nullable: bool, kind: ColumnKind) -> ExportColumn {
+    ExportColumn {
+        output_name,
+        nullable,
+        kind,
     }
 }
 
 fn record_type_col() -> ExportColumn {
     ExportColumn {
         output_name: "record_type",
-        source_name: None,
         nullable: false,
         kind: ColumnKind::RecordType,
     }
@@ -164,14 +273,33 @@ async fn open_output_db(path: &Path) -> Result<Pool<Sqlite>, String> {
 
 fn fmt_col(column: &ExportColumn) -> String {
     match column.kind {
-        ColumnKind::Integer => format!("{} INTEGER", column.output_name),
-        ColumnKind::Text | ColumnKind::TimeText | ColumnKind::RecordType => {
-            if column.nullable {
-                format!("{} TEXT", column.output_name)
-            } else {
-                format!("{} TEXT NOT NULL", column.output_name)
-            }
+        ColumnKind::Integer | ColumnKind::Weekday | ColumnKind::StartHour => {
+            format!("{} INTEGER{}", column.output_name, not_null(column))
         }
+        ColumnKind::DurationMinutes => {
+            format!("{} REAL{}", column.output_name, not_null(column))
+        }
+        ColumnKind::Text
+        | ColumnKind::TimeText
+        | ColumnKind::RecordType
+        | ColumnKind::CategoryLabel
+        | ColumnKind::CategoryId
+        | ColumnKind::CategoryColor
+        | ColumnKind::LocalDate
+        | ColumnKind::LocalWeek
+        | ColumnKind::LocalMonth
+        | ColumnKind::SourceKey
+        | ColumnKind::SourceName => {
+            format!("{} TEXT{}", column.output_name, not_null(column))
+        }
+    }
+}
+
+fn not_null(column: &ExportColumn) -> &'static str {
+    if column.nullable {
+        ""
+    } else {
+        " NOT NULL"
     }
 }
 
@@ -180,6 +308,7 @@ async fn copy_sessions(
     dst: &Pool<Sqlite>,
     filter: ExportTimeFilter,
     resolved: &ResolvedFields,
+    classification: &ExportClassification,
 ) -> Result<usize, String> {
     let mut tx = dst
         .begin()
@@ -194,8 +323,7 @@ async fn copy_sessions(
         return Ok(0);
     }
 
-    let source_cols = source_columns(&resolved.session_cols);
-    let (query, params) = build_select_query("sessions", &source_cols, filter);
+    let (query, params) = build_select_query("sessions", SESSION_SOURCE_COLUMNS, filter);
     let rows = fetch_rows(src, &query, params).await?;
     let insert_sql = build_insert_query("sessions", &resolved.session_cols);
 
@@ -204,24 +332,76 @@ async fn copy_sessions(
         for column in &resolved.session_cols {
             query = match column.output_name {
                 "record_type" => query.bind("session"),
+                "category" => {
+                    let exe_name: String = row.get("exe_name");
+                    query.bind(classification.resolve_session_category(&exe_name).label)
+                }
+                "category_id" => {
+                    let exe_name: String = row.get("exe_name");
+                    query.bind(classification.resolve_session_category(&exe_name).id)
+                }
+                "category_color" => {
+                    let exe_name: String = row.get("exe_name");
+                    query.bind(classification.resolve_session_category(&exe_name).color)
+                }
                 "app_name" | "exe_name" => {
-                    let value: String = row.get(column.source_name.expect("source column"));
+                    let value: String = row.get(column.output_name);
                     query.bind(value)
                 }
                 "window_title" => {
-                    let value: Option<String> = row.get(column.source_name.expect("source column"));
+                    let value: Option<String> = row.get("window_title");
+                    query.bind(value)
+                }
+                "session_id" => {
+                    let value: i64 = row.get("id");
                     query.bind(value)
                 }
                 "start_time" => {
-                    let value: i64 = row.get(column.source_name.expect("source column"));
+                    let value: i64 = row.get("start_time");
                     query.bind(ms_to_datetime_str(value))
                 }
                 "end_time" => {
-                    let value: Option<i64> = row.get(column.source_name.expect("source column"));
+                    let value: Option<i64> = row.get("end_time");
                     query.bind(value.map(ms_to_datetime_str))
                 }
+                "continuity_group_start_time" => {
+                    let value: i64 = row.get("continuity_group_start_time");
+                    query.bind(ms_to_datetime_str(value))
+                }
                 "duration_ms" => {
-                    let value: Option<i64> = row.get(column.source_name.expect("source column"));
+                    let value: Option<i64> = row.get("duration");
+                    query.bind(value)
+                }
+                "duration_minutes" => {
+                    let value: Option<i64> = row.get("duration");
+                    query.bind(value.map(|duration| duration as f64 / 60_000.0))
+                }
+                "local_date" => {
+                    let value: i64 = row.get("start_time");
+                    query.bind(ms_to_local_date(value))
+                }
+                "local_week" => {
+                    let value: i64 = row.get("start_time");
+                    query.bind(ms_to_local_week(value))
+                }
+                "local_month" => {
+                    let value: i64 = row.get("start_time");
+                    query.bind(ms_to_local_month(value))
+                }
+                "weekday" => {
+                    let value: i64 = row.get("start_time");
+                    query.bind(ms_to_local_weekday(value))
+                }
+                "start_hour" => {
+                    let value: i64 = row.get("start_time");
+                    query.bind(ms_to_local_hour(value))
+                }
+                "source_key" => {
+                    let value: String = row.get("exe_name");
+                    query.bind(value.to_ascii_lowercase())
+                }
+                "source_name" => {
+                    let value: String = row.get("app_name");
                     query.bind(value)
                 }
                 _ => unreachable!("session export column should be known"),
@@ -244,6 +424,7 @@ async fn copy_web(
     dst: &Pool<Sqlite>,
     filter: ExportTimeFilter,
     resolved: &ResolvedFields,
+    classification: &ExportClassification,
 ) -> Result<usize, String> {
     let mut tx = dst
         .begin()
@@ -258,8 +439,7 @@ async fn copy_web(
         return Ok(0);
     }
 
-    let source_cols = source_columns(&resolved.web_cols);
-    let (query, params) = build_select_query("web_activity_segments", &source_cols, filter);
+    let (query, params) = build_select_query("web_activity_segments", WEB_SOURCE_COLUMNS, filter);
     let rows = fetch_rows(src, &query, params).await?;
     let insert_sql = build_insert_query("web_activity_segments", &resolved.web_cols);
 
@@ -268,24 +448,93 @@ async fn copy_web(
         for column in &resolved.web_cols {
             query = match column.output_name {
                 "record_type" => query.bind("web"),
-                "domain" | "normalized_domain" => {
-                    let value: String = row.get(column.source_name.expect("source column"));
+                "category" => {
+                    let normalized_domain: String = row.get("normalized_domain");
+                    query.bind(
+                        classification
+                            .resolve_web_category(&normalized_domain)
+                            .label,
+                    )
+                }
+                "category_id" => {
+                    let normalized_domain: String = row.get("normalized_domain");
+                    query.bind(classification.resolve_web_category(&normalized_domain).id)
+                }
+                "category_color" => {
+                    let normalized_domain: String = row.get("normalized_domain");
+                    query.bind(
+                        classification
+                            .resolve_web_category(&normalized_domain)
+                            .color,
+                    )
+                }
+                "domain" | "normalized_domain" | "browser_client_id" | "browser_kind"
+                | "browser_exe_name" => {
+                    let value: String = row.get(column.output_name);
                     query.bind(value)
                 }
-                "url" | "page_title" => {
-                    let value: Option<String> = row.get(column.source_name.expect("source column"));
+                "url" | "favicon_url" => {
+                    let value: Option<String> = row.get(column.output_name);
+                    query.bind(value)
+                }
+                "page_title" => {
+                    let value: Option<String> = row.get("title");
+                    query.bind(value)
+                }
+                "web_source" => {
+                    let value: String = row.get("source");
+                    query.bind(value)
+                }
+                "web_segment_id" => {
+                    let value: i64 = row.get("id");
                     query.bind(value)
                 }
                 "start_time" => {
-                    let value: i64 = row.get(column.source_name.expect("source column"));
+                    let value: i64 = row.get("start_time");
                     query.bind(ms_to_datetime_str(value))
                 }
                 "end_time" => {
-                    let value: Option<i64> = row.get(column.source_name.expect("source column"));
+                    let value: Option<i64> = row.get("end_time");
                     query.bind(value.map(ms_to_datetime_str))
                 }
+                "created_at" | "updated_at" => {
+                    let value: i64 = row.get(column.output_name);
+                    query.bind(ms_to_datetime_str(value))
+                }
                 "duration_ms" => {
-                    let value: Option<i64> = row.get(column.source_name.expect("source column"));
+                    let value: Option<i64> = row.get("duration");
+                    query.bind(value)
+                }
+                "duration_minutes" => {
+                    let value: Option<i64> = row.get("duration");
+                    query.bind(value.map(|duration| duration as f64 / 60_000.0))
+                }
+                "local_date" => {
+                    let value: i64 = row.get("start_time");
+                    query.bind(ms_to_local_date(value))
+                }
+                "local_week" => {
+                    let value: i64 = row.get("start_time");
+                    query.bind(ms_to_local_week(value))
+                }
+                "local_month" => {
+                    let value: i64 = row.get("start_time");
+                    query.bind(ms_to_local_month(value))
+                }
+                "weekday" => {
+                    let value: i64 = row.get("start_time");
+                    query.bind(ms_to_local_weekday(value))
+                }
+                "start_hour" => {
+                    let value: i64 = row.get("start_time");
+                    query.bind(ms_to_local_hour(value))
+                }
+                "source_key" => {
+                    let value: String = row.get("normalized_domain");
+                    query.bind(value.to_ascii_lowercase())
+                }
+                "source_name" => {
+                    let value: String = row.get("domain");
                     query.bind(value)
                 }
                 _ => unreachable!("web export column should be known"),
@@ -325,32 +574,17 @@ async fn create_table(
     Ok(())
 }
 
-fn source_columns(columns: &[ExportColumn]) -> Vec<&'static str> {
-    let mut seen = HashSet::new();
-    let mut source_cols = Vec::new();
-    for column in columns {
-        if let Some(source_name) = column.source_name {
-            if seen.insert(source_name) {
-                source_cols.push(source_name);
-            }
-        }
-    }
-    source_cols
-}
-
 fn build_select_query(
     table: &str,
     source_cols: &[&str],
     filter: ExportTimeFilter,
 ) -> (String, Vec<i64>) {
-    let select_cols = if source_cols.is_empty() {
-        "id".to_string()
-    } else {
-        source_cols.join(", ")
-    };
     let (clause, params) = build_overlap_where_clause(filter);
     (
-        format!("SELECT {select_cols} FROM {table} {clause} ORDER BY id ASC"),
+        format!(
+            "SELECT {} FROM {table} {clause} ORDER BY id ASC",
+            source_cols.join(", ")
+        ),
         params,
     )
 }

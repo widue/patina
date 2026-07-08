@@ -21,7 +21,7 @@
     "test:persistence": "node --experimental-strip-types --experimental-specifier-resolution=node tests/persistenceTransaction.test.ts",
     "test:interaction": "node --experimental-strip-types --experimental-specifier-resolution=node tests/interactionFlows.test.ts",
     "test:release": "node --experimental-strip-types --experimental-specifier-resolution=node tests/releasePolicy.test.ts",
-    "test:export": "node --experimental-strip-types --experimental-specifier-resolution=node tests/exportRange.test.ts",
+    "test:export": "node --experimental-strip-types --experimental-specifier-resolution=node tests/exportRange.test.ts && node --experimental-strip-types --experimental-specifier-resolution=node tests/exportFieldContract.test.ts",
     "test:warmup": "node --experimental-strip-types --experimental-specifier-resolution=node tests/startupWarmupService.test.ts",
     "test:background-return": "node --experimental-strip-types --experimental-specifier-resolution=node tests/backgroundReturnHomePolicy.test.ts",
     "test:tools": "node --experimental-strip-types --experimental-specifier-resolution=node tests/toolsRuntime.test.ts",

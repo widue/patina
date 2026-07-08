@@ -15,15 +15,54 @@ export interface ExportDataResult {
   rowCount: number;
 }
 
-export const SHARED_FIELDS = ["record_type", "start_time", "end_time", "duration_ms"] as const;
-export const SESSION_FIELDS = ["app_name", "exe_name", "window_title"] as const;
-export const WEB_FIELDS = ["domain", "normalized_domain", "url", "page_title"] as const;
-
-export const EXPORT_FIELD_KEYS = [
-  ...SHARED_FIELDS,
-  ...SESSION_FIELDS,
-  ...WEB_FIELDS,
+export const DEFAULT_DATA_EXPORT_PROTOCOL_FIELDS = [
+  "record_type",
+  "category",
+  "start_time",
+  "end_time",
+  "duration_ms",
+  "app_name",
+  "exe_name",
+  "window_title",
+  "domain",
+  "normalized_domain",
+  "url",
+  "page_title",
 ] as const;
+
+export const ANALYSIS_DATA_EXPORT_PROTOCOL_FIELDS = [
+  "category_id",
+  "local_date",
+  "local_week",
+  "local_month",
+  "weekday",
+  "start_hour",
+  "duration_minutes",
+  "source_key",
+  "source_name",
+] as const;
+
+export const ADVANCED_DATA_EXPORT_PROTOCOL_FIELDS = [
+  "session_id",
+  "web_segment_id",
+  "continuity_group_start_time",
+  "browser_client_id",
+  "browser_kind",
+  "browser_exe_name",
+  "favicon_url",
+  "web_source",
+  "created_at",
+  "updated_at",
+  "category_color",
+] as const;
+
+export const DATA_EXPORT_PROTOCOL_FIELDS = [
+  ...DEFAULT_DATA_EXPORT_PROTOCOL_FIELDS,
+  ...ANALYSIS_DATA_EXPORT_PROTOCOL_FIELDS,
+  ...ADVANCED_DATA_EXPORT_PROTOCOL_FIELDS,
+] as const;
+
+export type DataExportProtocolField = (typeof DATA_EXPORT_PROTOCOL_FIELDS)[number];
 
 export async function pickExportSaveFile(format: string, initialPath?: string): Promise<string | null> {
   return invoke<string | null>(PICK_EXPORT_FILE_COMMAND, { format, initialPath: initialPath ?? null });
