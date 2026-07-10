@@ -10,6 +10,8 @@ use std::path::PathBuf;
 use tauri::{AppHandle, Runtime};
 
 mod archive;
+#[cfg(test)]
+mod archive_tests;
 mod paths;
 
 use archive::{encode_backup_archive, read_backup_payload};
