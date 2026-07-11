@@ -3,7 +3,7 @@ use base64::Engine;
 use image::RgbImage;
 use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Sqlite};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Runtime};
 use tokio::time::{sleep, Duration};
@@ -116,7 +116,7 @@ pub async fn run<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     }
 }
 
-async fn capture_and_save(pool: &Pool<Sqlite>, screenshots_dir: &PathBuf) -> Result<(), String> {
+async fn capture_and_save(pool: &Pool<Sqlite>, screenshots_dir: &Path) -> Result<(), String> {
     let (data, width, height) = capture_bitblt()?;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -158,8 +158,7 @@ async fn capture_and_save(pool: &Pool<Sqlite>, screenshots_dir: &PathBuf) -> Res
         );
         let thumb_encoder = Encoder::from_rgb(&thumb, thumb.width(), thumb.height());
         let thumb_webp: WebPMemory = thumb_encoder.encode(50.0);
-        let thumb_base64 = BASE64.encode(&*thumb_webp);
-        thumb_base64
+        BASE64.encode(&*thumb_webp)
     };
 
     sqlx::query(
@@ -356,6 +355,6 @@ fn screenshots_dir<R: Runtime>(app: &AppHandle<R>) -> Result<PathBuf, String> {
 
 fn format_datetime_for_filename(ms: i64) -> String {
     use chrono::{TimeZone, Local};
-    let dt = Local.timestamp_millis_opt(ms).single().unwrap_or_else(|| Local::now());
+    let dt = Local.timestamp_millis_opt(ms).single().unwrap_or_else(Local::now);
     dt.format("%Y-%m-%d %H.%M.%S").to_string() + ".webp"
 }
