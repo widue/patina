@@ -18,12 +18,16 @@ type SettingsInterfacePanelProps = {
   remoteStatusBridgeUrl: string;
   remoteStatusBridgeToken: string;
   remoteStatusBridgeMachineId: string;
+  enableSystemNotifications: boolean;
+  enableInAppNotifications: boolean;
   onWebActivityEnabledChange: (nextChecked: boolean) => void;
   onPortChange: (nextPort: number) => void;
   onWebActivityTokenChange: (nextToken: string) => void;
   onRemoteStatusBridgeEnabledChange: (nextChecked: boolean) => void;
   onRemoteStatusBridgeUrlChange: (nextUrl: string) => void;
   onRemoteStatusBridgeTokenChange: (nextToken: string) => void;
+  onEnableSystemNotificationsChange: (nextChecked: boolean) => void;
+  onEnableInAppNotificationsChange: (nextChecked: boolean) => void;
 };
 
 type TokenFieldProps = {
@@ -299,12 +303,16 @@ export default function SettingsInterfacePanel({
   remoteStatusBridgeUrl,
   remoteStatusBridgeToken,
   remoteStatusBridgeMachineId,
+  enableSystemNotifications,
+  enableInAppNotifications,
   onWebActivityEnabledChange,
   onPortChange,
   onWebActivityTokenChange,
   onRemoteStatusBridgeEnabledChange,
   onRemoteStatusBridgeUrlChange,
   onRemoteStatusBridgeTokenChange,
+  onEnableSystemNotificationsChange,
+  onEnableInAppNotificationsChange,
 }: SettingsInterfacePanelProps) {
   const [webActivityPortDraft, setWebActivityPortDraft] = useState(String(port));
   const [webActivityTokenVisible, setWebActivityTokenVisible] = useState(false);
@@ -441,6 +449,42 @@ export default function SettingsInterfacePanel({
                 </InterfaceInlineField>
               </div>
             ) : null}
+          </QuietSubpanel>
+
+          <QuietSubpanel>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[var(--qp-text-primary)]">
+                  {UI_TEXT.settings.enableSystemNotificationsLabel}
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-[var(--qp-text-secondary)]">
+                  {UI_TEXT.settings.enableSystemNotificationsHint}
+                </p>
+              </div>
+              <QuietSwitch
+                checked={enableSystemNotifications}
+                onChange={onEnableSystemNotificationsChange}
+                ariaLabel={UI_TEXT.accessibility.settings.toggleUseSystemNotifications}
+              />
+            </div>
+          </QuietSubpanel>
+
+          <QuietSubpanel>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-[var(--qp-text-primary)]">
+                  {UI_TEXT.settings.enableInAppNotificationsLabel}
+                </p>
+                <p className="mt-1 text-sm leading-relaxed text-[var(--qp-text-secondary)]">
+                  {UI_TEXT.settings.enableInAppNotificationsHint}
+                </p>
+              </div>
+              <QuietSwitch
+                checked={enableInAppNotifications}
+                onChange={onEnableInAppNotificationsChange}
+                ariaLabel={UI_TEXT.accessibility.settings.toggleUseSystemNotifications}
+              />
+            </div>
           </QuietSubpanel>
 
           <QuietSubpanel>

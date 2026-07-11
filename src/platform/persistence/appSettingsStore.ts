@@ -51,7 +51,9 @@ type RawAppSettingsKey =
   | "remote_status_bridge_enabled"
   | "remote_status_bridge_url"
   | "remote_status_bridge_token"
-  | "remote_status_bridge_machine_id";
+  | "remote_status_bridge_machine_id"
+  | "enable_system_notifications"
+  | "enable_in_app_notifications";
 
 const APP_SETTINGS_RAW_KEYS: Record<keyof AppSettings, RawAppSettingsKey> = {
   idleTimeoutSecs: "idle_timeout_secs",
@@ -78,6 +80,8 @@ const APP_SETTINGS_RAW_KEYS: Record<keyof AppSettings, RawAppSettingsKey> = {
   remoteStatusBridgeUrl: "remote_status_bridge_url",
   remoteStatusBridgeToken: "remote_status_bridge_token",
   remoteStatusBridgeMachineId: "remote_status_bridge_machine_id",
+  enableSystemNotifications: "enable_system_notifications",
+  enableInAppNotifications: "enable_in_app_notifications",
 };
 
 const IDLE_TIMEOUT_SECONDS_RANGE = { min: 300, max: 1800, step: 60 } as const;
@@ -307,6 +311,14 @@ export function normalizeSettingsRecord(record: Record<string, string | undefine
     remoteStatusBridgeUrl,
     remoteStatusBridgeToken,
     remoteStatusBridgeMachineId,
+    enableSystemNotifications: parseBooleanSetting(
+      record.enable_system_notifications,
+      DEFAULT_SETTINGS.enableSystemNotifications,
+    ),
+    enableInAppNotifications: parseBooleanSetting(
+      record.enable_in_app_notifications,
+      DEFAULT_SETTINGS.enableInAppNotifications,
+    ),
   };
 }
 

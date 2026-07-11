@@ -60,6 +60,8 @@ export interface AppSettings {
   remoteStatusBridgeUrl: string;
   remoteStatusBridgeToken: string;
   remoteStatusBridgeMachineId: string;
+  enableSystemNotifications: boolean;
+  enableInAppNotifications: boolean;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {

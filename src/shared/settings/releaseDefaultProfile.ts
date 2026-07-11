@@ -66,6 +66,8 @@ export interface ReleaseDefaultSettingsProfile {
   remoteStatusBridgeUrl: string;
   remoteStatusBridgeToken: string;
   remoteStatusBridgeMachineId: string;
+  enableSystemNotifications: boolean;
+  enableInAppNotifications: boolean;
 }
 
 export const RELEASE_DEFAULT_SETTINGS: ReleaseDefaultSettingsProfile = {
@@ -93,4 +95,6 @@ export const RELEASE_DEFAULT_SETTINGS: ReleaseDefaultSettingsProfile = {
   remoteStatusBridgeUrl: "",
   remoteStatusBridgeToken: "",
   remoteStatusBridgeMachineId: "",
+  enableSystemNotifications: true,
+  enableInAppNotifications: true,
 };
