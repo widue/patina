@@ -172,9 +172,21 @@ src-tauri/target/release/bundle/
 
 ## 反馈
 
-如果你遇到问题、发现记录异常，或想提出改进建议，可以通过 GitHub Issues 反馈：
+需要持续跟进的问题请使用 GitHub Issues；日常交流可扫码加入 QQ 频道：
 
-- <https://github.com/Ceceliaee/patina/issues/new/choose>
+<div align="center">
+  <a href="https://github.com/Ceceliaee/patina/issues/new/choose">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/feedback/github-issues-button-white.svg">
+      <img src=".github/assets/feedback/github-issues-button-black.svg" height="36" alt="GitHub Issues">
+    </picture>
+  </a>
+  <br><br>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/feedback/qq-channel-dark.jpg">
+    <img src=".github/assets/feedback/qq-channel-light.jpg" width="200" alt="Patina QQ 频道二维码">
+  </picture>
+</div>
 
 ## 支持项目
 

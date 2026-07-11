@@ -172,9 +172,21 @@ If you want to contribute, understand the product direction, or review architect
 
 ## Feedback
 
-If you run into a problem, notice unusual records, or want to suggest an improvement, you can use GitHub Issues:
+Use GitHub Issues for bugs and feedback that needs follow-up, or scan the QR code to join the QQ channel for everyday conversation:
 
-- <https://github.com/Ceceliaee/patina/issues/new/choose>
+<div align="center">
+  <a href="https://github.com/Ceceliaee/patina/issues/new/choose">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset=".github/assets/feedback/github-issues-button-white.svg">
+      <img src=".github/assets/feedback/github-issues-button-black.svg" height="36" alt="GitHub Issues">
+    </picture>
+  </a>
+  <br><br>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/feedback/qq-channel-dark.jpg">
+    <img src=".github/assets/feedback/qq-channel-light.jpg" width="200" alt="Patina QQ channel QR code">
+  </picture>
+</div>
 
 ## Support
 
