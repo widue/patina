@@ -93,16 +93,18 @@ export default function Settings({
         if (cancelled) return;
         setScreenshotSettingsState(settings);
         setSavedScreenshotSettings(settings);
+        handleChange("screenshotsEnabled", settings.enabled);
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [handleChange]);
 
   const hasScreenshotUnsavedChanges = (() => {
     if (!screenshotSettings || !savedScreenshotSettings) return false;
     return (
+      screenshotSettings.enabled !== savedScreenshotSettings.enabled ||
       screenshotSettings.intervalSecs !== savedScreenshotSettings.intervalSecs ||
       screenshotSettings.retentionDays !== savedScreenshotSettings.retentionDays
     );
@@ -119,7 +121,8 @@ export default function Settings({
 
   const handleScreenshotEnabledChange = useCallback((enabled: boolean) => {
     handleChange("screenshotsEnabled", enabled);
-  }, [handleChange]);
+    handleScreenshotSettingsChange({ enabled });
+  }, [handleChange, handleScreenshotSettingsChange]);
 
   const saveScreenshotSettings = useCallback(async (): Promise<boolean> => {
     if (!screenshotSettings) return true;
