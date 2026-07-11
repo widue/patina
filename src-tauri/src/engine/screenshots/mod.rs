@@ -106,7 +106,10 @@ pub async fn run<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
 
     loop {
         let settings = load_settings(&pool).await;
-        if settings.enabled {
+        let tracking_paused = crate::data::repositories::tracker_settings::load_tracking_paused_setting(&pool)
+            .await
+            .unwrap_or(false);
+        if settings.enabled && !tracking_paused {
             if let Err(e) = capture_and_save(&pool, &screenshots_dir).await {
                 eprintln!("[screenshots] capture: {e}");
             }
