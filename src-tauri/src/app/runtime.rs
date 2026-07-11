@@ -4,7 +4,7 @@ use crate::app::runtime_tasks;
 use crate::app::state::DesktopBehaviorState;
 use crate::app::tray::{apply_tray_visibility, setup_tray, MAIN_WINDOW_LABEL};
 use crate::engine::tracking::watchdog::RuntimeHealthState;
-use crate::platform::windows::{audio, media, power};
+use crate::platform::windows::{audio, media, notifications, power};
 #[cfg(any(test, all(not(debug_assertions), not(patina_local_build))))]
 use std::path::Path;
 use std::sync::Arc;
@@ -50,6 +50,15 @@ pub fn setup(
     runtime_health: Arc<RuntimeHealthState>,
     launched_by_autostart: bool,
 ) -> tauri::Result<()> {
+    #[cfg(windows)]
+    {
+        let app_id = app.config().identifier.as_str();
+        let app_name = app.config().product_name.as_deref().unwrap_or("Patina");
+        if let Err(error) = notifications::initialize(app_id, app_name) {
+            eprintln!("[runtime] notification initialization failed: {error}");
+        }
+    }
+
     tauri::async_runtime::block_on(crate::engine::remote_status_bridge::ensure_machine_id(
         &app.handle().clone(),
     ))
