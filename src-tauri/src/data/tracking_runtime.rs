@@ -48,6 +48,21 @@ impl TrackingRuntimeDataStore {
         tracker_settings::load_capture_window_title_setting_for_app(&self.pool, exe_name).await
     }
 
+    pub async fn load_tracking_enabled_setting_for_app(
+        &self,
+        exe_name: &str,
+    ) -> Result<bool, TrackingRuntimeDataError> {
+        tracker_settings::load_tracking_enabled_setting_for_app(&self.pool, exe_name).await
+    }
+
+    pub async fn end_active_session_for_exe(
+        &self,
+        exe_name: &str,
+        end_time: i64,
+    ) -> Result<bool, TrackingRuntimeDataError> {
+        sessions::end_active_session_for_exe(&self.pool, exe_name, end_time).await
+    }
+
     pub async fn load_tracker_timestamp(
         &self,
         key: &str,

@@ -158,6 +158,30 @@ pub async fn end_active_segment(
     Ok(true)
 }
 
+pub async fn end_active_segment_for_domain(
+    pool: &Pool<Sqlite>,
+    normalized_domain: &str,
+    timestamp_ms: i64,
+) -> Result<bool, sqlx::Error> {
+    let Some(target_domain) = crate::domain::web_activity::normalize_domain(normalized_domain)
+    else {
+        return Ok(false);
+    };
+    let mut tx = pool.begin().await?;
+    let active = load_active_segment_tx(&mut tx).await?;
+    let Some(active) = active else {
+        tx.rollback().await?;
+        return Ok(false);
+    };
+    if active.normalized_domain != target_domain {
+        tx.rollback().await?;
+        return Ok(false);
+    }
+    finish_segment_tx(&mut tx, active.id, active.start_time, timestamp_ms).await?;
+    tx.commit().await?;
+    Ok(true)
+}
+
 pub async fn fetch_all_for_backup(
     pool: &Pool<Sqlite>,
 ) -> Result<Vec<BackupWebActivitySegment>, String> {
@@ -502,6 +526,31 @@ mod tests {
             assert!(!load_domain_recording_enabled(&pool, "github.com")
                 .await
                 .unwrap());
+        });
+    }
+
+    #[test]
+    fn conditional_domain_seal_only_closes_matching_active_segment() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+            upsert_active_segment(&pool, &input("github.com", "Issue"), 1_000)
+                .await
+                .unwrap();
+
+            assert!(!end_active_segment_for_domain(&pool, "docs.rs", 2_000)
+                .await
+                .unwrap());
+            assert!(end_active_segment_for_domain(&pool, "GitHub.COM.", 3_000)
+                .await
+                .unwrap());
+
+            let end_time: Option<i64> = sqlx::query_scalar(
+                "SELECT end_time FROM web_activity_segments WHERE normalized_domain = 'github.com'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(end_time, Some(3_000));
         });
     }
 

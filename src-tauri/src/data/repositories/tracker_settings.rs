@@ -14,6 +14,7 @@ pub const APP_OVERRIDE_KEY_PREFIX: &str = "__app_override::";
 
 #[derive(Clone, Debug, serde::Deserialize, Default)]
 struct StoredAppOverride {
+    track: Option<bool>,
     #[serde(rename = "captureTitle")]
     capture_title: Option<bool>,
 }
@@ -59,6 +60,30 @@ pub async fn load_capture_window_title_setting_for_app(
     let parsed_override = serde_json::from_str::<StoredAppOverride>(&raw_value).ok();
     Ok(parsed_override
         .and_then(|override_value| override_value.capture_title)
+        .unwrap_or(true))
+}
+
+pub async fn load_tracking_enabled_setting_for_app(
+    pool: &Pool<Sqlite>,
+    exe_name: &str,
+) -> Result<bool, sqlx::Error> {
+    let Some(canonical_exe_name) = normalize_exe_setting_key(exe_name) else {
+        return Ok(true);
+    };
+
+    let setting_key = format!("{APP_OVERRIDE_KEY_PREFIX}{canonical_exe_name}");
+    let row = sqlx::query("SELECT value FROM settings WHERE key = ? LIMIT 1")
+        .bind(setting_key)
+        .fetch_optional(pool)
+        .await?;
+
+    let Some(raw_value) = row.and_then(|row| row.try_get::<String, _>("value").ok()) else {
+        return Ok(true);
+    };
+
+    Ok(serde_json::from_str::<StoredAppOverride>(&raw_value)
+        .ok()
+        .and_then(|override_value| override_value.track)
         .unwrap_or(true))
 }
 
@@ -206,6 +231,28 @@ mod tests {
 
             let configured = load_timeline_merge_gap_secs(&pool, 180).await.unwrap();
             assert_eq!(configured, 240);
+        });
+    }
+
+    #[test]
+    fn app_tracking_setting_defaults_to_enabled_and_reads_explicit_exclusion() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+            assert!(load_tracking_enabled_setting_for_app(&pool, "QQ.exe")
+                .await
+                .unwrap());
+
+            save_setting_value(
+                &pool,
+                "__app_override::qq.exe",
+                r#"{"track":false,"captureTitle":true}"#,
+            )
+            .await
+            .unwrap();
+
+            assert!(!load_tracking_enabled_setting_for_app(&pool, "qq")
+                .await
+                .unwrap());
         });
     }
 }

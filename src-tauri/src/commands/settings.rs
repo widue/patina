@@ -118,5 +118,6 @@ pub async fn cmd_commit_classification_settings(
         .map(ClassificationSettingMutation::from)
         .collect::<Vec<_>>();
 
-    commit_classification_setting_mutations_with_recovery(&app, &mutations).await
+    let outcome = commit_classification_setting_mutations_with_recovery(&app, &mutations).await?;
+    crate::app::classification::apply_recording_policy_changes(&app, &outcome).await
 }

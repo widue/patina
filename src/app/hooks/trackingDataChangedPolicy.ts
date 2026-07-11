@@ -4,6 +4,8 @@ const SEALED_REFRESH_ONLY_REASONS = new Set([
   "tracking-paused-sealed",
   "continuity-window-sealed",
   "passive-participation-sealed",
+  "app-excluded-sealed",
+  "web-domain-excluded-sealed",
   "backup-restored",
 ]);
 const PAUSE_TOGGLE_REASONS = new Set([

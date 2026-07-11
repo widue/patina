@@ -197,6 +197,57 @@ pub async fn end_active_sessions(
     Ok(did_end)
 }
 
+pub async fn end_active_session_for_exe(
+    pool: &Pool<Sqlite>,
+    target_exe_name: &str,
+    raw_end_time: i64,
+) -> Result<bool, sqlx::Error> {
+    let mut target = target_exe_name
+        .trim()
+        .trim_matches('"')
+        .to_ascii_lowercase();
+    if target.is_empty() {
+        return Ok(false);
+    }
+    if !target.ends_with(".exe") {
+        target.push_str(".exe");
+    }
+
+    let mut tx = pool.begin().await?;
+    let active = sqlx::query(
+        "SELECT id, start_time, exe_name
+         FROM sessions
+         WHERE end_time IS NULL
+         ORDER BY start_time DESC, id DESC
+         LIMIT 1",
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(active) = active else {
+        tx.rollback().await?;
+        return Ok(false);
+    };
+
+    let exe_name: String = active.get("exe_name");
+    if exe_name.trim().trim_matches('"').to_ascii_lowercase() != target {
+        tx.rollback().await?;
+        return Ok(false);
+    }
+
+    let id: i64 = active.get("id");
+    let start_time: i64 = active.get("start_time");
+    let end_time = raw_end_time.max(start_time);
+    sqlx::query("UPDATE sessions SET end_time = ?, duration = ? WHERE id = ?")
+        .bind(end_time)
+        .bind(end_time - start_time)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    session_title_samples::finish_active_title_sample_tx(&mut tx, id, end_time).await?;
+    tx.commit().await?;
+    Ok(true)
+}
+
 async fn end_active_sessions_tx(
     tx: &mut Transaction<'_, Sqlite>,
     raw_end_time: i64,
@@ -341,4 +392,49 @@ pub async fn start_session(
 
     tx.commit().await?;
     Ok(true)
+}
+
+#[cfg(test)]
+mod exclusion_tests {
+    use super::*;
+    use crate::data::schema as db_schema;
+    use sqlx::{Executor, SqlitePool};
+
+    async fn setup_test_db() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+            .await
+            .unwrap();
+        pool
+    }
+
+    #[test]
+    fn conditional_exe_seal_closes_matching_session_and_title_only() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+            assert!(start_session(&pool, "QQ", "QQ.exe", "Chat", 1_000, 1_000)
+                .await
+                .unwrap());
+
+            assert!(!end_active_session_for_exe(&pool, "code.exe", 2_000)
+                .await
+                .unwrap());
+            assert!(end_active_session_for_exe(&pool, "qq", 3_000)
+                .await
+                .unwrap());
+
+            let session_end: Option<i64> =
+                sqlx::query_scalar("SELECT end_time FROM sessions LIMIT 1")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            let title_end: Option<i64> =
+                sqlx::query_scalar("SELECT end_time FROM session_title_samples LIMIT 1")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(session_end, Some(3_000));
+            assert_eq!(title_end, Some(3_000));
+        });
+    }
 }

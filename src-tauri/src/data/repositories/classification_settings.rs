@@ -1,7 +1,7 @@
 use sqlx::{Pool, Sqlite};
 
-const APP_OVERRIDE_KEY_PREFIX: &str = "__app_override::";
-const WEB_DOMAIN_OVERRIDE_KEY_PREFIX: &str = "__web_domain_override::";
+pub const APP_OVERRIDE_KEY_PREFIX: &str = "__app_override::";
+pub const WEB_DOMAIN_OVERRIDE_KEY_PREFIX: &str = "__web_domain_override::";
 const CATEGORY_COLOR_OVERRIDE_KEY_PREFIX: &str = "__category_color_override::";
 const CATEGORY_LABEL_OVERRIDE_KEY_PREFIX: &str = "__category_label_override::";
 const CATEGORY_DEFAULT_COLOR_ASSIGNMENT_KEY_PREFIX: &str = "__category_default_color_assignment::";

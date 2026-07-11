@@ -22,6 +22,8 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tokio::time::{sleep, Duration};
 
+#[path = "runtime/exclusion.rs"]
+mod exclusion;
 #[path = "runtime/loop_state.rs"]
 mod loop_state;
 #[path = "runtime/power_lifecycle.rs"]
@@ -109,6 +111,20 @@ pub async fn run<R: Runtime>(
 
             pending_continuity = None;
             last_window = Some(tracked_window);
+            last_tracking_status = Some(tracking_state.tracking_status);
+            sleep(Duration::from_secs(1)).await;
+            continue;
+        }
+
+        if !tracking_state.app_tracking_enabled {
+            if let Some(reason) =
+                exclusion::seal_excluded_app_session(&data, &tracked_window.exe_name, now_ms).await
+            {
+                let _ = emit_tracking_data_changed(&app, reason, now_ms as u64);
+            }
+
+            pending_continuity = None;
+            last_window = None;
             last_tracking_status = Some(tracking_state.tracking_status);
             sleep(Duration::from_secs(1)).await;
             continue;

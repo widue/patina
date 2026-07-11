@@ -24,6 +24,7 @@ pub(super) struct TrackingLoopState {
     pub continuity_window_secs: u64,
     pub sustained_participation_secs: u64,
     pub tracking_paused: bool,
+    pub app_tracking_enabled: bool,
     pub tracked_window: tracker::WindowInfo,
     pub tracking_status: TrackingStatusSnapshot,
 }
@@ -102,6 +103,19 @@ pub(super) async fn load_tracking_loop_state(
     let continuity_window_secs = cached_settings.continuity_window_secs;
     let sustained_participation_secs = cached_settings.sustained_participation_secs;
     let tracking_paused = load_tracking_paused(data, pause_state, now_ms).await;
+    let app_tracking_enabled = match data
+        .load_tracking_enabled_setting_for_app(&window_info.exe_name)
+        .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            log_tracker_error(format!(
+                "failed to load app tracking setting for {}: {error}",
+                window_info.exe_name
+            ));
+            false
+        }
+    };
     let capture_window_title = settings_cache
         .load_capture_window_title_setting(data, &window_info.exe_name, now_ms)
         .await;
@@ -113,7 +127,7 @@ pub(super) async fn load_tracking_loop_state(
 
     let (system_media_signal, audio_signal) =
         load_sustained_participation_signals(&tracked_window, tracking_paused).await;
-    let (tracking_status, next_sustained_participation_state) =
+    let (mut tracking_status, mut next_sustained_participation_state) =
         resolve_tracking_status_with_runtime(SustainedParticipationStatusInput {
             exe_name: &tracked_window.exe_name,
             process_path: &tracked_window.process_path,
@@ -129,11 +143,17 @@ pub(super) async fn load_tracking_loop_state(
         });
     let tracked_window = apply_tracking_mode_window_state(tracked_window, &tracking_status);
 
+    if !app_tracking_enabled {
+        tracking_status = TrackingStatusSnapshot::default();
+        next_sustained_participation_state = SustainedParticipationRuntimeState::default();
+    }
+
     (
         TrackingLoopState {
             continuity_window_secs,
             sustained_participation_secs,
             tracking_paused,
+            app_tracking_enabled,
             tracked_window,
             tracking_status,
         },
@@ -384,6 +404,48 @@ mod tests {
                 CAPTURE_WINDOW_TITLE_CACHE_LIMIT
             );
             assert!(!cache.capture_window_title_by_exe.contains_key("app0.exe"));
+        });
+    }
+
+    #[test]
+    fn excluded_app_disables_runtime_tracking_before_transition_work() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+            crate::data::repositories::tracker_settings::save_setting_value(
+                &pool,
+                "__app_override::code.exe",
+                r#"{"track":false,"captureTitle":true}"#,
+            )
+            .await
+            .unwrap();
+            let data = TrackingRuntimeDataStore::new(pool);
+            let pause_state = TrackingPauseRuntimeState::default();
+            let mut cache = TrackingSettingsCache::default();
+            let window = tracker::WindowInfo {
+                hwnd: "0x100".into(),
+                root_owner_hwnd: "0x100".into(),
+                process_id: 123,
+                window_class: "Chrome_WidgetWin_1".into(),
+                title: "Editor".into(),
+                exe_name: "Code.exe".into(),
+                process_path: r"C:\Program Files\Code\Code.exe".into(),
+                is_afk: false,
+                idle_time_ms: 0,
+            };
+
+            let (state, _) = load_tracking_loop_state(
+                &data,
+                &pause_state,
+                &window,
+                1_000,
+                &SustainedParticipationRuntimeState::default(),
+                &mut cache,
+            )
+            .await;
+
+            assert!(!state.app_tracking_enabled);
+            assert!(!state.tracking_status.is_tracking_active);
+            assert_eq!(state.tracked_window.exe_name, "Code.exe");
         });
     }
 }
