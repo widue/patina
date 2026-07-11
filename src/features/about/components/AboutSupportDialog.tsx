@@ -57,7 +57,6 @@ export default function AboutSupportDialog({
               draggable={false}
             />
           </div>
-          <p>{copy.wechatHint}</p>
         </section>
 
         <section className="about-support-card about-support-kofi-card">
@@ -79,7 +78,6 @@ export default function AboutSupportDialog({
               />
             </button>
           </div>
-          <p>{copy.kofiHint}</p>
         </section>
       </div>
     </QuietDialog>

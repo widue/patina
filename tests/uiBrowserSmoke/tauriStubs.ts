@@ -172,7 +172,13 @@ function tauriStubFor(path: string) {
 
   if (path === "@tauri-apps/plugin-opener") {
     return `
-      export async function openUrl() {}
+      globalThis.__TIME_TRACKER_OPENED_URLS ??= [];
+      export async function openUrl(url) {
+        if (globalThis.__TIME_TRACKER_REJECT_OPEN_URL) {
+          throw new Error("browser smoke opener failure");
+        }
+        globalThis.__TIME_TRACKER_OPENED_URLS.push(url);
+      }
     `;
   }
 

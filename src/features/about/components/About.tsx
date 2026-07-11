@@ -6,6 +6,7 @@ import QuietPageHeader from "../../../shared/components/QuietPageHeader";
 import type { UpdateSnapshot } from "../../../shared/types/update";
 import AboutPanel from "./AboutPanel";
 import AboutSupportDialog from "./AboutSupportDialog";
+import AboutFeedbackDialog from "./AboutFeedbackDialog";
 import {
   getSettingsPageBootstrapCache,
   loadSettingsPageBootstrap,
@@ -40,6 +41,7 @@ export default function About({
   const [appVersion, setAppVersion] = useState(initialVersion);
   const [loading, setLoading] = useState(!updateSnapshot?.currentVersion && !cachedBootstrap?.appVersion);
   const [supportDialogOpen, setSupportDialogOpen] = useState(false);
+  const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,12 +87,14 @@ export default function About({
     }
   }, [notify]);
 
-  const handleOpenFeedback = useCallback(async () => {
+  const handleOpenFeedback = useCallback(async (): Promise<boolean> => {
     try {
       await SettingsRuntimeAdapterService.openFeedback();
+      return true;
     } catch (error) {
       console.error("open feedback link failed", error);
       notify(UI_TEXT.toast.feedbackOpenFailed, "warning");
+      return false;
     }
   }, [notify]);
 
@@ -161,7 +165,7 @@ export default function About({
             void handleOpenRepository();
           }}
           onOpenFeedback={() => {
-            void handleOpenFeedback();
+            setFeedbackDialogOpen(true);
           }}
           onOpenSupportDialog={() => {
             setSupportDialogOpen(true);
@@ -175,6 +179,11 @@ export default function About({
         onOpenKofi={() => {
           void handleOpenKofiSupport();
         }}
+      />
+      <AboutFeedbackDialog
+        open={feedbackDialogOpen}
+        onClose={() => setFeedbackDialogOpen(false)}
+        onOpenGitHub={handleOpenFeedback}
       />
     </div>
   );
