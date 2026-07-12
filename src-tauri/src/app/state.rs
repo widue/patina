@@ -90,6 +90,21 @@ pub(crate) struct AppExitState {
     requested: AtomicBool,
 }
 
+#[derive(Debug, Default)]
+pub(crate) struct AppRestartState {
+    requested: AtomicBool,
+}
+
+impl AppRestartState {
+    pub(crate) fn try_request(&self) -> bool {
+        !self.requested.swap(true, Ordering::AcqRel)
+    }
+
+    pub(crate) fn cancel_request(&self) {
+        self.requested.store(false, Ordering::Release);
+    }
+}
+
 impl AppExitState {
     pub(crate) fn request_exit(&self) {
         self.requested.store(true, Ordering::Relaxed);
@@ -255,7 +270,17 @@ impl WidgetWindowLifecycleState {
 
 #[cfg(test)]
 mod tests {
-    use super::{MainWindowLifecycleState, WidgetWindowLifecycleState};
+    use super::{AppRestartState, MainWindowLifecycleState, WidgetWindowLifecycleState};
+
+    #[test]
+    fn app_restart_state_allows_one_request_until_cancelled() {
+        let state = AppRestartState::default();
+
+        assert!(state.try_request());
+        assert!(!state.try_request());
+        state.cancel_request();
+        assert!(state.try_request());
+    }
 
     #[test]
     fn main_window_lifecycle_cancels_stale_destroy_after_show() {

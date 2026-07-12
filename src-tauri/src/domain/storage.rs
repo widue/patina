@@ -36,7 +36,6 @@ pub struct WebviewCacheSnapshot {
     pub ebwebview_path: String,
     pub total_size_bytes: u64,
     pub reclaimable_size_bytes: u64,
-    pub pending_clear: bool,
     pub last_trim_at_ms: Option<u64>,
     pub entries: Vec<WebviewCacheEntrySnapshot>,
 }
@@ -45,18 +44,6 @@ pub struct WebviewCacheSnapshot {
 #[serde(rename_all = "camelCase")]
 pub struct StorageMaintenanceSnapshot {
     pub last_error: Option<String>,
-    pub last_migration_status: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct StoragePendingMigrationSnapshot {
-    pub id: String,
-    pub source_data_root: String,
-    pub target_data_root: String,
-    pub target_webview_root: String,
-    pub created_at_ms: u64,
-    pub state: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -66,7 +53,6 @@ pub struct StorageSnapshot {
     pub sizes: StorageSizeSnapshot,
     pub webview_cache: WebviewCacheSnapshot,
     pub maintenance: StorageMaintenanceSnapshot,
-    pub pending_migration: Option<StoragePendingMigrationSnapshot>,
 }
 
 #[derive(Clone, Debug, Serialize)]

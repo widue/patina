@@ -1,12 +1,12 @@
-use crate::data::storage_migration;
+use crate::app::state::{AppExitState, AppRestartState};
+use crate::data::{storage_migration, storage_restart};
 use crate::domain::storage::{
     StorageMaintenanceSnapshot, StorageMigrationPreview, StorageMigrationRequest,
-    StoragePathSnapshot, StoragePendingMigrationSnapshot, StorageSnapshot,
-    WebviewCacheMigrationRequest,
+    StoragePathSnapshot, StorageSnapshot, WebviewCacheMigrationRequest,
 };
 use crate::platform::{storage_anchor, storage_paths, storage_usage, webview_cache};
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 
 #[tauri::command]
 pub fn cmd_pick_storage_directory() -> Option<String> {
@@ -67,52 +67,80 @@ pub async fn cmd_preview_restore_default_webview_cache_migration<R: Runtime>(
 }
 
 #[tauri::command]
-pub async fn cmd_schedule_storage_migration(
+pub async fn cmd_restart_and_apply_storage_migration(
     app: AppHandle,
     target_data_root: String,
-) -> Result<StorageMigrationPreview, String> {
-    storage_migration::schedule_storage_migration(app, StorageMigrationRequest { target_data_root })
+) -> Result<(), String> {
+    restart_after(app, |app| async move {
+        storage_migration::schedule_storage_migration(
+            app,
+            StorageMigrationRequest { target_data_root },
+        )
         .await
-}
-
-#[tauri::command]
-pub async fn cmd_schedule_webview_cache_migration(
-    app: AppHandle,
-    target_webview_root: String,
-) -> Result<StorageMigrationPreview, String> {
-    storage_migration::schedule_webview_cache_migration(
-        app,
-        WebviewCacheMigrationRequest {
-            target_webview_root,
-        },
-    )
+    })
     .await
 }
 
 #[tauri::command]
-pub async fn cmd_schedule_restore_default_storage_migration(
+pub async fn cmd_restart_and_apply_webview_cache_migration(
     app: AppHandle,
-) -> Result<StorageMigrationPreview, String> {
-    storage_migration::schedule_restore_default_storage_migration(app).await
+    target_webview_root: String,
+) -> Result<(), String> {
+    restart_after(app, |app| async move {
+        storage_migration::schedule_webview_cache_migration(
+            app,
+            WebviewCacheMigrationRequest {
+                target_webview_root,
+            },
+        )
+        .await
+    })
+    .await
 }
 
 #[tauri::command]
-pub async fn cmd_schedule_restore_default_webview_cache_migration(
+pub async fn cmd_restart_and_apply_restore_default_storage_migration(
     app: AppHandle,
-) -> Result<StorageMigrationPreview, String> {
-    storage_migration::schedule_restore_default_webview_cache_migration(app).await
+) -> Result<(), String> {
+    restart_after(app, |app| async move {
+        storage_migration::schedule_restore_default_storage_migration(app).await
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn cmd_cancel_pending_storage_migration<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
-    storage_migration::cancel_pending_storage_migration(&app)
+pub async fn cmd_restart_and_apply_restore_default_webview_cache_migration(
+    app: AppHandle,
+) -> Result<(), String> {
+    restart_after(app, |app| async move {
+        storage_migration::schedule_restore_default_webview_cache_migration(app).await
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn cmd_schedule_webview_cache_clear<R: Runtime>(
-    app: AppHandle<R>,
-) -> Result<crate::domain::storage::WebviewCacheSnapshot, String> {
-    webview_cache::schedule_webview_cache_clear(&app)
+pub async fn cmd_restart_and_clear_webview_cache(app: AppHandle) -> Result<(), String> {
+    restart_after(app, |app| async move {
+        storage_restart::schedule_webview_cache_clear(app).await
+    })
+    .await
+}
+
+async fn restart_after<F, Fut, T>(app: AppHandle, operation: F) -> Result<(), String>
+where
+    F: FnOnce(AppHandle) -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    let restart_state = app.state::<AppRestartState>();
+    if !restart_state.try_request() {
+        return Err("Patina is already preparing to restart".to_string());
+    }
+    if let Err(error) = operation(app.clone()).await {
+        restart_state.cancel_request();
+        return Err(error);
+    }
+    app.state::<AppExitState>().request_exit();
+    app.restart()
 }
 
 #[tauri::command]
@@ -125,17 +153,6 @@ fn storage_snapshot<R: Runtime>(app: &AppHandle<R>) -> Result<StorageSnapshot, S
     let install_dir = install_dir()?;
     let maintenance = storage_anchor::read_maintenance_state(app)
         .unwrap_or_else(|_| storage_anchor::StorageMaintenanceState::new());
-    let pending = storage_anchor::read_pending_migration(app)
-        .ok()
-        .flatten()
-        .map(|pending| StoragePendingMigrationSnapshot {
-            id: pending.id,
-            source_data_root: pending.source_data_root.to_string_lossy().to_string(),
-            target_data_root: pending.target_data_root.to_string_lossy().to_string(),
-            target_webview_root: pending.target_webview_root.to_string_lossy().to_string(),
-            created_at_ms: pending.created_at_ms,
-            state: pending.state,
-        });
 
     Ok(StorageSnapshot {
         paths: StoragePathSnapshot {
@@ -152,9 +169,7 @@ fn storage_snapshot<R: Runtime>(app: &AppHandle<R>) -> Result<StorageSnapshot, S
         webview_cache: webview_cache::webview_cache_snapshot(app)?,
         maintenance: StorageMaintenanceSnapshot {
             last_error: maintenance.last_maintenance_error,
-            last_migration_status: maintenance.last_migration_status,
         },
-        pending_migration: pending,
     })
 }
 

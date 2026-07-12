@@ -1,4 +1,4 @@
-use crate::data::{backup, sqlite_pool};
+use crate::data::{backup, sqlite_pool, storage_restart};
 use crate::domain::storage::{
     StorageMigrationPreview, StorageMigrationRequest, WebviewCacheMigrationRequest,
 };
@@ -10,7 +10,6 @@ use tauri::{AppHandle, Runtime};
 
 const MIGRATION_STATE_PENDING_RESTART: &str = "pending-restart";
 const PRE_MIGRATION_BACKUP_PREFIX: &str = "pre-storage-migration";
-
 pub async fn preview_storage_migration<R: Runtime>(
     app: &AppHandle<R>,
     request: StorageMigrationRequest,
@@ -171,25 +170,21 @@ pub async fn schedule_restore_default_webview_cache_migration(
     Ok(preview)
 }
 
-pub fn cancel_pending_storage_migration<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    storage_anchor::remove_pending_migration(app)
-}
-
 pub async fn run_pending_storage_migration<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    let Some(pending) = storage_anchor::read_pending_migration(app)? else {
+    let pending = match storage_anchor::read_pending_migration(app) {
+        Ok(pending) => pending,
+        Err(error) => {
+            storage_anchor::discard_unreadable_pending_migration(app, &error)?;
+            return Ok(());
+        }
+    };
+    let Some(pending) = pending else {
         return Ok(());
     };
 
     match execute_pending_storage_migration(app, &pending).await {
         Ok(()) => {
             storage_anchor::remove_pending_migration(app)?;
-            storage_anchor::record_migration_status(
-                app,
-                format!(
-                    "Storage migrated to `{}`",
-                    pending.target_data_root.display()
-                ),
-            )?;
             Ok(())
         }
         Err(error) => {
@@ -290,6 +285,22 @@ async fn execute_pending_storage_migration<R: Runtime>(
                 ),
             );
         }
+    }
+
+    if pending.clear_webview_cache {
+        webview_cache::clear_regenerable_cache_dirs(&pending.target_webview_root)?;
+        storage_anchor::mark_webview_cache_trimmed(app)?;
+    }
+
+    storage_restart::switch_anchors(
+        app,
+        pending,
+        &source_paths,
+        !same_path(&pending.target_data_root, &default_paths.data_root),
+        !same_path(&pending.target_webview_root, &default_paths.webview_root),
+    )?;
+
+    if data_root_changes {
         let remove_old_data_root = should_remove_old_data_root_container(
             &pending.source_data_root,
             &pending.target_webview_root,
@@ -324,17 +335,7 @@ async fn execute_pending_storage_migration<R: Runtime>(
         }
     }
 
-    if same_path(&pending.target_data_root, &default_paths.data_root) {
-        storage_anchor::remove_data_anchor(app)?;
-    } else {
-        storage_anchor::write_data_anchor(app, pending.target_data_root.clone())?;
-    }
-
-    if same_path(&pending.target_webview_root, &default_paths.webview_root) {
-        storage_anchor::remove_cache_anchor(app)
-    } else {
-        storage_anchor::write_cache_anchor(app, pending.target_webview_root.clone())
-    }
+    Ok(())
 }
 
 async fn copy_and_validate_data_root(source: &Path, staging: &Path) -> Result<(), String> {
@@ -525,7 +526,9 @@ fn copy_dir_recursive(source: &Path, target: &Path) -> Result<(), String> {
     Ok(())
 }
 
-async fn checkpoint_current_database<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+pub(super) async fn checkpoint_current_database<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<(), String> {
     let pool = sqlite_pool::wait_for_sqlite_pool(app).await?;
     sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
         .execute(&pool)
@@ -798,10 +801,9 @@ async fn schedule_pending_storage_migration(
             .to_string_lossy()
             .to_string();
         backup::export_backup(Some(pre_migration_backup_path), app.clone()).await?;
-
-        checkpoint_current_database(&app).await?;
     }
 
+    checkpoint_current_database(&app).await?;
     let pending = storage_anchor::PendingStorageMigration {
         format: storage_anchor::STORAGE_MIGRATION_PENDING_FORMAT.to_string(),
         id: plan.migration_id,
@@ -810,8 +812,19 @@ async fn schedule_pending_storage_migration(
         target_webview_root: plan.target_webview_root,
         created_at_ms: storage_anchor::now_ms(),
         state: MIGRATION_STATE_PENDING_RESTART.to_string(),
+        clear_webview_cache: false,
     };
     storage_anchor::write_pending_migration(&app, &pending)?;
+
+    let persisted = storage_anchor::read_pending_migration(&app)?
+        .ok_or_else(|| "storage restart operation was not persisted".to_string())?;
+    if persisted.id != pending.id
+        || persisted.target_data_root != pending.target_data_root
+        || persisted.target_webview_root != pending.target_webview_root
+    {
+        let _ = storage_anchor::remove_pending_migration(&app);
+        return Err("storage restart operation verification failed".to_string());
+    }
 
     Ok(())
 }
@@ -954,7 +967,7 @@ fn dir_size(path: &Path) -> u64 {
     total
 }
 
-fn timestamp_for_file() -> String {
+pub(super) fn timestamp_for_file() -> String {
     chrono::Local::now().format("%Y%m%d-%H%M%S").to_string()
 }
 
@@ -1291,6 +1304,7 @@ mod tests {
             target_webview_root: current.webview_root.clone(),
             created_at_ms: 1,
             state: MIGRATION_STATE_PENDING_RESTART.to_string(),
+            clear_webview_cache: false,
         };
 
         let plan = plan_pending_storage_migration(
@@ -1329,6 +1343,7 @@ mod tests {
             target_webview_root: PathBuf::from(r"E:\Patina"),
             created_at_ms: 1,
             state: MIGRATION_STATE_PENDING_RESTART.to_string(),
+            clear_webview_cache: false,
         };
 
         let plan = plan_pending_storage_migration(

@@ -3,10 +3,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use tauri::{AppHandle, Emitter, Runtime};
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 use tauri_plugin_updater::{Update, UpdaterExt};
 use tokio::time::{sleep, Duration};
 
+use crate::app::state::AppRestartState;
 use crate::data::repositories::update_state;
 use crate::data::sqlite_pool::wait_for_sqlite_pool;
 use crate::domain::update::{UpdateErrorStage, UpdateSnapshot, UpdateStatus};
@@ -429,6 +430,18 @@ pub async fn install_downloaded<R: Runtime>(
         }
     };
 
+    let restart_state = app.state::<AppRestartState>();
+    if !restart_state.try_request() {
+        state.set_pending_update(update);
+        state.set_downloaded_package(downloaded_package);
+        let snapshot = state.set_error(
+            UpdateErrorStage::Install,
+            "Patina is already preparing another restart".to_string(),
+        );
+        emit_update_snapshot_changed(app, &snapshot);
+        return Ok(snapshot);
+    }
+
     let post_install_reopen_pool = match wait_for_sqlite_pool(app).await {
         Ok(pool) => {
             if let Err(error) = update_state::request_post_install_reopen_main_window(&pool).await {
@@ -455,6 +468,7 @@ pub async fn install_downloaded<R: Runtime>(
             Ok(snapshot)
         }
         Err(error) => {
+            restart_state.cancel_request();
             state.set_pending_update(update);
             state.set_downloaded_package(downloaded_package);
             if let Some(pool) = post_install_reopen_pool.as_ref() {

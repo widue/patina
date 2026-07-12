@@ -2,7 +2,7 @@ use crate::domain::storage::{WebviewCacheEntrySnapshot, WebviewCacheSnapshot};
 use crate::platform::{storage_anchor, storage_paths};
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
 
 const EBWEBVIEW_DIR_NAME: &str = "EBWebView";
 
@@ -31,46 +31,6 @@ pub fn webview_cache_snapshot<R: Runtime>(
     Ok(snapshot_for_root(&paths.webview_root, &state))
 }
 
-pub fn schedule_webview_cache_clear<R: Runtime>(
-    app: &AppHandle<R>,
-) -> Result<WebviewCacheSnapshot, String> {
-    let state = storage_anchor::set_pending_webview_cache_clear(app, true)?;
-    let paths = storage_paths::resolve_storage_paths(app)?;
-    Ok(snapshot_for_root(&paths.webview_root, &state))
-}
-
-pub fn trim_webview_cache_before_start<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    if app
-        .get_webview_window(crate::app::tray::MAIN_WINDOW_LABEL)
-        .is_some()
-        || app
-            .get_webview_window(crate::app::widget::WIDGET_WINDOW_LABEL)
-            .is_some()
-    {
-        return Ok(());
-    }
-
-    let paths = storage_paths::resolve_storage_paths(app)?;
-    let state = storage_anchor::read_maintenance_state(app)
-        .unwrap_or_else(|_| storage_anchor::StorageMaintenanceState::new());
-
-    if !storage_anchor::is_pending_webview_cache_clear(&state) {
-        return Ok(());
-    }
-
-    if let Err(error) = clear_regenerable_cache_dirs(&paths.webview_root) {
-        let message = format!("WebView cache trim skipped partially: {error}");
-        let _ = storage_anchor::record_maintenance_error(app, message.clone());
-        eprintln!("[webview-cache] {message}");
-        return Ok(());
-    }
-
-    if let Err(error) = storage_anchor::mark_webview_cache_trimmed(app) {
-        eprintln!("[webview-cache] failed to record cache trim state: {error}");
-    }
-    Ok(())
-}
-
 pub fn snapshot_for_root(
     webview_root: &Path,
     state: &storage_anchor::StorageMaintenanceState,
@@ -92,7 +52,6 @@ pub fn snapshot_for_root(
         ebwebview_path: ebwebview_path.to_string_lossy().to_string(),
         total_size_bytes,
         reclaimable_size_bytes,
-        pending_clear: storage_anchor::is_pending_webview_cache_clear(state),
         last_trim_at_ms: state.last_webview_cache_trim_at_ms,
         entries,
     }

@@ -3,7 +3,8 @@ use std::sync::Arc;
 use crate::app::{
     runtime,
     state::{
-        AppExitState, DesktopBehaviorState, MainWindowLifecycleState, WidgetWindowLifecycleState,
+        AppExitState, AppRestartState, DesktopBehaviorState, MainWindowLifecycleState,
+        WidgetWindowLifecycleState,
     },
     tray,
 };
@@ -58,6 +59,7 @@ fn register_managed_state_and_plugins(
     builder
         .manage(DesktopBehaviorState::default())
         .manage(AppExitState::default())
+        .manage(AppRestartState::default())
         .manage(MainWindowLifecycleState::default())
         .manage(WidgetWindowLifecycleState::default())
         .manage(TrackingRuntimeSnapshotState::default())
@@ -147,12 +149,11 @@ fn register_invoke_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Build
         commands::storage::cmd_preview_webview_cache_migration,
         commands::storage::cmd_preview_restore_default_storage_migration,
         commands::storage::cmd_preview_restore_default_webview_cache_migration,
-        commands::storage::cmd_schedule_storage_migration,
-        commands::storage::cmd_schedule_webview_cache_migration,
-        commands::storage::cmd_schedule_restore_default_storage_migration,
-        commands::storage::cmd_schedule_restore_default_webview_cache_migration,
-        commands::storage::cmd_cancel_pending_storage_migration,
-        commands::storage::cmd_schedule_webview_cache_clear,
+        commands::storage::cmd_restart_and_apply_storage_migration,
+        commands::storage::cmd_restart_and_apply_webview_cache_migration,
+        commands::storage::cmd_restart_and_apply_restore_default_storage_migration,
+        commands::storage::cmd_restart_and_apply_restore_default_webview_cache_migration,
+        commands::storage::cmd_restart_and_clear_webview_cache,
         commands::storage::cmd_get_webview_cache_snapshot,
         commands::storage::cmd_open_storage_directory,
         commands::persistence::cmd_reopen_sqlite_pool,
