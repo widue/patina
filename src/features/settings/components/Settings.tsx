@@ -130,9 +130,10 @@ export default function Settings({
       setSavedScreenshotSettings(screenshotSettings);
       return true;
     } catch {
+      onToast?.(UI_TEXT.settings.saveFailed, "warning");
       return false;
     }
-  }, [screenshotSettings]);
+  }, [screenshotSettings, onToast]);
 
   const cancelScreenshotSettings = useCallback(() => {
     if (savedScreenshotSettings) {
@@ -141,10 +142,24 @@ export default function Settings({
   }, [savedScreenshotSettings]);
 
   const handleSaveAll = useCallback(async () => {
-    const appSettingsOk = await handleSave();
-    const screenshotOk = await saveScreenshotSettings();
+    const appChanges = hasUnsavedChanges;
+    const screenshotChanges = hasScreenshotUnsavedChanges;
+
+    if (!appChanges && !screenshotChanges) return true;
+
+    const appSettingsOk = appChanges ? await handleSave() : true;
+
+    let screenshotOk = true;
+    if (screenshotChanges) {
+      screenshotOk = await saveScreenshotSettings();
+    }
+
+    if (!appChanges && screenshotOk) {
+      onToast?.(UI_TEXT.settings.saved, "success");
+    }
+
     return appSettingsOk && screenshotOk;
-  }, [handleSave, saveScreenshotSettings]);
+  }, [handleSave, saveScreenshotSettings, hasUnsavedChanges, hasScreenshotUnsavedChanges, onToast]);
 
   const handleCancelAll = useCallback(() => {
     handleCancel();
