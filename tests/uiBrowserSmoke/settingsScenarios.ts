@@ -333,4 +333,175 @@ export async function runSettingsScenarios(context: BrowserSmokeContext) {
     `);
     await waitForExpression(client!, sessionId, "!document.querySelector('[role=\"dialog\"]')");
   });
+
+  await runTest("settings data export explains four formats before six field groups", async () => {
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const copy = document.querySelector('.settings-data-export-entry-copy')?.getBoundingClientRect();
+          const action = document.querySelector('.settings-data-export-entry-action')?.getBoundingClientRect();
+          return Boolean(copy && action && Math.abs(copy.bottom - action.bottom) < 0.5);
+        })()
+      `),
+      true,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const trigger = Array.from(document.querySelectorAll("button"))
+            .find((node) => node.textContent?.trim() === "导出");
+          if (!trigger) return false;
+          trigger.scrollIntoView({ block: "center" });
+          trigger.click();
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(client!, sessionId, "Boolean(document.querySelector('.settings-data-export-format-grid'))");
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const copy = document.querySelector('.settings-data-export-range-section .min-w-0')?.getBoundingClientRect();
+          const controls = document.querySelector('.settings-data-export-range-control')?.getBoundingClientRect();
+          return Boolean(copy && controls && Math.abs((copy.top + copy.height / 2) - (controls.top + controls.height / 2)) < 0.5);
+        })()
+      `),
+      true,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `getComputedStyle(document.querySelector('.settings-data-export-range-label')).lineHeight`),
+      "10px",
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `getComputedStyle(document.querySelector('.settings-data-export-range-label .qp-range-control-label-text')).translate`),
+      "0px 0.5px",
+    );
+    assert.deepEqual(
+      await evaluate(client!, sessionId, `Array.from(document.querySelectorAll('.settings-data-export-format-option strong')).map((node) => node.textContent)`),
+      ["CSV", "Markdown", "Parquet", "SQLite"],
+    );
+    await client!.command("Emulation.setDeviceMetricsOverride", {
+      width: 390,
+      height: 844,
+      deviceScaleFactor: 1,
+      mobile: true,
+    }, sessionId);
+    await delay(100);
+    assert.equal(
+      await evaluate(client!, sessionId, "document.documentElement.scrollWidth <= window.innerWidth + 1"),
+      true,
+      "Settings data export dialog overflowed at 390px",
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const configure = Array.from(document.querySelectorAll("button"))
+            .find((node) => node.textContent?.trim() === "配置字段");
+          return !configure?.querySelector('svg')
+            && (document.querySelector('.settings-data-export-format-grid').compareDocumentPosition(configure)
+              & Node.DOCUMENT_POSITION_FOLLOWING);
+        })()
+      `),
+      4,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `document.querySelector('.settings-data-export-dialog-surface')?.innerText.includes("恢复当前格式默认字段")`),
+      false,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `Boolean(document.querySelector('.settings-data-export-result-success'))`),
+      false,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const trigger = Array.from(document.querySelectorAll("button"))
+            .find((node) => node.textContent?.trim() === "配置字段");
+          trigger?.click();
+          return Boolean(trigger);
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(client!, sessionId, "document.querySelectorAll('.settings-data-export-field-group').length === 6");
+      await waitForExpression(client!, sessionId, `document.activeElement?.classList.contains("settings-data-export-field-dialog")`);
+      assert.equal(await evaluate(client!, sessionId, `Boolean(document.querySelector('input[type="search"]'))`), false);
+    assert.equal(
+      await evaluate(client!, sessionId, `document.querySelector('.qp-tooltip[role="tooltip"]')?.textContent === "恢复当前格式默认字段"`),
+      false,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `Boolean(document.querySelector('.qp-dialog-header [aria-label="恢复当前格式默认字段"]'))`),
+      true,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `Boolean(document.querySelector('.qp-dialog-header .settings-data-export-field-header-count'))`),
+      false,
+    );
+    assert.deepEqual(
+      await evaluate(client!, sessionId, `Array.from(document.querySelectorAll('.settings-data-export-field-group-header p')).map((node) => node.textContent)`),
+      ["活动基础", "应用信息", "网页信息", "分类信息", "时间分析", "来源与审计"],
+    );
+    assert.deepEqual(
+      await evaluate(client!, sessionId, `Array.from(document.querySelectorAll('.settings-data-export-field-group-count')).map((node) => node.textContent?.trim())`),
+      ["4/8", "3/5", "4/10", "1/3", "0/2", "0/4"],
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const count = document.querySelector('.settings-data-export-field-group-count')?.getBoundingClientRect();
+          const action = document.querySelector('.settings-data-export-field-group-action')?.getBoundingClientRect();
+          return Boolean(count && action && Math.abs(count.height - action.height) < 0.1);
+        })()
+      `),
+      true,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `Array.from(document.querySelectorAll('.settings-data-export-field-group')).every((node) => node.classList.contains('settings-data-export-field-group-collapsed'))`),
+      true,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const body = document.querySelector('.settings-data-export-field-dialog .qp-dialog-body');
+          return Boolean(body && body.scrollHeight <= body.clientHeight);
+        })()
+      `),
+      true,
+      "Collapsed field groups should not require scrolling",
+    );
+    const collapsedDialogHeight = Number(await evaluate(client!, sessionId, `document.querySelector('.settings-data-export-field-dialog')?.getBoundingClientRect().height ?? 0`));
+    await evaluate(client!, sessionId, `document.querySelector('.settings-data-export-field-group-action[aria-label="展开"]')?.click()`);
+    await waitForExpression(client!, sessionId, `document.querySelectorAll('.settings-data-export-field-row').length === 8`);
+    const expandedDialogHeight = Number(await evaluate(client!, sessionId, `document.querySelector('.settings-data-export-field-dialog')?.getBoundingClientRect().height ?? 0`));
+    assert.ok(Math.abs(expandedDialogHeight - collapsedDialogHeight) < 1, "Field group expansion changed dialog height");
+    assert.equal(
+      await evaluate(client!, sessionId, `document.querySelectorAll('.settings-data-export-field-order-index').length`),
+      0,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `document.querySelectorAll('.settings-data-export-field-drag-handle').length`),
+      0,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `Boolean(document.querySelector('[aria-label="恢复默认排序"]'))`),
+      false,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, "document.documentElement.scrollWidth <= window.innerWidth + 1"),
+      true,
+      "Settings export field dialog overflowed at 390px",
+    );
+    await client!.command("Emulation.setDeviceMetricsOverride", {
+      width: 1280,
+      height: 820,
+      deviceScaleFactor: 1,
+      mobile: false,
+    }, sessionId);
+    await evaluate(client!, sessionId, `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+    await waitForExpression(client!, sessionId, "document.querySelectorAll('[role=\"dialog\"]').length === 1");
+    await evaluate(client!, sessionId, `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+    await waitForExpression(client!, sessionId, "!document.querySelector('[role=\"dialog\"]')");
+  });
 }

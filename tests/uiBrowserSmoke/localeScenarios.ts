@@ -86,4 +86,45 @@ export async function runLocaleScenarios(context: BrowserSmokeContext) {
       `!document.querySelector(".history-timeline-dialog-surface")`,
     );
   });
+
+  await runTest("English data export localizes range and all format descriptions", async () => {
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const settings = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("Settings"))} + ']');
+          settings?.click();
+          return Boolean(settings);
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(client!, sessionId, `document.body.innerText.includes(${jsonString("Data export")})`);
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const trigger = Array.from(document.querySelectorAll("button"))
+            .find((node) => node.textContent?.trim() === "Export");
+          trigger?.click();
+          return Boolean(trigger);
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(client!, sessionId, "Boolean(document.querySelector('.settings-data-export-format-grid'))");
+    assert.equal(
+      await evaluate(client!, sessionId, `document.querySelector('.settings-data-export-range-label')?.textContent?.trim()`),
+      "This month",
+    );
+    assert.deepEqual(
+      await evaluate(client!, sessionId, `Array.from(document.querySelectorAll('.settings-data-export-format-option span')).map((node) => node.textContent?.trim())`),
+      [
+        "Best for Excel and general spreadsheet work.",
+        "Best for reading, editing, and organizing notes.",
+        "Best for analytics tools and columnar processing.",
+        "Best for local SQL queries and complete archives.",
+      ],
+    );
+    await evaluate(client!, sessionId, `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
+    await waitForExpression(client!, sessionId, "!document.querySelector('[role=\"dialog\"]')");
+  });
 }

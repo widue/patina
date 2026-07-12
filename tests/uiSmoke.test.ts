@@ -888,4 +888,15 @@ await runTest("app shell renders dashboard and primary navigation without Tauri 
   assert.ok(html.includes(`aria-label="按分类显示"`));
 });
 
+await runTest("data export chooses among four explained formats before configuring fields", () => {
+  const dialog = readUtf8("src/features/settings/components/SettingsDataExportDialog.tsx");
+  const fields = readUtf8("src/features/settings/services/settingsDataExportFields.ts");
+  assert.match(dialog, /value: "markdown"/);
+  assert.match(dialog, /settings-data-export-format-grid/);
+  assert.ok(dialog.indexOf("settings-data-export-format-grid") < dialog.indexOf("configFieldsCount"));
+  for (const group of ["activity", "apps", "web", "classification", "analysis", "audit"]) {
+    assert.match(fields, new RegExp(`id: "${group}"`));
+  }
+});
+
 console.log(`Passed ${passed} UI smoke tests`);
