@@ -15,6 +15,21 @@ export interface ScreenshotEntry {
   sessionId: number | null;
 }
 
+export interface ScreenshotQueryResult {
+  items: ScreenshotEntry[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+}
+
+export interface ScreenshotStats {
+  totalCount: number;
+  totalBytes: number;
+  oldestCapturedAt: number | null;
+  newestCapturedAt: number | null;
+}
+
 export async function getScreenshotSettings(): Promise<ScreenshotSettings> {
   return invoke<ScreenshotSettings>("cmd_get_screenshot_settings");
 }
@@ -28,6 +43,31 @@ export async function queryScreenshots(
   endTime: number,
 ): Promise<ScreenshotEntry[]> {
   return invoke<ScreenshotEntry[]>("cmd_query_screenshots", { startTime, endTime });
+}
+
+export async function queryScreenshotsPaginated(
+  startTime: number,
+  endTime: number,
+  page: number,
+  pageSize: number,
+): Promise<ScreenshotQueryResult> {
+  return invoke<ScreenshotQueryResult>("cmd_query_screenshots_paginated", {
+    startTime,
+    endTime,
+    page,
+    pageSize,
+  });
+}
+
+export async function countScreenshots(
+  startTime: number,
+  endTime: number,
+): Promise<number> {
+  return invoke<number>("cmd_count_screenshots", { startTime, endTime });
+}
+
+export async function getScreenshotStats(): Promise<ScreenshotStats> {
+  return invoke<ScreenshotStats>("cmd_get_screenshot_stats");
 }
 
 export async function getScreenshotData(id: number): Promise<string> {

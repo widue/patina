@@ -1,21 +1,48 @@
 import {
   queryScreenshots as queryScreenshotsGateway,
+  queryScreenshotsPaginated as queryScreenshotsPaginatedGateway,
+  countScreenshots as countScreenshotsGateway,
+  getScreenshotStats as getScreenshotStatsGateway,
   getScreenshotData as getScreenshotDataGateway,
   getScreenshotFilePath as getScreenshotFilePathGateway,
   revealScreenshotInFolder as revealScreenshotInFolderGateway,
 } from "../../../platform/persistence/screenshotGateway.ts";
-import type { ScreenshotEntry } from "../../../platform/persistence/screenshotGateway.ts";
+import type {
+  ScreenshotEntry,
+  ScreenshotQueryResult,
+  ScreenshotStats,
+} from "../../../platform/persistence/screenshotGateway.ts";
 import type {
   HistoryAppTimelineAppItem,
 } from "./historyAppTimelineViewModel";
 
-export type { ScreenshotEntry };
+export type { ScreenshotEntry, ScreenshotQueryResult, ScreenshotStats };
 
 export async function queryScreenshots(
   startTime: number,
   endTime: number,
 ): Promise<ScreenshotEntry[]> {
   return queryScreenshotsGateway(startTime, endTime);
+}
+
+export async function queryScreenshotsPaginated(
+  startTime: number,
+  endTime: number,
+  page: number,
+  pageSize: number,
+): Promise<ScreenshotQueryResult> {
+  return queryScreenshotsPaginatedGateway(startTime, endTime, page, pageSize);
+}
+
+export async function countScreenshots(
+  startTime: number,
+  endTime: number,
+): Promise<number> {
+  return countScreenshotsGateway(startTime, endTime);
+}
+
+export async function getScreenshotStats(): Promise<ScreenshotStats> {
+  return getScreenshotStatsGateway();
 }
 
 export async function getScreenshotData(id: number): Promise<string> {
@@ -101,4 +128,11 @@ export function groupScreenshotsByApp(
     result[app.exeName] = getAppScreenshots(app, screenshots);
   }
   return result;
+}
+
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
