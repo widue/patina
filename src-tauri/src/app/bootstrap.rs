@@ -12,7 +12,7 @@ use crate::engine::{
     tools::{ToolsRuntimeState, ToolsRuntimeWakeState},
     tracking::{
         pause_state::TrackingPauseRuntimeState, runtime_snapshot::TrackingRuntimeSnapshotState,
-        watchdog::RuntimeHealthState,
+        title_state::TitleRecordingRuntimeState, watchdog::RuntimeHealthState,
     },
     updater::UpdaterRuntimeState,
     web_activity::WebActivityRuntimeState,
@@ -64,6 +64,7 @@ fn register_managed_state_and_plugins(
         .manage(WidgetWindowLifecycleState::default())
         .manage(TrackingRuntimeSnapshotState::default())
         .manage(TrackingPauseRuntimeState::default())
+        .manage(TitleRecordingRuntimeState::default())
         .manage(runtime_health)
         .manage(ToolsRuntimeState::default())
         .manage(ToolsRuntimeWakeState::default())

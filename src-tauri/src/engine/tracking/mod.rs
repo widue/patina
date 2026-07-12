@@ -7,5 +7,6 @@ pub mod runtime_snapshot;
 mod session_timeout;
 pub mod startup;
 mod sustained_participation;
+pub mod title_state;
 pub mod transition;
 pub mod watchdog;

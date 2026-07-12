@@ -10,6 +10,7 @@ use crate::data::repositories::tracker_settings::{
 use crate::data::tracking_runtime::TrackingRuntimeDataStore;
 use crate::domain::tracking::TrackingStatusSnapshot;
 use crate::engine::tracking::pause_state::TrackingPauseRuntimeState;
+use crate::engine::tracking::title_state::TitleRecordingRuntimeState;
 use crate::platform::windows::foreground as tracker;
 use std::collections::HashMap;
 
@@ -25,6 +26,7 @@ pub(super) struct TrackingLoopState {
     pub sustained_participation_secs: u64,
     pub tracking_paused: bool,
     pub app_tracking_enabled: bool,
+    pub capture_window_title: bool,
     pub tracked_window: tracker::WindowInfo,
     pub tracking_status: TrackingStatusSnapshot,
 }
@@ -39,6 +41,7 @@ pub(super) struct TrackerTimestampPersistState {
 pub(super) struct TrackingSettingsCache {
     settings: Option<CachedTrackingSettings>,
     capture_window_title_by_exe: HashMap<String, CachedCaptureWindowTitleSetting>,
+    title_override_generation: u64,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -94,6 +97,7 @@ pub(super) async fn persist_tracker_runtime_timestamps(
 pub(super) async fn load_tracking_loop_state(
     data: &TrackingRuntimeDataStore,
     pause_state: &TrackingPauseRuntimeState,
+    title_state: &TitleRecordingRuntimeState,
     window_info: &tracker::WindowInfo,
     now_ms: i64,
     previous_state: &SustainedParticipationRuntimeState,
@@ -116,23 +120,24 @@ pub(super) async fn load_tracking_loop_state(
             false
         }
     };
-    let capture_window_title = settings_cache
-        .load_capture_window_title_setting(data, &window_info.exe_name, now_ms)
-        .await;
-
-    let mut tracked_window = window_info.clone();
-    if !capture_window_title {
-        tracked_window.title.clear();
-    }
+    let capture_window_title = title_state.is_enabled()
+        && settings_cache
+            .load_capture_window_title_setting(
+                data,
+                &window_info.exe_name,
+                now_ms,
+                title_state.override_generation(),
+            )
+            .await;
 
     let (system_media_signal, audio_signal) =
-        load_sustained_participation_signals(&tracked_window, tracking_paused).await;
+        load_sustained_participation_signals(window_info, tracking_paused).await;
     let (mut tracking_status, mut next_sustained_participation_state) =
         resolve_tracking_status_with_runtime(SustainedParticipationStatusInput {
-            exe_name: &tracked_window.exe_name,
-            process_path: &tracked_window.process_path,
-            idle_time_ms: tracked_window.idle_time_ms,
-            is_afk: tracked_window.is_afk,
+            exe_name: &window_info.exe_name,
+            process_path: &window_info.process_path,
+            idle_time_ms: window_info.idle_time_ms,
+            is_afk: window_info.is_afk,
             continuity_window_secs,
             sustained_participation_secs,
             tracking_paused,
@@ -141,7 +146,7 @@ pub(super) async fn load_tracking_loop_state(
             system_media_signal: &system_media_signal,
             audio_signal: &audio_signal,
         });
-    let tracked_window = apply_tracking_mode_window_state(tracked_window, &tracking_status);
+    let tracked_window = apply_tracking_mode_window_state(window_info.clone(), &tracking_status);
 
     if !app_tracking_enabled {
         tracking_status = TrackingStatusSnapshot::default();
@@ -154,6 +159,7 @@ pub(super) async fn load_tracking_loop_state(
             sustained_participation_secs,
             tracking_paused,
             app_tracking_enabled,
+            capture_window_title,
             tracked_window,
             tracking_status,
         },
@@ -215,7 +221,12 @@ impl TrackingSettingsCache {
         data: &TrackingRuntimeDataStore,
         exe_name: &str,
         now_ms: i64,
+        override_generation: u64,
     ) -> bool {
+        if self.title_override_generation != override_generation {
+            self.capture_window_title_by_exe.clear();
+            self.title_override_generation = override_generation;
+        }
         let exe_key = exe_name.trim().to_ascii_lowercase();
         self.cleanup_capture_window_title_cache(now_ms);
         if let Some(cached) = self.capture_window_title_by_exe.get_mut(&exe_key) {
@@ -360,14 +371,14 @@ mod tests {
 
             assert!(
                 cache
-                    .load_capture_window_title_setting(&data, "Code.exe", 1_000)
+                    .load_capture_window_title_setting(&data, "Code.exe", 1_000, 0)
                     .await
             );
             assert_eq!(cache.capture_window_title_by_exe.len(), 1);
 
             assert!(
                 cache
-                    .load_capture_window_title_setting(&data, "Code.exe", 7_000)
+                    .load_capture_window_title_setting(&data, "Code.exe", 7_000, 0)
                     .await
             );
 
@@ -395,6 +406,7 @@ mod tests {
                         &data,
                         &format!("App{index}.exe"),
                         1_000 + index as i64,
+                        0,
                     )
                     .await;
             }
@@ -404,6 +416,34 @@ mod tests {
                 CAPTURE_WINDOW_TITLE_CACHE_LIMIT
             );
             assert!(!cache.capture_window_title_by_exe.contains_key("app0.exe"));
+        });
+    }
+
+    #[test]
+    fn capture_window_title_cache_invalidates_on_override_generation() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+            let data = TrackingRuntimeDataStore::new(pool.clone());
+            let mut cache = TrackingSettingsCache::default();
+            assert!(
+                cache
+                    .load_capture_window_title_setting(&data, "Code.exe", 1_000, 0)
+                    .await
+            );
+
+            tracker_settings::save_setting_value(
+                &pool,
+                "__app_override::code.exe",
+                r#"{"captureTitle":false}"#,
+            )
+            .await
+            .unwrap();
+
+            assert!(
+                !cache
+                    .load_capture_window_title_setting(&data, "Code.exe", 1_001, 1)
+                    .await
+            );
         });
     }
 
@@ -420,6 +460,7 @@ mod tests {
             .unwrap();
             let data = TrackingRuntimeDataStore::new(pool);
             let pause_state = TrackingPauseRuntimeState::default();
+            let title_state = TitleRecordingRuntimeState::default();
             let mut cache = TrackingSettingsCache::default();
             let window = tracker::WindowInfo {
                 hwnd: "0x100".into(),
@@ -436,6 +477,7 @@ mod tests {
             let (state, _) = load_tracking_loop_state(
                 &data,
                 &pause_state,
+                &title_state,
                 &window,
                 1_000,
                 &SustainedParticipationRuntimeState::default(),

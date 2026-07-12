@@ -7,6 +7,7 @@ use super::session_timeout::{
     should_suspend_active_tracking,
 };
 use super::sustained_participation::SustainedParticipationRuntimeState;
+use super::title_state::TitleRecordingRuntimeState;
 use super::{active_session, continuity, startup, transition, watchdog};
 #[cfg(test)]
 use crate::data::repositories::{sessions, tracker_settings};
@@ -55,7 +56,17 @@ pub async fn run<R: Runtime>(
         .await
         .map_err(|error| format!("tracker initialization failed: {error}"))?;
     let pause_state = app.state::<TrackingPauseRuntimeState>();
-    initialize_tracking_pause_state(&data, &pause_state).await;
+    let title_state = app.state::<TitleRecordingRuntimeState>();
+    if let Err(error) = pause_state.initialize(&data).await {
+        log_tracker_error(format!(
+            "failed to initialize tracking pause state: {error}"
+        ));
+    }
+    if let Err(error) = title_state.initialize(&data).await {
+        log_tracker_error(format!(
+            "failed to initialize title recording state: {error}"
+        ));
+    }
 
     let mut last_window: Option<tracker::WindowInfo> = None;
     let mut last_tracking_status: Option<TrackingStatusSnapshot> = None;
@@ -83,6 +94,7 @@ pub async fn run<R: Runtime>(
         let (tracking_state, next_sustained_participation_state) = load_tracking_loop_state(
             &data,
             &pause_state,
+            &title_state,
             &window_info,
             now_ms,
             &sustained_participation_state,
@@ -223,12 +235,13 @@ pub async fn run<R: Runtime>(
         }
 
         let mut did_emit_tracking_data_changed = false;
-        match transition::apply_window_transition(
+        match transition::apply_window_transition_with_title_policy(
             &data,
             last_window.as_ref(),
             &tracked_window,
             now_ms,
             continuity_group_start_time,
+            tracking_state.capture_window_title,
             active_session::start_session_for_transition,
         )
         .await
@@ -263,22 +276,6 @@ pub async fn run<R: Runtime>(
         last_window = Some(tracked_window);
         last_tracking_status = Some(tracking_state.tracking_status);
         sleep(Duration::from_secs(1)).await;
-    }
-}
-
-async fn initialize_tracking_pause_state(
-    data: &TrackingRuntimeDataStore,
-    pause_state: &TrackingPauseRuntimeState,
-) {
-    match data.load_tracking_paused_setting().await {
-        Ok(tracking_paused) => {
-            pause_state.set_verified(tracking_paused, now_ms());
-        }
-        Err(error) => {
-            log_tracker_error(format!(
-                "failed to initialize tracking pause state: {error}"
-            ));
-        }
     }
 }
 

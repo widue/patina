@@ -129,6 +129,7 @@ fn is_allowed_app_setting_key(key: &str) -> bool {
             | "refresh_interval_secs"
             | "min_session_secs"
             | "tracking_paused"
+            | "title_recording_enabled"
             | "close_behavior"
             | "minimize_behavior"
             | "theme_mode"

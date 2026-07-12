@@ -75,6 +75,8 @@ pub struct WebActivityBridgeSnapshot {
 #[derive(Clone, Debug, Deserialize)]
 pub struct WebDomainOverrideStorageValue {
     pub enabled: Option<bool>,
+    #[serde(rename = "captureTitle")]
+    pub capture_title: Option<bool>,
 }
 
 pub fn sanitize_browser_client_id(value: Option<&str>) -> String {
@@ -166,6 +168,13 @@ pub fn parse_domain_override_enabled(raw_value: &str) -> bool {
     serde_json::from_str::<WebDomainOverrideStorageValue>(raw_value)
         .ok()
         .and_then(|override_value| override_value.enabled)
+        .unwrap_or(true)
+}
+
+pub fn parse_domain_override_capture_title(raw_value: &str) -> bool {
+    serde_json::from_str::<WebDomainOverrideStorageValue>(raw_value)
+        .ok()
+        .and_then(|override_value| override_value.capture_title)
         .unwrap_or(true)
 }
 

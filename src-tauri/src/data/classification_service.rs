@@ -19,10 +19,18 @@ pub struct WebDomainRecordingPolicyChange {
     pub enabled: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TitleRecordingPolicyChange {
+    pub identity: String,
+    pub enabled: bool,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ClassificationCommitOutcome {
     pub app_recording_changes: Vec<AppRecordingPolicyChange>,
     pub web_domain_recording_changes: Vec<WebDomainRecordingPolicyChange>,
+    pub app_title_changes: Vec<TitleRecordingPolicyChange>,
+    pub web_domain_title_changes: Vec<TitleRecordingPolicyChange>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -85,6 +93,29 @@ async fn apply_recording_policy_changes_in_pool(
                 .map_err(|error| format!("failed to seal excluded web domain: {error}"))?;
         }
     }
+    for change in &outcome.app_title_changes {
+        if !change.enabled {
+            result.app_sealed |= crate::data::repositories::sessions::disable_active_title_for_exe(
+                pool,
+                &change.identity,
+                changed_at_ms,
+            )
+            .await
+            .map_err(|error| format!("failed to seal blocked app title: {error}"))?;
+        }
+    }
+    for change in &outcome.web_domain_title_changes {
+        if !change.enabled {
+            result.web_sealed |=
+                crate::data::repositories::web_activity::end_active_segment_for_domain(
+                    pool,
+                    &change.identity,
+                    changed_at_ms,
+                )
+                .await
+                .map_err(|error| format!("failed to seal blocked web title: {error}"))?;
+        }
+    }
     Ok(result)
 }
 
@@ -97,20 +128,30 @@ fn build_commit_outcome(
 
     let mut apps = HashMap::<String, bool>::new();
     let mut domains = HashMap::<String, bool>::new();
+    let mut app_titles = HashMap::<String, bool>::new();
+    let mut domain_titles = HashMap::<String, bool>::new();
     for mutation in mutations {
         if let Some(raw_exe_name) = mutation.key.strip_prefix(APP_OVERRIDE_KEY_PREFIX) {
             let exe_name = normalize_exe_name(raw_exe_name);
             if !exe_name.is_empty() {
                 apps.insert(
-                    exe_name,
+                    exe_name.clone(),
                     parse_enabled_field(mutation.value.as_deref(), "track"),
+                );
+                app_titles.insert(
+                    exe_name,
+                    parse_enabled_field(mutation.value.as_deref(), "captureTitle"),
                 );
             }
         } else if let Some(raw_domain) = mutation.key.strip_prefix(WEB_DOMAIN_OVERRIDE_KEY_PREFIX) {
             if let Some(domain) = crate::domain::web_activity::normalize_domain(raw_domain) {
                 domains.insert(
-                    domain,
+                    domain.clone(),
                     parse_enabled_field(mutation.value.as_deref(), "enabled"),
+                );
+                domain_titles.insert(
+                    domain,
+                    parse_enabled_field(mutation.value.as_deref(), "captureTitle"),
                 );
             }
         }
@@ -132,10 +173,22 @@ fn build_commit_outcome(
         .collect::<Vec<_>>();
     web_domain_recording_changes
         .sort_by(|left, right| left.normalized_domain.cmp(&right.normalized_domain));
+    let mut app_title_changes = app_titles
+        .into_iter()
+        .map(|(identity, enabled)| TitleRecordingPolicyChange { identity, enabled })
+        .collect::<Vec<_>>();
+    app_title_changes.sort_by(|left, right| left.identity.cmp(&right.identity));
+    let mut web_domain_title_changes = domain_titles
+        .into_iter()
+        .map(|(identity, enabled)| TitleRecordingPolicyChange { identity, enabled })
+        .collect::<Vec<_>>();
+    web_domain_title_changes.sort_by(|left, right| left.identity.cmp(&right.identity));
 
     ClassificationCommitOutcome {
         app_recording_changes,
         web_domain_recording_changes,
+        app_title_changes,
+        web_domain_title_changes,
     }
 }
 
@@ -192,6 +245,69 @@ mod tests {
                 enabled: false,
             }]
         );
+        assert_eq!(outcome.app_title_changes[0].enabled, true);
+        assert_eq!(outcome.web_domain_title_changes[0].enabled, true);
+    }
+
+    #[test]
+    fn title_policy_apply_closes_titles_without_closing_app_session() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(db_schema::WEB_ACTIVITY_SCHEMA_SQL)
+                .await
+                .unwrap();
+            sessions::start_session(&pool, "QQ", "QQ.exe", "Chat", 1_000, 1_000)
+                .await
+                .unwrap();
+            web_activity::upsert_active_segment(
+                &pool,
+                &web_activity::WebActivitySegmentInput {
+                    browser_client_id: "client".into(),
+                    browser_kind: "chrome".into(),
+                    browser_exe_name: "chrome.exe".into(),
+                    domain: "github.com".into(),
+                    normalized_domain: "github.com".into(),
+                    url: None,
+                    title: Some("Issue".into()),
+                    favicon_url: None,
+                },
+                1_000,
+            )
+            .await
+            .unwrap();
+
+            let outcome = ClassificationCommitOutcome {
+                app_title_changes: vec![TitleRecordingPolicyChange {
+                    identity: "qq.exe".into(),
+                    enabled: false,
+                }],
+                web_domain_title_changes: vec![TitleRecordingPolicyChange {
+                    identity: "github.com".into(),
+                    enabled: false,
+                }],
+                ..ClassificationCommitOutcome::default()
+            };
+            let applied = apply_recording_policy_changes_in_pool(&pool, &outcome, 2_000)
+                .await
+                .unwrap();
+            assert!(applied.app_sealed);
+            assert!(applied.web_sealed);
+            let row: (String, Option<i64>) =
+                sqlx::query_as("SELECT window_title, end_time FROM sessions LIMIT 1")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(row, (String::new(), None));
+            let web_end: Option<i64> =
+                sqlx::query_scalar("SELECT end_time FROM web_activity_segments LIMIT 1")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(web_end, Some(2_000));
+        });
     }
 
     #[test]
@@ -238,6 +354,7 @@ mod tests {
                         normalized_domain: "github.com".into(),
                         enabled: false,
                     }],
+                    ..ClassificationCommitOutcome::default()
                 },
                 3_000,
             )

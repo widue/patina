@@ -15,12 +15,34 @@ pub(crate) type StartSessionFn = for<'a> fn(
     Box<dyn Future<Output = Result<bool, TrackingRuntimeDataError>> + Send + 'a>,
 >;
 
+#[cfg(test)]
 pub(crate) async fn apply_window_transition(
     data: &TrackingRuntimeDataStore,
     previous_window: Option<&tracker::WindowInfo>,
     next_window: &tracker::WindowInfo,
     now_ms: i64,
     next_continuity_group_start_time: i64,
+    start_session: StartSessionFn,
+) -> Result<Option<&'static str>, TrackingRuntimeDataError> {
+    apply_window_transition_with_title_policy(
+        data,
+        previous_window,
+        next_window,
+        now_ms,
+        next_continuity_group_start_time,
+        true,
+        start_session,
+    )
+    .await
+}
+
+pub(crate) async fn apply_window_transition_with_title_policy(
+    data: &TrackingRuntimeDataStore,
+    previous_window: Option<&tracker::WindowInfo>,
+    next_window: &tracker::WindowInfo,
+    now_ms: i64,
+    next_continuity_group_start_time: i64,
+    capture_window_title: bool,
     start_session: StartSessionFn,
 ) -> Result<Option<&'static str>, TrackingRuntimeDataError> {
     let decision = plan_window_transition(previous_window, next_window, now_ms);
@@ -35,6 +57,10 @@ pub(crate) async fn apply_window_transition(
         .await;
     }
 
+    let mut persisted_window = next_window.clone();
+    if !capture_window_title {
+        persisted_window.title.clear();
+    }
     let mut did_mutate = false;
 
     if decision.should_end_previous {
@@ -44,13 +70,22 @@ pub(crate) async fn apply_window_transition(
     }
 
     if decision.should_start_next {
-        did_mutate |=
-            start_session(data, next_window, now_ms, next_continuity_group_start_time).await?;
+        did_mutate |= start_session(
+            data,
+            &persisted_window,
+            now_ms,
+            next_continuity_group_start_time,
+        )
+        .await?;
     }
 
     if decision.should_refresh_metadata {
         did_mutate |= data
-            .refresh_active_session_metadata(&next_window.exe_name, &next_window.title, now_ms)
+            .refresh_active_session_metadata(
+                &persisted_window.exe_name,
+                &persisted_window.title,
+                now_ms,
+            )
             .await?;
     }
 
@@ -158,4 +193,53 @@ fn to_tracking_candidate(window: &tracker::WindowInfo) -> WindowTrackingCandidat
         &window.window_class,
         window.is_afk,
     )
+}
+
+#[cfg(test)]
+mod title_policy_tests {
+    use super::*;
+    use crate::data::schema as db_schema;
+    use sqlx::{Executor, Row, SqlitePool};
+
+    #[test]
+    fn title_policy_masks_persistence_without_changing_trackability() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(db_schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            let data = TrackingRuntimeDataStore::new(pool.clone());
+            let window = tracker::WindowInfo {
+                hwnd: "0x1".into(),
+                root_owner_hwnd: "0x1".into(),
+                process_id: 1,
+                window_class: "Chrome_WidgetWin_1".into(),
+                title: "Wallpaper Engine".into(),
+                exe_name: "wallpaper32.exe".into(),
+                process_path: "C:/wallpaper32.exe".into(),
+                is_afk: false,
+                idle_time_ms: 0,
+            };
+
+            assert!(apply_window_transition_with_title_policy(
+                &data,
+                None,
+                &window,
+                1_000,
+                1_000,
+                false,
+                crate::engine::tracking::active_session::start_session_for_transition,
+            )
+            .await
+            .unwrap()
+            .is_some());
+
+            let row = sqlx::query("SELECT window_title, end_time FROM sessions LIMIT 1")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(row.get::<String, _>("window_title"), "");
+            assert_eq!(row.get::<Option<i64>, _>("end_time"), None);
+        });
+    }
 }

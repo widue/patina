@@ -3,25 +3,38 @@ use crate::app::runtime::now_ms;
 use crate::app::state::{AppExitState, DesktopBehaviorState};
 use crate::app::widget;
 use crate::data::tracking_pause_service;
+use crate::data::{app_settings_service, repositories::app_settings::AppSettingMutation};
 use crate::domain::settings::{CloseBehavior, DesktopBehaviorSettings};
 use crate::engine::tracking::{
     pause_state::TrackingPauseRuntimeState, runtime as tracking_runtime,
+    title_state::TitleRecordingRuntimeState,
 };
 use tauri::{
     menu::{Menu, MenuEvent, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, Runtime, Window, WindowEvent,
+    AppHandle, Emitter, Manager, Runtime, Window, WindowEvent,
 };
 
 pub(crate) use crate::app::main_window::MAIN_WINDOW_LABEL;
 const TRAY_ID: &str = "main";
 const TRAY_MENU_SHOW_ID: &str = "tray-show-main";
 const TRAY_MENU_TOGGLE_PAUSE_ID: &str = "tray-toggle-pause";
+const TRAY_MENU_TOGGLE_TITLE_ID: &str = "tray-toggle-title-recording";
 const TRAY_MENU_QUIT_ID: &str = "tray-quit";
 const TRAY_MENU_SHOW_LABEL: &str = "打开主界面";
 const TRAY_MENU_PAUSE_LABEL: &str = "暂停追踪";
 const TRAY_MENU_RESUME_LABEL: &str = "恢复追踪";
 const TRAY_MENU_QUIT_LABEL: &str = "退出应用";
+const TRAY_MENU_DISABLE_TITLE_LABEL: &str = "屏蔽标题";
+const TRAY_MENU_ENABLE_TITLE_LABEL: &str = "记录标题";
+
+fn title_recording_menu_label(enabled: bool) -> &'static str {
+    if enabled {
+        TRAY_MENU_DISABLE_TITLE_LABEL
+    } else {
+        TRAY_MENU_ENABLE_TITLE_LABEL
+    }
+}
 
 fn tracking_pause_menu_label(tracking_paused: bool) -> &'static str {
     if tracking_paused {
@@ -88,10 +101,77 @@ fn apply_tracking_pause_menu_label<R: Runtime>(
     tracking_paused: bool,
 ) -> tauri::Result<()> {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let menu = build_tray_menu(app, tracking_paused)?;
+        let title_enabled = app
+            .try_state::<TitleRecordingRuntimeState>()
+            .map(|state| state.is_enabled())
+            .unwrap_or(true);
+        let menu = build_tray_menu(app, tracking_paused, title_enabled)?;
         tray.set_menu(Some(menu))?;
     }
 
+    Ok(())
+}
+
+pub(crate) async fn toggle_title_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    let title_state = app.state::<TitleRecordingRuntimeState>();
+    let _update_guard = title_state.lock_update().await;
+    let current = title_state.is_enabled();
+    let next = !current;
+    app_settings_service::commit_app_setting_mutations_with_recovery(
+        &app,
+        &[AppSettingMutation {
+            key: "title_recording_enabled".into(),
+            value: if next { "1".into() } else { "0".into() },
+        }],
+    )
+    .await?;
+    apply_title_recording_setting_change(&app, next).await
+}
+
+pub(crate) async fn apply_title_recording_setting_change<R: Runtime>(
+    app: &AppHandle<R>,
+    enabled: bool,
+) -> Result<(), String> {
+    if let Some(state) = app.try_state::<TitleRecordingRuntimeState>() {
+        state.set_enabled(enabled);
+    }
+    let changed_at_ms = now_ms() as i64;
+    if !enabled {
+        if let Err(error) = app_settings_service::disable_active_app_title(app, changed_at_ms).await
+        {
+            eprintln!("[tray] failed to seal app title boundary: {error}");
+        }
+    }
+    if let Err(error) =
+        crate::engine::web_activity::seal_active_segment_for_app(app, changed_at_ms).await
+    {
+        eprintln!("[tray] failed to seal web title boundary: {error}");
+    }
+    let tracking_paused = app
+        .try_state::<TrackingPauseRuntimeState>()
+        .and_then(|state| state.snapshot())
+        .map(|snapshot| snapshot.tracking_paused)
+        .unwrap_or(false);
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let menu = build_tray_menu(app, tracking_paused, enabled)
+            .map_err(|error| format!("failed to build title recording menu: {error}"))?;
+        tray.set_menu(Some(menu))
+            .map_err(|error| format!("failed to update title recording menu: {error}"))?;
+    }
+    if let Err(error) = tracking_runtime::emit_tracking_data_changed(
+        app,
+        if enabled {
+            "title-recording-enabled"
+        } else {
+            "title-recording-disabled"
+        },
+        changed_at_ms as u64,
+    ) {
+        eprintln!("[tray] failed to emit title recording event: {error}");
+    }
+    if let Err(error) = app.emit("app-settings-changed", serde_json::json!({})) {
+        eprintln!("[tray] failed to emit settings refresh event: {error}");
+    }
     Ok(())
 }
 
@@ -106,6 +186,16 @@ pub(crate) fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent
         tauri::async_runtime::spawn(async move {
             if let Err(error) = toggle_tracking_paused(app_handle).await {
                 eprintln!("[tray] failed to toggle tracking pause: {error}");
+            }
+        });
+        return;
+    }
+
+    if event.id() == TRAY_MENU_TOGGLE_TITLE_ID {
+        let app_handle = app.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(error) = toggle_title_recording(app_handle).await {
+                eprintln!("[tray] failed to toggle title recording: {error}");
             }
         });
         return;
@@ -176,7 +266,17 @@ pub(crate) fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
             });
     update_tracking_pause_runtime_state(app, tracking_paused);
 
-    let menu = build_tray_menu(app, tracking_paused)?;
+    let title_enabled =
+        tauri::async_runtime::block_on(app_settings_service::load_title_recording_enabled(app))
+            .unwrap_or_else(|error: String| {
+                eprintln!("[tray] failed to initialize title recording menu label: {error}");
+                true
+            });
+    if let Some(state) = app.try_state::<TitleRecordingRuntimeState>() {
+        state.set_enabled(title_enabled);
+    }
+
+    let menu = build_tray_menu(app, tracking_paused, title_enabled)?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
@@ -194,6 +294,7 @@ pub(crate) fn setup_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
 fn build_tray_menu<R: Runtime>(
     app: &AppHandle<R>,
     tracking_paused: bool,
+    title_enabled: bool,
 ) -> tauri::Result<Menu<R>> {
     let open_item = MenuItem::with_id(
         app,
@@ -216,7 +317,22 @@ fn build_tray_menu<R: Runtime>(
         true,
         None::<&str>,
     )?;
-    Menu::with_items(app, &[&open_item, &toggle_pause_item, &quit_item])
+    let toggle_title_item = MenuItem::with_id(
+        app,
+        TRAY_MENU_TOGGLE_TITLE_ID,
+        title_recording_menu_label(title_enabled),
+        true,
+        None::<&str>,
+    )?;
+    Menu::with_items(
+        app,
+        &[
+            &open_item,
+            &toggle_pause_item,
+            &toggle_title_item,
+            &quit_item,
+        ],
+    )
 }
 
 #[cfg(test)]
@@ -227,6 +343,12 @@ mod tests {
     fn tracking_pause_menu_label_matches_next_available_action() {
         assert_eq!(tracking_pause_menu_label(false), "暂停追踪");
         assert_eq!(tracking_pause_menu_label(true), "恢复追踪");
+    }
+
+    #[test]
+    fn title_recording_menu_label_matches_next_available_action() {
+        assert_eq!(title_recording_menu_label(true), "屏蔽标题");
+        assert_eq!(title_recording_menu_label(false), "记录标题");
     }
 
     #[test]

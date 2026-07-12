@@ -26,6 +26,10 @@ impl TrackingRuntimeDataStore {
         tracker_settings::load_tracking_paused_setting(&self.pool).await
     }
 
+    pub async fn load_title_recording_enabled(&self) -> Result<bool, TrackingRuntimeDataError> {
+        tracker_settings::load_title_recording_enabled(&self.pool).await
+    }
+
     pub async fn load_timeline_merge_gap_secs(
         &self,
         default_timeline_merge_gap_secs: u64,

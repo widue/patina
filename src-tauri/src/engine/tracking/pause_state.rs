@@ -12,6 +12,15 @@ pub struct TrackingPauseRuntimeState {
 }
 
 impl TrackingPauseRuntimeState {
+    pub async fn initialize(
+        &self,
+        data: &crate::data::tracking_runtime::TrackingRuntimeDataStore,
+    ) -> Result<(), crate::data::tracking_runtime::TrackingRuntimeDataError> {
+        let paused = data.load_tracking_paused_setting().await?;
+        self.set_verified(paused, crate::app::runtime::now_ms() as i64);
+        Ok(())
+    }
+
     pub fn snapshot(&self) -> Option<TrackingPauseRuntimeSnapshot> {
         match self.inner.lock() {
             Ok(guard) => *guard,

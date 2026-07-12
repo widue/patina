@@ -1,6 +1,6 @@
 use crate::data::repositories::web_activity::{
-    end_active_segment, load_domain_recording_enabled, upsert_active_segment,
-    WebActivitySegmentInput,
+    end_active_segment, load_domain_recording_enabled, load_domain_title_recording_enabled,
+    upsert_active_segment, WebActivitySegmentInput,
 };
 use crate::data::{app_settings_service, sqlite_pool::wait_for_sqlite_pool};
 use crate::domain::settings::WebActivitySettings;
@@ -10,6 +10,7 @@ use crate::domain::web_activity::{
     WebActivityBridgeSnapshot,
 };
 use crate::engine::tracking::runtime_snapshot::TrackingRuntimeSnapshotState;
+use crate::engine::tracking::title_state::TitleRecordingRuntimeState;
 use sqlx::{Pool, Sqlite};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, Runtime};
@@ -112,7 +113,7 @@ pub async fn record_active_tab<R: Runtime>(
         return seal_active_segment(pool, now_ms).await;
     }
 
-    let Some(sanitized) = sanitize_active_tab_payload(payload)? else {
+    let Some(mut sanitized) = sanitize_active_tab_payload(payload)? else {
         return seal_active_segment(pool, now_ms).await;
     };
     if !load_domain_recording_enabled(pool, &sanitized.normalized_domain)
@@ -120,6 +121,18 @@ pub async fn record_active_tab<R: Runtime>(
         .map_err(|error| format!("failed to load web domain override: {error}"))?
     {
         return seal_active_segment(pool, now_ms).await;
+    }
+
+    let global_title_enabled = app
+        .try_state::<TitleRecordingRuntimeState>()
+        .map(|state| state.is_enabled())
+        .unwrap_or(true);
+    let domain_title_enabled =
+        load_domain_title_recording_enabled(pool, &sanitized.normalized_domain)
+            .await
+            .map_err(|error| format!("failed to load web domain title override: {error}"))?;
+    if !global_title_enabled || !domain_title_enabled {
+        sanitized.title = None;
     }
 
     let Some(snapshot) = app

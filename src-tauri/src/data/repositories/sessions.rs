@@ -248,6 +248,67 @@ pub async fn end_active_session_for_exe(
     Ok(true)
 }
 
+pub async fn disable_active_title_for_exe(
+    pool: &Pool<Sqlite>,
+    target_exe_name: &str,
+    timestamp_ms: i64,
+) -> Result<bool, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let active: Option<(i64, String, String)> = sqlx::query_as(
+        "SELECT id, exe_name, COALESCE(window_title, '') FROM sessions WHERE end_time IS NULL ORDER BY start_time DESC, id DESC LIMIT 1",
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((session_id, exe_name, window_title)) = active else {
+        tx.rollback().await?;
+        return Ok(false);
+    };
+    if !exe_name.trim().eq_ignore_ascii_case(target_exe_name.trim()) {
+        tx.rollback().await?;
+        return Ok(false);
+    }
+    sqlx::query("UPDATE sessions SET window_title = '' WHERE id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+    let changed = crate::data::repositories::session_title_samples::finish_active_title_sample_tx(
+        &mut tx,
+        session_id,
+        timestamp_ms,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(changed || !window_title.is_empty())
+}
+
+pub async fn disable_active_title(
+    pool: &Pool<Sqlite>,
+    timestamp_ms: i64,
+) -> Result<bool, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let active = sqlx::query_as::<_, (i64, String)>(
+        "SELECT id, COALESCE(window_title, '') FROM sessions WHERE end_time IS NULL ORDER BY start_time DESC, id DESC LIMIT 1",
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((session_id, window_title)) = active else {
+        tx.rollback().await?;
+        return Ok(false);
+    };
+    sqlx::query("UPDATE sessions SET window_title = '' WHERE id = ?")
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+    let changed = crate::data::repositories::session_title_samples::finish_active_title_sample_tx(
+        &mut tx,
+        session_id,
+        timestamp_ms,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(changed || !window_title.is_empty())
+}
+
 async fn end_active_sessions_tx(
     tx: &mut Transaction<'_, Sqlite>,
     raw_end_time: i64,

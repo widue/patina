@@ -8,6 +8,7 @@ pub const TRACKER_LAST_STARTUP_SELF_HEAL_SUMMARY_KEY: &str =
     "__tracker_last_startup_self_heal_summary";
 
 const TRACKING_PAUSED_KEY: &str = "tracking_paused";
+pub const TITLE_RECORDING_ENABLED_KEY: &str = "title_recording_enabled";
 const TIMELINE_MERGE_GAP_KEY: &str = "timeline_merge_gap_secs";
 const IDLE_TIMEOUT_KEY: &str = "idle_timeout_secs";
 pub const APP_OVERRIDE_KEY_PREFIX: &str = "__app_override::";
@@ -29,6 +30,14 @@ pub async fn load_tracking_paused_setting(pool: &Pool<Sqlite>) -> Result<bool, s
         .and_then(|row| row.try_get::<String, _>("value").ok())
         .map(|value| parse_boolean_setting(&value, false))
         .unwrap_or(false))
+}
+
+pub async fn load_title_recording_enabled(pool: &Pool<Sqlite>) -> Result<bool, sqlx::Error> {
+    let value = load_setting_value(pool, TITLE_RECORDING_ENABLED_KEY).await?;
+    Ok(value
+        .as_deref()
+        .map(|raw| parse_boolean_setting(raw, true))
+        .unwrap_or(true))
 }
 
 pub async fn save_tracking_paused_setting(
@@ -253,6 +262,19 @@ mod tests {
             assert!(!load_tracking_enabled_setting_for_app(&pool, "qq")
                 .await
                 .unwrap());
+        });
+    }
+
+    #[test]
+    fn global_title_recording_defaults_on_and_reads_explicit_value() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+            assert!(load_title_recording_enabled(&pool).await.unwrap());
+
+            save_setting_value(&pool, TITLE_RECORDING_ENABLED_KEY, "0")
+                .await
+                .unwrap();
+            assert!(!load_title_recording_enabled(&pool).await.unwrap());
         });
     }
 }

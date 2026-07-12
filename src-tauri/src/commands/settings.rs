@@ -5,8 +5,9 @@ use crate::data::classification_service::commit_classification_setting_mutations
 use crate::data::repositories::app_settings::AppSettingMutation;
 use crate::data::repositories::classification_settings::ClassificationSettingMutation;
 use crate::domain::settings::parse_boolean_setting;
+use crate::engine::tracking::title_state::TitleRecordingRuntimeState;
 use serde_json::json;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 #[derive(Clone, Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -94,6 +95,17 @@ pub async fn cmd_commit_app_settings(
         .rev()
         .find(|mutation| mutation.key == "tracking_paused")
         .map(|mutation| parse_boolean_setting(&mutation.value, false));
+    let title_recording_setting = mutations
+        .iter()
+        .rev()
+        .find(|mutation| mutation.key == "title_recording_enabled")
+        .map(|mutation| parse_boolean_setting(&mutation.value, true));
+    let title_state = app.state::<TitleRecordingRuntimeState>();
+    let _title_update_guard = if title_recording_setting.is_some() {
+        Some(title_state.lock_update().await)
+    } else {
+        None
+    };
 
     commit_app_setting_mutations_with_recovery(&app, &mutations).await?;
     if let Some(tracking_paused) = tracking_pause_setting {
@@ -102,6 +114,9 @@ pub async fn cmd_commit_app_settings(
             tracking_paused,
             tray::tracking_pause_event_reason(tracking_paused),
         )?;
+    }
+    if let Some(enabled) = title_recording_setting {
+        tray::apply_title_recording_setting_change(&app, enabled).await?;
     }
     app.emit("app-settings-changed", json!({}))
         .map_err(|error| format!("failed to emit settings refresh event: {error}"))?;

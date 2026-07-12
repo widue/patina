@@ -7,13 +7,20 @@ use crate::domain::tracking::{
 };
 use crate::engine::tracking::runtime::emit_tracking_data_changed;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 
 pub async fn apply_recording_policy_changes<R: Runtime>(
     app: &AppHandle<R>,
     outcome: &ClassificationCommitOutcome,
 ) -> Result<(), String> {
     let changed_at_ms = now_ms();
+    if !outcome.app_title_changes.is_empty() {
+        if let Some(state) =
+            app.try_state::<crate::engine::tracking::title_state::TitleRecordingRuntimeState>()
+        {
+            state.invalidate_app_overrides();
+        }
+    }
     let applied = apply_recording_policy_changes_in_data(app, outcome, changed_at_ms).await?;
 
     if applied.app_sealed {

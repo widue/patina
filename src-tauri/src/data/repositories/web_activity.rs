@@ -1,6 +1,6 @@
 use crate::domain::backup::BackupWebActivitySegment;
 use crate::domain::web_activity::{
-    parse_domain_override_enabled, SanitizedWebActivityInput,
+    parse_domain_override_capture_title, parse_domain_override_enabled, SanitizedWebActivityInput,
     WEB_ACTIVITY_SOURCE_BROWSER_EXTENSION, WEB_DOMAIN_OVERRIDE_KEY_PREFIX,
 };
 use sqlx::{Pool, Row, Sqlite, Transaction};
@@ -58,6 +58,22 @@ pub async fn load_domain_recording_enabled(
     };
     let value: String = row.get("value");
     Ok(parse_domain_override_enabled(&value))
+}
+
+pub async fn load_domain_title_recording_enabled(
+    pool: &Pool<Sqlite>,
+    normalized_domain: &str,
+) -> Result<bool, sqlx::Error> {
+    let key = format!("{WEB_DOMAIN_OVERRIDE_KEY_PREFIX}{normalized_domain}");
+    let row = sqlx::query("SELECT value FROM settings WHERE key = ? LIMIT 1")
+        .bind(key)
+        .fetch_optional(pool)
+        .await?;
+    let Some(row) = row else {
+        return Ok(true);
+    };
+    let value: String = row.get("value");
+    Ok(parse_domain_override_capture_title(&value))
 }
 
 pub async fn upsert_active_segment(
@@ -524,6 +540,30 @@ mod tests {
                 .unwrap();
 
             assert!(!load_domain_recording_enabled(&pool, "github.com")
+                .await
+                .unwrap());
+        });
+    }
+
+    #[test]
+    fn domain_title_recording_defaults_on_and_reads_explicit_block() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_test_db().await;
+            assert!(load_domain_title_recording_enabled(&pool, "github.com")
+                .await
+                .unwrap());
+
+            sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)")
+                .bind("__web_domain_override::github.com")
+                .bind(r#"{"captureTitle":false}"#)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            assert!(!load_domain_title_recording_enabled(&pool, "github.com")
+                .await
+                .unwrap());
+            assert!(load_domain_recording_enabled(&pool, "github.com")
                 .await
                 .unwrap());
         });
