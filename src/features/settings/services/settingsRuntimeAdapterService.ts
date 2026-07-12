@@ -32,7 +32,10 @@ import {
   type StorageMigrationPreview,
   type StorageSnapshot,
 } from "../../../platform/storage/storageRuntimeGateway.ts";
-import { emitAppSettingsChanged } from "../../../platform/runtime/appSettingsEventGateway.ts";
+import {
+  emitAppSettingsChanged,
+  onAppSettingsChanged,
+} from "../../../platform/runtime/appSettingsEventGateway.ts";
 import { setAfkThreshold } from "../../../platform/runtime/trackingRuntimeGateway.ts";
 import {
   getWebActivityBridgeSnapshot,
@@ -152,6 +155,10 @@ export async function prepareBackupRestoreWithDeps(
 }
 
 export class SettingsRuntimeAdapterService {
+  static async subscribeSettingsChanged(handler: () => void | Promise<void>): Promise<() => void> {
+    return onAppSettingsChanged(handler);
+  }
+
   static async updateSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]) {
     await saveAppSetting(key, value);
 

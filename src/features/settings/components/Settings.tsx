@@ -176,6 +176,8 @@ export default function Settings({
             }}
             trackingPaused={draftSettings.trackingPaused}
             onTrackingPausedChange={(nextChecked) => handleChange("trackingPaused", nextChecked)}
+            titleRecordingEnabled={draftSettings.titleRecordingEnabled}
+            onTitleRecordingEnabledChange={(nextChecked) => handleChange("titleRecordingEnabled", nextChecked)}
           />
 
           <SettingsAppearancePanel

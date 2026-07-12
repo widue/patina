@@ -235,6 +235,10 @@ export function useAppMappingDerivedState({
     draftWebDomainOverrides[candidate.normalizedDomain]?.enabled !== false
   ), [draftWebDomainOverrides]);
 
+  const resolveWebDomainTitleCaptureEnabled = useCallback((candidate: ObservedWebDomainCandidate) => (
+    draftWebDomainOverrides[candidate.normalizedDomain]?.captureTitle !== false
+  ), [draftWebDomainOverrides]);
+
   const filteredCandidates = useMemo(
     () => filterAndSortCandidates({
       candidates,
@@ -305,6 +309,7 @@ export function useAppMappingDerivedState({
     searchQuery,
     resolveWebDomainCategory,
     resolveWebDomainEnabled,
+    resolveWebDomainTitleCaptureEnabled,
     resolveCategoryLabel,
     resolveWebDomainSortDisplayName,
     webActivityEnabled,
@@ -401,6 +406,7 @@ export function useAppMappingDerivedState({
     resolveWebDomainColor,
     resolveWebDomainCategory,
     resolveWebDomainEnabled,
+    resolveWebDomainTitleCaptureEnabled,
     resolveAutoDisplayName,
     resolveDisplayNameFromOverride,
     resolveWebDomainAutoDisplayName,

@@ -12,7 +12,9 @@ import {
   runSettingsCleanupFlow,
 } from "../services/settingsPageActions.ts";
 import {
+  applyExternalTitleRecordingSetting,
   cancelSettingsPageState,
+  isLatestExternalSettingsSync,
   saveSettingsPageStateWithDeps,
 } from "./settingsPageStateInteractions.ts";
 import type { AppSettings } from "../../../shared/settings/appSettings";
@@ -199,6 +201,36 @@ export function useSettingsPageState({
     void load();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    let externalSyncRevision = 0;
+    void SettingsRuntimeAdapterService.subscribeSettingsChanged(async () => {
+      const revision = ++externalSyncRevision;
+      const next = await loadSettingsPageBootstrap().catch((error) => {
+        console.warn("reload settings page after external change failed", error);
+        return null;
+      });
+      if (cancelled || !next || !isLatestExternalSettingsSync(revision, externalSyncRevision)) return;
+      setSavedSettings((current) => applyExternalTitleRecordingSetting(
+        current,
+        next.settings.titleRecordingEnabled,
+      ));
+      setDraftSettings((current) => applyExternalTitleRecordingSetting(
+        current,
+        next.settings.titleRecordingEnabled,
+      ));
+    }).then((off) => {
+      if (cancelled) off();
+      else unlisten = off;
+    });
+    return () => {
+      cancelled = true;
+      externalSyncRevision += 1;
+      unlisten?.();
     };
   }, []);
 

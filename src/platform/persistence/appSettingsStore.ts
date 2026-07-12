@@ -33,6 +33,7 @@ type RawAppSettingsKey =
   | "refresh_interval_secs"
   | "min_session_secs"
   | "tracking_paused"
+  | "title_recording_enabled"
   | "close_behavior"
   | "minimize_behavior"
   | "theme_mode"
@@ -59,6 +60,7 @@ const APP_SETTINGS_RAW_KEYS: Record<keyof AppSettings, RawAppSettingsKey> = {
   refreshIntervalSecs: "refresh_interval_secs",
   minSessionSecs: "min_session_secs",
   trackingPaused: "tracking_paused",
+  titleRecordingEnabled: "title_recording_enabled",
   closeBehavior: "close_behavior",
   minimizeBehavior: "minimize_behavior",
   themeMode: "theme_mode",
@@ -266,6 +268,10 @@ export function normalizeSettingsRecord(record: Record<string, string | undefine
       MIN_SESSION_SECONDS_RANGE,
     ),
     trackingPaused: parseBooleanSetting(record.tracking_paused, DEFAULT_SETTINGS.trackingPaused),
+    titleRecordingEnabled: parseBooleanSetting(
+      record.title_recording_enabled,
+      DEFAULT_SETTINGS.titleRecordingEnabled,
+    ),
     closeBehavior: normalizeCloseBehavior(record.close_behavior),
     minimizeBehavior: normalizeMinimizeBehavior(record.minimize_behavior),
     themeMode: normalizeThemeMode(record.theme_mode),

@@ -6,6 +6,8 @@ import {
   SettingsRuntimeAdapterService,
 } from "../src/features/settings/services/settingsRuntimeAdapterService.ts";
 import {
+  applyExternalTitleRecordingSetting,
+  isLatestExternalSettingsSync,
   saveSettingsPageStateWithDeps,
 } from "../src/features/settings/hooks/settingsPageStateInteractions.ts";
 import {
@@ -32,6 +34,7 @@ interface AppSettings {
   refreshIntervalSecs: number;
   minSessionSecs: number;
   trackingPaused: boolean;
+  titleRecordingEnabled: boolean;
   closeBehavior: "exit" | "tray";
   minimizeBehavior: "taskbar" | "widget";
   themeMode: "light" | "dark" | "system";
@@ -117,6 +120,7 @@ const BASE_SETTINGS: AppSettings = {
   refreshIntervalSecs: 1,
   minSessionSecs: 60,
   trackingPaused: false,
+  titleRecordingEnabled: true,
   closeBehavior: "tray",
   minimizeBehavior: "taskbar",
   themeMode: "light",
@@ -363,6 +367,19 @@ await runTest("saveSettingsPageStateWithDeps normalizes service settings", async
   });
 });
 
+await runTest("external title setting sync updates only the global title field", () => {
+  const current = buildSettings({ themeMode: "dark", titleRecordingEnabled: true });
+  const next = applyExternalTitleRecordingSetting(current, false);
+  assert.equal(next?.titleRecordingEnabled, false);
+  assert.equal(next?.themeMode, "dark");
+  assert.equal(applyExternalTitleRecordingSetting(null, false), null);
+});
+
+await runTest("external settings sync rejects an older async response", () => {
+  assert.equal(isLatestExternalSettingsSync(1, 2), false);
+  assert.equal(isLatestExternalSettingsSync(2, 2), true);
+});
+
 await runTest("saveSettingsPageStateWithDeps preserves remote push switch while endpoint is empty", async () => {
   let committedPatch: Partial<AppSettings> | null = null;
   const savedSettings = buildSettings();
@@ -401,6 +418,7 @@ await runTest("saveSettingsPageStateWithDeps preserves remote push switch while 
 
 await runTest("normalizeSettingsRecord accepts current minimize behavior values", () => {
   const defaultSettings = normalizeSettingsRecord({});
+  assert.equal(defaultSettings.titleRecordingEnabled, true);
   assert.equal(defaultSettings.minimizeBehavior, "widget");
   assert.equal(defaultSettings.closeBehavior, "tray");
   assert.equal(defaultSettings.backgroundOptimization, false);

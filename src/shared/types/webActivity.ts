@@ -20,6 +20,7 @@ export interface WebDomainOverride {
   displayName?: string;
   color?: string;
   enabled?: boolean;
+  captureTitle?: boolean;
   updatedAt?: number;
 }
 

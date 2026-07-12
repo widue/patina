@@ -18,6 +18,7 @@ const BASE_SETTINGS: AppSettings = {
   refreshIntervalSecs: 1,
   minSessionSecs: 120,
   trackingPaused: false,
+  titleRecordingEnabled: true,
   closeBehavior: "exit",
   minimizeBehavior: "widget",
   themeMode: "light",

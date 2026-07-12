@@ -212,6 +212,7 @@ export function useAppMappingState({
     resolveWebDomainColor,
     resolveWebDomainCategory,
     resolveWebDomainEnabled,
+    resolveWebDomainTitleCaptureEnabled,
     resolveAutoDisplayName,
     resolveDisplayNameFromOverride,
     resolveWebDomainAutoDisplayName,
@@ -416,6 +417,7 @@ export function useAppMappingState({
       displayName: current?.displayName,
       color: colorValue ?? undefined,
       enabled: current?.enabled !== false,
+      captureTitle: current?.captureTitle !== false,
       updatedAt: current?.updatedAt,
     });
     updateWebDomainOverride(candidate.normalizedDomain, nextOverride);
@@ -428,6 +430,20 @@ export function useAppMappingState({
       color: current?.color,
       displayName: current?.displayName,
       enabled: nextEnabled,
+      captureTitle: current?.captureTitle !== false,
+      updatedAt: current?.updatedAt,
+    });
+    updateWebDomainOverride(candidate.normalizedDomain, nextOverride);
+  }, [draftWebDomainOverrides, updateWebDomainOverride]);
+
+  const handleWebDomainTitleCaptureToggle = useCallback((candidate: ObservedWebDomainCandidate, nextCaptureTitle: boolean) => {
+    const current = draftWebDomainOverrides[candidate.normalizedDomain] ?? null;
+    const nextOverride = buildWebDomainMappingOverride({
+      category: current?.category,
+      color: current?.color,
+      displayName: current?.displayName,
+      enabled: current?.enabled !== false,
+      captureTitle: nextCaptureTitle,
       updatedAt: current?.updatedAt,
     });
     updateWebDomainOverride(candidate.normalizedDomain, nextOverride);
@@ -805,6 +821,7 @@ export function useAppMappingState({
     resolveWebDomainColor,
     resolveWebDomainCategory,
     resolveWebDomainEnabled,
+    resolveWebDomainTitleCaptureEnabled,
     deletingSessionsExe,
     editingNameExe,
     nameDrafts,
@@ -824,6 +841,7 @@ export function useAppMappingState({
     handleWebDomainColorAssign,
     handleWebDomainCategoryAssign,
     handleWebDomainTrackingToggle,
+    handleWebDomainTitleCaptureToggle,
     handleTitleCaptureToggle,
     handleTrackingToggle,
     handleDeleteAllSessions,

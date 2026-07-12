@@ -4,6 +4,7 @@ export interface ReleaseDefaultSettingsProfile {
   refreshIntervalSecs: number;
   minSessionSecs: number;
   trackingPaused: boolean;
+  titleRecordingEnabled: boolean;
   closeBehavior: "exit" | "tray";
   minimizeBehavior: "taskbar" | "widget";
   themeMode: "light" | "dark" | "system";
@@ -74,6 +75,7 @@ export const RELEASE_DEFAULT_SETTINGS: ReleaseDefaultSettingsProfile = {
   refreshIntervalSecs: 2,
   minSessionSecs: 300,
   trackingPaused: false,
+  titleRecordingEnabled: true,
   closeBehavior: "tray",
   minimizeBehavior: "widget",
   themeMode: "light",

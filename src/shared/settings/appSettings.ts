@@ -41,6 +41,7 @@ export interface AppSettings {
   refreshIntervalSecs: number;
   minSessionSecs: number;
   trackingPaused: boolean;
+  titleRecordingEnabled: boolean;
   closeBehavior: CloseBehavior;
   minimizeBehavior: MinimizeBehavior;
   themeMode: ThemeMode;

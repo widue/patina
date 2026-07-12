@@ -45,6 +45,17 @@ export interface SettingsCancelFlowResult {
   toastKind: "cancelled" | null;
 }
 
+export function applyExternalTitleRecordingSetting(
+  settings: AppSettings | null,
+  enabled: boolean,
+): AppSettings | null {
+  return settings ? { ...settings, titleRecordingEnabled: enabled } : null;
+}
+
+export function isLatestExternalSettingsSync(revision: number, latestRevision: number): boolean {
+  return revision === latestRevision;
+}
+
 function normalizeSettingsForSave(settings: AppSettings): AppSettings {
   const webActivityToken = settings.webActivityToken.trim();
   const remoteStatusBridgeToken = settings.remoteStatusBridgeToken.trim();

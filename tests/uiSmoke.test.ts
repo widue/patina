@@ -576,7 +576,8 @@ await runTest("web activity views are gated by saved web sync setting", () => {
   assert.doesNotMatch(webTimelineListBranch, /activitySegmentCount\(item\.mergedCount\)/);
   assert.match(webTimelineListBranch, /const titleCount = item\.titleSamples\.length/);
   assert.match(webTimelineListBranch, /titleRowCount\(titleCount\)/);
-  assert.match(mapping, /const \{ webActivityEnabled = false \} = props/);
+  assert.match(mapping, /const \{ webActivityEnabled = false, titleRecordingEnabled = true \} = props/);
+  assert.match(mapping, /globalTitleEnabled=\{titleRecordingEnabled\}/);
   assert.match(mapping, /const effectiveObjectMode = webActivityEnabled \? objectMode : "app"/);
   assert.match(mapping, /webActivityEnabled && \(/);
   assert.match(mappingState, /webActivityEnabled = false/);

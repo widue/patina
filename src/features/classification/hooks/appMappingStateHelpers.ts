@@ -34,6 +34,7 @@ type WebDomainOverrideParams = {
   displayName?: string;
   color?: string;
   enabled?: boolean;
+  captureTitle?: boolean;
   updatedAt?: number;
 };
 
@@ -112,12 +113,14 @@ export function buildWebDomainMappingOverride(params: WebDomainOverrideParams): 
   const displayName = params.displayName?.trim();
   const color = normalizeHexColor(params.color);
   const enabled = params.enabled;
-  if (!category && !displayName && !color && enabled !== false) return null;
+  const captureTitle = params.captureTitle;
+  if (!category && !displayName && !color && enabled !== false && captureTitle !== false) return null;
   const next: WebDomainOverride = { updatedAt: params.updatedAt ?? Date.now() };
   if (category) next.category = category;
   if (displayName) next.displayName = displayName;
   if (color) next.color = color;
   if (enabled === false) next.enabled = false;
+  if (captureTitle === false) next.captureTitle = false;
   return next;
 }
 
@@ -130,6 +133,7 @@ export function buildWebDomainCategoryOverride(
     color: current?.color,
     displayName: current?.displayName,
     enabled: current?.enabled !== false,
+    captureTitle: current?.captureTitle !== false,
     updatedAt: current?.updatedAt,
   });
 }

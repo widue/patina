@@ -18,6 +18,8 @@ type SettingsTrackingPanelProps = {
   timelineMergeGapControl: MinuteControlProps;
   trackingPaused: boolean;
   onTrackingPausedChange: (nextChecked: boolean) => void;
+  titleRecordingEnabled: boolean;
+  onTitleRecordingEnabledChange: (nextChecked: boolean) => void;
 };
 
 type MinuteStepperSliderProps = {
@@ -79,6 +81,8 @@ export default function SettingsTrackingPanel({
   timelineMergeGapControl,
   trackingPaused,
   onTrackingPausedChange,
+  titleRecordingEnabled,
+  onTitleRecordingEnabledChange,
 }: SettingsTrackingPanelProps) {
   return (
     <section className="qp-panel min-h-[240px] p-5 md:p-6">
@@ -104,6 +108,22 @@ export default function SettingsTrackingPanel({
               onChange={onTrackingPausedChange}
               ariaLabel={UI_TEXT.accessibility.settings.toggleTrackingPaused}
               tone="warning"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[11px] font-semibold text-[var(--qp-text-tertiary)] uppercase tracking-[0.06em]">
+            {UI_TEXT.settings.globalTitleLabel}
+          </label>
+          <div className="mt-2 flex items-start justify-between gap-4">
+            <p className="text-sm text-[var(--qp-text-secondary)] leading-relaxed">
+              {UI_TEXT.settings.globalTitleHint}
+            </p>
+            <QuietSwitch
+              checked={titleRecordingEnabled}
+              onChange={onTitleRecordingEnabledChange}
+              ariaLabel={UI_TEXT.accessibility.settings.toggleGlobalTitle}
             />
           </div>
         </div>

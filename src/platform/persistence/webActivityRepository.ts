@@ -67,8 +67,10 @@ function normalizeWebDomainOverride(value: WebDomainOverride | null | undefined)
   const color = normalizeHexColor(value.color);
   if (color) normalized.color = color;
   if (value.enabled === false) normalized.enabled = false;
+  if (value.captureTitle === false) normalized.captureTitle = false;
   if (typeof value.updatedAt === "number") normalized.updatedAt = value.updatedAt;
-  return normalized.category || normalized.displayName || normalized.color || normalized.enabled === false
+  return normalized.category || normalized.displayName || normalized.color
+      || normalized.enabled === false || normalized.captureTitle === false
     ? normalized
     : null;
 }

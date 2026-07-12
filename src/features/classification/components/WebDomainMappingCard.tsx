@@ -1,4 +1,4 @@
-import { Globe2, ListPlus, ListX, PencilLine, RotateCcw, Trash2 } from "lucide-react";
+import { Captions, CaptionsOff, Globe2, ListPlus, ListX, PencilLine, RotateCcw, Trash2 } from "lucide-react";
 import type { ObservedWebDomainCandidate } from "../../../shared/types/webActivity.ts";
 import type { UserAssignableAppCategory } from "../../../shared/classification/categoryTokens.ts";
 import type { ColorDisplayFormat } from "../../../shared/lib/colorFormatting.ts";
@@ -15,6 +15,8 @@ interface WebDomainMappingCardProps {
   displayColor: string;
   assignedCategory: UserAssignableAppCategory;
   recordingEnabled: boolean;
+  titleCaptureEnabled: boolean;
+  globalTitleEnabled: boolean;
   isBusy: boolean;
   isEditingName: boolean;
   inputValue: string;
@@ -28,6 +30,7 @@ interface WebDomainMappingCardProps {
   onColorFormatChange: (nextFormat: ColorDisplayFormat) => void;
   onCategoryAssign: (value: string) => void;
   onToggleRecording: () => void;
+  onToggleTitleCapture: () => void;
   onDeleteHistory: () => void;
 }
 
@@ -37,6 +40,8 @@ export default function WebDomainMappingCard({
   displayColor,
   assignedCategory,
   recordingEnabled,
+  titleCaptureEnabled,
+  globalTitleEnabled,
   isBusy,
   isEditingName,
   inputValue,
@@ -50,6 +55,7 @@ export default function WebDomainMappingCard({
   onColorFormatChange,
   onCategoryAssign,
   onToggleRecording,
+  onToggleTitleCapture,
   onDeleteHistory,
 }: WebDomainMappingCardProps) {
   return (
@@ -106,6 +112,9 @@ export default function WebDomainMappingCard({
               {!recordingEnabled && (
                 <QuietBadge tone="warning">{UI_TEXT.mapping.noStats}</QuietBadge>
               )}
+              {!titleCaptureEnabled && (
+                <QuietBadge tone="subtle">{UI_TEXT.mapping.titleNotRecorded}</QuietBadge>
+              )}
             </div>
           </div>
         </div>
@@ -138,6 +147,19 @@ export default function WebDomainMappingCard({
             />
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <QuietInlineAction
+              disabled={isBusy || !globalTitleEnabled}
+              onClick={onToggleTitleCapture}
+              tone={titleCaptureEnabled ? "neutral" : "accent"}
+              title={!globalTitleEnabled
+                ? UI_TEXT.mapping.globalTitleDisabled
+                : titleCaptureEnabled
+                  ? UI_TEXT.mapping.disableTitleCapture
+                  : UI_TEXT.mapping.enableTitleCapture}
+              leadingIcon={titleCaptureEnabled ? <CaptionsOff size={12} /> : <Captions size={12} />}
+            >
+              {titleCaptureEnabled ? UI_TEXT.mapping.titleNotRecorded : UI_TEXT.mapping.titleRecorded}
+            </QuietInlineAction>
             <QuietInlineAction
               disabled={isBusy}
               onClick={onToggleRecording}

@@ -522,6 +522,7 @@ function AppShellContent() {
                   onHourlyActivityChartModeChange={handleHourlyActivityChartModeChange}
                   refreshEnabled={isHistoryRefreshEnabled}
                   webActivityEnabled={appSettings.webActivityEnabled}
+                  titleRecordingEnabled={appSettings.titleRecordingEnabled}
                 />
               )}
               {renderedView === "data" && (

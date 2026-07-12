@@ -39,6 +39,7 @@ const BASE_SETTINGS: AppSettings = {
   refreshIntervalSecs: 1,
   minSessionSecs: 60,
   trackingPaused: false,
+  titleRecordingEnabled: true,
   closeBehavior: "tray",
   minimizeBehavior: "taskbar",
   themeMode: "light",

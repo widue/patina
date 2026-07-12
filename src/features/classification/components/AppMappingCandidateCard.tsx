@@ -17,6 +17,7 @@ interface AppMappingCandidateCardProps {
   assignedCategory: UserAssignableAppCategory;
   trackingEnabled: boolean;
   titleCaptureEnabled: boolean;
+  globalTitleEnabled: boolean;
   isBusy: boolean;
   isEditingName: boolean;
   inputValue: string;
@@ -42,6 +43,7 @@ export default function AppMappingCandidateCard({
   assignedCategory,
   trackingEnabled,
   titleCaptureEnabled,
+  globalTitleEnabled,
   isBusy,
   isEditingName,
   inputValue,
@@ -159,10 +161,14 @@ export default function AppMappingCandidateCard({
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <QuietInlineAction
-              disabled={isBusy}
+              disabled={isBusy || !globalTitleEnabled}
               onClick={onToggleTitleCapture}
               tone={titleCaptureEnabled ? "neutral" : "accent"}
-              title={titleCaptureEnabled ? UI_TEXT.mapping.disableTitleCapture : UI_TEXT.mapping.enableTitleCapture}
+              title={!globalTitleEnabled
+                ? UI_TEXT.mapping.globalTitleDisabled
+                : titleCaptureEnabled
+                  ? UI_TEXT.mapping.disableTitleCapture
+                  : UI_TEXT.mapping.enableTitleCapture}
               leadingIcon={titleCaptureEnabled ? <CaptionsOff size={12} /> : <Captions size={12} />}
             >
               {titleCaptureEnabled ? UI_TEXT.mapping.titleNotRecorded : UI_TEXT.mapping.titleRecorded}

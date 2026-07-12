@@ -22,10 +22,11 @@ interface Props {
   onSessionsDeleted?: () => void;
   onRegisterSaveHandler?: (handler: (() => Promise<boolean>) | null) => void;
   webActivityEnabled?: boolean;
+  titleRecordingEnabled?: boolean;
 }
 
 export default function AppMapping(props: Props) {
-  const { webActivityEnabled = false } = props;
+  const { webActivityEnabled = false, titleRecordingEnabled = true } = props;
   const [objectMode, setObjectMode] = useState<MappingObjectMode>(readClassificationObjectMode);
   const filterOptions: Array<{ value: CandidateFilter; label: ReactNode; showCount?: boolean; ariaLabel?: string }> = [
     { value: "all", label: UI_TEXT.mapping.filters.all },
@@ -77,6 +78,7 @@ export default function AppMapping(props: Props) {
     resolveWebDomainColor,
     resolveWebDomainCategory,
     resolveWebDomainEnabled,
+    resolveWebDomainTitleCaptureEnabled,
     deletingSessionsExe,
     editingNameExe,
     nameDrafts,
@@ -95,6 +97,7 @@ export default function AppMapping(props: Props) {
     handleWebDomainColorAssign,
     handleWebDomainCategoryAssign,
     handleWebDomainTrackingToggle,
+    handleWebDomainTitleCaptureToggle,
     handleTitleCaptureToggle,
     handleTrackingToggle,
     handleDeleteAllSessions,
@@ -246,6 +249,7 @@ export default function AppMapping(props: Props) {
                     const displayColor = resolveWebDomainColor(candidate);
                     const assignedCategory = resolveWebDomainCategory(candidate);
                     const recordingEnabled = resolveWebDomainEnabled(candidate);
+                    const titleCaptureEnabled = resolveWebDomainTitleCaptureEnabled(candidate);
                     const isBusy = saving || deletingSessionsExe === candidate.normalizedDomain;
                     const isEditingName = editingWebDomain === candidate.normalizedDomain;
                     const inputValue = webNameDrafts[candidate.normalizedDomain] ?? displayName;
@@ -258,6 +262,8 @@ export default function AppMapping(props: Props) {
                         displayColor={displayColor}
                         assignedCategory={assignedCategory}
                         recordingEnabled={recordingEnabled}
+                        titleCaptureEnabled={titleCaptureEnabled}
+                        globalTitleEnabled={titleRecordingEnabled}
                         isBusy={isBusy}
                         isEditingName={isEditingName}
                         inputValue={inputValue}
@@ -277,6 +283,7 @@ export default function AppMapping(props: Props) {
                         onColorFormatChange={setColorFormat}
                         onCategoryAssign={(value) => handleWebDomainCategoryAssign(candidate, value)}
                         onToggleRecording={() => handleWebDomainTrackingToggle(candidate, !recordingEnabled)}
+                        onToggleTitleCapture={() => handleWebDomainTitleCaptureToggle(candidate, !titleCaptureEnabled)}
                         onDeleteHistory={() => {
                           void handleDeleteWebDomainHistory(candidate);
                         }}
@@ -316,6 +323,7 @@ export default function AppMapping(props: Props) {
                     assignedCategory={assignedCategory}
                     trackingEnabled={trackingEnabled}
                     titleCaptureEnabled={titleCaptureEnabled}
+                    globalTitleEnabled={titleRecordingEnabled}
                     isBusy={isBusy}
                     isEditingName={isEditingName}
                     inputValue={inputValue}
