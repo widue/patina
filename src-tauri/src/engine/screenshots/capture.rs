@@ -33,9 +33,10 @@ pub async fn run<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
         let tracking_paused = crate::data::repositories::tracker_settings::load_tracking_paused_setting(&pool)
             .await
             .unwrap_or(false);
+
         if settings.enabled && !tracking_paused {
             if let Err(e) = capture_and_save(&pool, &screenshots_dir).await {
-                eprintln!("[screenshots] capture: {e}");
+                eprintln!("[screenshots] capture failed: {e}");
             }
             cleanup_old(&pool, &screenshots_dir, settings.retention_days).await;
         }
@@ -53,7 +54,7 @@ async fn capture_and_save(pool: &Pool<Sqlite>, screenshots_dir: &Path) -> Result
     let session_id: Option<i64> = sqlx::query_scalar(
         "SELECT id FROM sessions
          WHERE start_time <= ?1
-           AND COALESCE(end_time, ?1) > ?1
+           AND (end_time IS NULL OR end_time > ?1)
          ORDER BY start_time DESC, id DESC
          LIMIT 1",
     )

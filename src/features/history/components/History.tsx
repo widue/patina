@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import type { CSSProperties, WheelEvent } from "react";
 import { Clock, Expand, Minus, Plus, Tags, X, ZoomIn, LayoutList, LayoutGrid } from "lucide-react";
 import { type HistorySession } from "../../../shared/types/sessions";
@@ -798,7 +798,6 @@ export default function History({
 
   const {
     dayScreenshots,
-    screenshotsBySessionId,
     appTimelineView,
     handleAppTimelineZoomChange,
   } = useHistoryScreenshots({
@@ -1114,7 +1113,6 @@ export default function History({
       detailsPopover={timelineDetailsPopover}
       className={className}
       onToggleSessionDetails={toggleTimelineSessionDetails}
-      screenshotsBySessionId={screenshotsBySessionId}
     />
   );
   const renderWebTimelineList = (className = "") => (

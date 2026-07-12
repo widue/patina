@@ -1,13 +1,12 @@
 import { Camera, ChevronLeft, ChevronRight, X, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  queryScreenshotsPaginated,
-  countScreenshots,
+  queryScreenshots,
   getScreenshotData,
 } from "../services/historyScreenshots.ts";
 import type { ScreenshotEntry } from "../services/historyScreenshots.ts";
 
-const PAGE_SIZE = 50;
+const MAX_INITIAL = 200;
 
 interface Props {
   date: Date;
@@ -15,15 +14,11 @@ interface Props {
 
 export default function ScreenshotStrip({ date }: Props) {
   const [screenshots, setScreenshots] = useState<ScreenshotEntry[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [viewerId, setViewerId] = useState<number | null>(null);
   const [viewerData, setViewerData] = useState<string | null>(null);
   const [viewerLoading, setViewerLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const currentPageRef = useRef(1);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const getDayRange = useCallback(() => {
@@ -34,59 +29,24 @@ export default function ScreenshotStrip({ date }: Props) {
     return { start: start.getTime(), end: end.getTime() };
   }, [date]);
 
-  const loadFirstPage = useCallback(async () => {
+  const loadScreenshots = useCallback(async () => {
     const { start, end } = getDayRange();
     setLoading(true);
     setScreenshots([]);
-    setHasMore(false);
-    currentPageRef.current = 1;
     try {
-      const [countResult, pageResult] = await Promise.all([
-        countScreenshots(start, end),
-        queryScreenshotsPaginated(start, end, 1, PAGE_SIZE),
-      ]);
-      setTotalCount(countResult);
-      setScreenshots(pageResult.items);
-      setHasMore(pageResult.hasMore);
-      currentPageRef.current = 1;
+      const result = await queryScreenshots(start, end, MAX_INITIAL);
+      setScreenshots(result);
     } catch {
       setScreenshots([]);
-      setTotalCount(0);
     } finally {
       setLoading(false);
     }
   }, [getDayRange]);
 
-  const loadMore = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
-    const { start, end } = getDayRange();
-    const nextPage = currentPageRef.current + 1;
-    setLoadingMore(true);
-    try {
-      const result = await queryScreenshotsPaginated(start, end, nextPage, PAGE_SIZE);
-      setScreenshots((prev) => [...prev, ...result.items]);
-      setHasMore(result.hasMore);
-      currentPageRef.current = nextPage;
-    } catch {
-      // ignore
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [loadingMore, hasMore, getDayRange]);
-
   useEffect(() => {
     if (!expanded) return;
-    loadFirstPage();
-  }, [date, expanded, loadFirstPage]);
-
-  const handleScroll = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container || loadingMore || !hasMore) return;
-    const { scrollLeft, scrollWidth, clientWidth } = container;
-    if (scrollWidth - scrollLeft - clientWidth < 200) {
-      loadMore();
-    }
-  }, [loadingMore, hasMore, loadMore]);
+    loadScreenshots();
+  }, [date, expanded, loadScreenshots]);
 
   const handleView = useCallback(async (id: number) => {
     setViewerId(id);
@@ -115,15 +75,8 @@ export default function ScreenshotStrip({ date }: Props) {
   const handleNext = useCallback(() => {
     if (currentIndex < screenshots.length - 1) {
       handleView(screenshots[currentIndex + 1].id);
-    } else if (hasMore && !loadingMore) {
-      loadMore().then(() => {
-        const nextIdx = currentIndex + 1;
-        if (nextIdx < screenshots.length) {
-          handleView(screenshots[nextIdx].id);
-        }
-      });
     }
-  }, [currentIndex, screenshots, handleView, hasMore, loadingMore, loadMore]);
+  }, [currentIndex, screenshots, handleView]);
 
   useEffect(() => {
     if (viewerId == null) return;
@@ -164,8 +117,8 @@ export default function ScreenshotStrip({ date }: Props) {
         <span className="text-[10px] font-semibold text-[var(--qp-text-tertiary)] uppercase tracking-wider flex items-center gap-1.5">
           <Camera size={12} />
           Screenshots
-          {totalCount > 0 && (
-            <span className="font-normal">({totalCount})</span>
+          {screenshots.length > 0 && (
+            <span className="font-normal">({screenshots.length})</span>
           )}
         </span>
         <button
@@ -184,19 +137,17 @@ export default function ScreenshotStrip({ date }: Props) {
         </div>
       )}
 
-      {!loading && totalCount === 0 && (
+      {!loading && screenshots.length === 0 && (
         <div className="text-[10px] text-[var(--qp-text-tertiary)] py-2 italic">
           No screenshots for this day. Enable in Settings → Tracking.
         </div>
       )}
 
-      {!loading && totalCount > 0 && (
+      {!loading && screenshots.length > 0 && (
         <>
-          {/* Thumbnails strip */}
           <div
             ref={scrollContainerRef}
             className="flex gap-1.5 overflow-x-auto pb-1"
-            onScroll={handleScroll}
           >
             {screenshots.map((s) => (
               <LazyThumbnail
@@ -206,20 +157,8 @@ export default function ScreenshotStrip({ date }: Props) {
                 onClick={() => handleView(s.id)}
               />
             ))}
-            {loadingMore && (
-              <div className="shrink-0 flex items-center justify-center w-[120px] text-[var(--qp-text-tertiary)]">
-                <Loader2 size={16} className="animate-spin" />
-              </div>
-            )}
           </div>
 
-          {hasMore && !loadingMore && (
-            <div className="text-[10px] text-[var(--qp-text-tertiary)] mt-1 text-center">
-              Scroll right to load more ({screenshots.length}/{totalCount})
-            </div>
-          )}
-
-          {/* Full image viewer */}
           {viewerId != null && (
             <div className="relative mt-2 rounded overflow-hidden border border-[var(--qp-border)] bg-black/5">
               {viewerLoading && (
@@ -245,14 +184,14 @@ export default function ScreenshotStrip({ date }: Props) {
                   <ChevronLeft size={12} />
                 </button>
                 <span className="text-[10px] text-white bg-black/50 px-2 py-0.5 rounded">
-                  {currentIndex + 1} / {totalCount}
+                  {currentIndex + 1} / {screenshots.length}
                   {" · "}
                   {screenshots[currentIndex] && new Date(screenshots[currentIndex].capturedAt).toLocaleTimeString()}
                 </span>
                 <button
                   type="button"
                   className="px-2 py-1 rounded bg-black/50 text-white text-[10px] hover:bg-black/70 disabled:opacity-30"
-                  disabled={currentIndex >= totalCount - 1}
+                  disabled={currentIndex >= screenshots.length - 1}
                   onClick={handleNext}
                   title="Next (→)"
                 >

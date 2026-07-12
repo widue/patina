@@ -18,22 +18,3 @@ pub struct ScreenshotEntry {
     pub thumbnail_base64: String,
     pub session_id: Option<i64>,
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScreenshotQueryResult {
-    pub items: Vec<ScreenshotEntry>,
-    pub total: i64,
-    pub page: i64,
-    pub page_size: i64,
-    pub has_more: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScreenshotStats {
-    pub total_count: i64,
-    pub total_bytes: i64,
-    pub oldest_captured_at: Option<i64>,
-    pub newest_captured_at: Option<i64>,
-}

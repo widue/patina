@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { Camera, HardDrive } from "lucide-react";
+import { Camera } from "lucide-react";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import QuietSegmentedFilter, {
   type QuietSegmentedFilterOption,
 } from "../../../shared/components/QuietSegmentedFilter";
 import type { ScreenshotSettings } from "../services/screenshotSettingsService.ts";
-import { getScreenshotStats, formatBytes } from "../../history/services/historyScreenshots.ts";
+import { formatBytes } from "../../history/services/historyScreenshots.ts";
 
 type IntervalPreset = "1m" | "5m" | "10m" | "custom";
 type RetentionPreset = "1d" | "7d" | "custom";
@@ -49,29 +49,6 @@ export default function SettingsScreenshotPanel({
   onChange,
 }: SettingsScreenshotPanelProps) {
   const copy = UI_TEXT.settings;
-
-  const [stats, setStats] = useState<{ totalCount: number; totalBytes: number } | null>(null);
-  const [statsLoading, setStatsLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setStatsLoading(true);
-    getScreenshotStats()
-      .then((s) => {
-        if (!cancelled) {
-          setStats({ totalCount: s.totalCount, totalBytes: s.totalBytes });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setStats(null);
-      })
-      .finally(() => {
-        if (!cancelled) setStatsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const [intervalPreset, setIntervalPreset] = useState<IntervalPreset>(() => {
     const secs = settings.intervalSecs;
@@ -344,33 +321,6 @@ export default function SettingsScreenshotPanel({
               </div>
             )}
           </div>
-        </div>
-
-        <div className="pt-4 border-t border-[var(--qp-border-subtle)]">
-          <div className="flex items-center gap-2 mb-2">
-            <HardDrive size={14} className="text-[var(--qp-text-tertiary)]" />
-            <span className="text-[11px] font-semibold text-[var(--qp-text-tertiary)] uppercase tracking-[0.06em]">
-              Storage
-            </span>
-          </div>
-          {statsLoading ? (
-            <div className="text-xs text-[var(--qp-text-tertiary)]">Calculating...</div>
-          ) : stats ? (
-            <div className="flex items-center gap-4 text-xs text-[var(--qp-text-secondary)]">
-              <span>
-                <span className="font-medium text-[var(--qp-text-primary)]">{stats.totalCount}</span>{" "}
-                screenshots
-              </span>
-              <span>
-                <span className="font-medium text-[var(--qp-text-primary)]">
-                  {formatBytes(stats.totalBytes)}
-                </span>{" "}
-                estimated
-              </span>
-            </div>
-          ) : (
-            <div className="text-xs text-[var(--qp-text-tertiary)]">No screenshot data yet</div>
-          )}
         </div>
       </div>
     </section>

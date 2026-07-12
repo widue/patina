@@ -7,15 +7,20 @@ pub async fn query_screenshots(
     pool: &Pool<Sqlite>,
     start_time: i64,
     end_time: i64,
+    limit: Option<i64>,
 ) -> Result<Vec<ScreenshotEntry>, String> {
+    let limit = limit.unwrap_or(500).clamp(1, 1000);
+
     let rows = sqlx::query_as::<_, (i64, i64, i64, i64, String, Option<i64>)>(
         "SELECT id, captured_at, width, height, thumbnail_base64, session_id
          FROM screenshots
          WHERE captured_at >= ?1 AND captured_at <= ?2
-         ORDER BY captured_at ASC",
+         ORDER BY captured_at ASC
+         LIMIT ?3",
     )
     .bind(start_time)
     .bind(end_time)
+    .bind(limit)
     .fetch_all(pool)
     .await
     .map_err(|e| format!("query: {e}"))?;
@@ -24,113 +29,6 @@ pub async fn query_screenshots(
         .into_iter()
         .map(map_screenshot_row)
         .collect())
-}
-
-pub async fn query_screenshots_paginated(
-    pool: &Pool<Sqlite>,
-    start_time: i64,
-    end_time: i64,
-    page: i64,
-    page_size: i64,
-) -> Result<crate::engine::screenshots::ScreenshotQueryResult, String> {
-    let page = page.max(1);
-    let page_size = page_size.clamp(1, 500);
-    let offset = (page - 1) * page_size;
-
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM screenshots WHERE captured_at >= ?1 AND captured_at <= ?2",
-    )
-    .bind(start_time)
-    .bind(end_time)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
-
-    let rows = sqlx::query_as::<_, (i64, i64, i64, i64, String, Option<i64>)>(
-        "SELECT id, captured_at, width, height, thumbnail_base64, session_id
-         FROM screenshots
-         WHERE captured_at >= ?1 AND captured_at <= ?2
-         ORDER BY captured_at ASC
-         LIMIT ?3 OFFSET ?4",
-    )
-    .bind(start_time)
-    .bind(end_time)
-    .bind(page_size)
-    .bind(offset)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| format!("query: {e}"))?;
-
-    let items: Vec<ScreenshotEntry> = rows.into_iter().map(map_screenshot_row).collect();
-    let items_count = items.len() as i64;
-    let has_more = offset + items_count < total;
-
-    Ok(crate::engine::screenshots::ScreenshotQueryResult {
-        items,
-        total,
-        page,
-        page_size,
-        has_more,
-    })
-}
-
-pub async fn count_screenshots(
-    pool: &Pool<Sqlite>,
-    start_time: i64,
-    end_time: i64,
-) -> Result<i64, String> {
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM screenshots WHERE captured_at >= ?1 AND captured_at <= ?2",
-    )
-    .bind(start_time)
-    .bind(end_time)
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
-    Ok(count)
-}
-
-pub async fn get_screenshot_stats(
-    pool: &Pool<Sqlite>,
-) -> Result<crate::engine::screenshots::ScreenshotStats, String> {
-    let row: Option<(i64, Option<i64>, Option<i64>)> = sqlx::query_as(
-        "SELECT COUNT(*), MIN(captured_at), MAX(captured_at) FROM screenshots",
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| format!("query stats: {e}"))?;
-
-    let (total_count, oldest_captured_at, newest_captured_at) = row.unwrap_or((0, None, None));
-
-    let total_bytes = estimate_total_bytes(pool, total_count).await;
-
-    Ok(crate::engine::screenshots::ScreenshotStats {
-        total_count,
-        total_bytes,
-        oldest_captured_at,
-        newest_captured_at,
-    })
-}
-
-async fn estimate_total_bytes(pool: &Pool<Sqlite>, count: i64) -> i64 {
-    if count == 0 {
-        return 0;
-    }
-
-    let avg_thumb_len: Option<f64> = sqlx::query_scalar(
-        "SELECT AVG(LENGTH(thumbnail_base64)) FROM screenshots LIMIT 100",
-    )
-    .fetch_optional(pool)
-    .await
-    .unwrap_or(None);
-
-    if let Some(avg) = avg_thumb_len {
-        let estimated_per_file = (avg * 0.75) as i64;
-        let estimated_files = count * 150 * 1024;
-        estimated_files.max(count * estimated_per_file / 3)
-    } else {
-        count * 300 * 1024
-    }
 }
 
 pub async fn get_screenshot_data(pool: &Pool<Sqlite>, id: i64) -> Result<String, String> {

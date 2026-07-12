@@ -7,7 +7,6 @@ import type { CompiledSession } from "../../../shared/lib/sessionReadCompiler.ts
 
 export interface HistoryScreenshotState {
   dayScreenshots: ScreenshotEntry[];
-  screenshotsBySessionId: Record<number, ScreenshotEntry[]>;
   appTimelineZoomLevel: number;
   appTimelineViewportStartRatio: number;
   appTimelineView: HistoryAppTimelineViewModel;
@@ -32,7 +31,7 @@ export function useHistoryScreenshots(params: {
     start.setHours(0, 0, 0, 0);
     const end = new Date(selectedDate);
     end.setHours(23, 59, 59, 999);
-    queryScreenshots(start.getTime(), end.getTime())
+    queryScreenshots(start.getTime(), end.getTime(), 500)
       .then(setDayScreenshots)
       .catch(() => setDayScreenshots([]));
   }, [selectedDate]);
@@ -41,15 +40,6 @@ export function useHistoryScreenshots(params: {
     setAppTimelineZoomLevel(1);
     setAppTimelineViewportStartRatio(0);
   }, [selectedDate]);
-
-  const screenshotsBySessionId: Record<number, ScreenshotEntry[]> = useMemo(() => {
-    const map: Record<number, ScreenshotEntry[]> = {};
-    for (const s of dayScreenshots) {
-      if (s.sessionId == null) continue;
-      (map[s.sessionId] ??= []).push(s);
-    }
-    return map;
-  }, [dayScreenshots]);
 
   const appTimelineView = useMemo(
     () =>
@@ -83,7 +73,6 @@ export function useHistoryScreenshots(params: {
 
   return {
     dayScreenshots,
-    screenshotsBySessionId,
     appTimelineZoomLevel,
     appTimelineViewportStartRatio,
     appTimelineView,
