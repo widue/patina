@@ -4,7 +4,7 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import QuietRangeControl from "../../../shared/components/QuietRangeControl.tsx";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import QuietSegmentedFilter from "../../../shared/components/QuietSegmentedFilter";
 import { formatDuration } from "../../history/services/historyFormatting";
@@ -109,33 +109,18 @@ function DataHeatmapPanel({
             onChange={onGranularityChange}
             className="data-heatmap-granularity"
           />
-          <div className="data-heatmap-range-control" aria-label={UI_TEXT.accessibility.data.heatmapRange}>
-            <button
-              type="button"
-              onClick={() => onSelectAdjacentHeatmapView(1)}
-              disabled={!canSelectOlderHeatmapView}
-              className="qp-control data-heatmap-range-arrow"
-              aria-label={UI_TEXT.accessibility.data.earlierRange}
-            >
-              <ChevronLeft size={14} />
-            </button>
-            <button
-              type="button"
-              className="qp-status data-heatmap-range-label"
-              disabled
-            >
-              {selectedHeatmapViewLabel}
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectAdjacentHeatmapView(-1)}
-              disabled={!canSelectNewerHeatmapView}
-              className="qp-control data-heatmap-range-arrow"
-              aria-label={UI_TEXT.accessibility.data.newerRange}
-            >
-              <ChevronRight size={14} />
-            </button>
-          </div>
+          <QuietRangeControl
+            className="data-heatmap-range-control"
+            ariaLabel={UI_TEXT.accessibility.data.heatmapRange}
+            label={selectedHeatmapViewLabel}
+            previousAriaLabel={UI_TEXT.accessibility.data.earlierRange}
+            nextAriaLabel={UI_TEXT.accessibility.data.newerRange}
+            previousDisabled={!canSelectOlderHeatmapView}
+            nextDisabled={!canSelectNewerHeatmapView}
+            labelDisabled
+            onPrevious={() => onSelectAdjacentHeatmapView(1)}
+            onNext={() => onSelectAdjacentHeatmapView(-1)}
+          />
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import QuietRangeControl from "../../../shared/components/QuietRangeControl.tsx";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import {
   DATA_ROLLING_TREND_RANGES,
@@ -17,7 +17,7 @@ interface Props {
 }
 
 export default function DataTrendRangeControl({ ariaLabel, selection, onChange }: Props) {
-  const anchorRef = useRef<HTMLSpanElement | null>(null);
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
   const [open, setOpen] = useState(false);
   const [pickerMode, setPickerMode] = useState<DataTrendPickerMode>("custom");
   const [pickerLabel, setPickerLabel] = useState(UI_TEXT.data.pickerModes.custom);
@@ -43,53 +43,31 @@ export default function DataTrendRangeControl({ ariaLabel, selection, onChange }
   };
 
   return (
-    <div className="data-heatmap-range-control" aria-label={ariaLabel}>
-      <button
-        type="button"
-        onClick={() => selectAdjacent(-1)}
-        disabled={open ? pickerModeIndex === 0 : !isSpecial && rollingIndex === 0}
-        className="qp-control data-heatmap-range-arrow"
-        aria-label={open
+    <>
+      <QuietRangeControl
+        ref={anchorRef}
+        className="data-heatmap-range-control"
+        labelClassName="data-trend-range-label data-trend-range-trigger"
+        ariaLabel={ariaLabel}
+        label={open ? pickerLabel : label}
+        labelAriaLabel={UI_TEXT.accessibility.data.openTrendRangePicker}
+        previousAriaLabel={open
           ? UI_TEXT.accessibility.data.previousPickerMode
           : isSpecial ? UI_TEXT.accessibility.data.resetTrendRange : UI_TEXT.accessibility.data.shorterTrendRange}
-      >
-        <ChevronLeft size={14} />
-      </button>
-      <span
-        ref={anchorRef}
-        role="button"
-        tabIndex={0}
-        className="qp-status data-heatmap-range-label data-trend-range-label data-trend-range-trigger"
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label={UI_TEXT.accessibility.data.openTrendRangePicker}
-        onClick={() => {
+        nextAriaLabel={open
+          ? UI_TEXT.accessibility.data.nextPickerMode
+          : isSpecial ? UI_TEXT.accessibility.data.resetTrendRange : UI_TEXT.accessibility.data.longerTrendRange}
+        previousDisabled={open ? pickerModeIndex === 0 : !isSpecial && rollingIndex === 0}
+        nextDisabled={open ? pickerModeIndex === DATA_TREND_PICKER_MODES.length - 1 : !isSpecial && rollingIndex === DATA_ROLLING_TREND_RANGES.length - 1}
+        expanded={open}
+        onPrevious={() => selectAdjacent(-1)}
+        onNext={() => selectAdjacent(1)}
+        onLabelClick={() => {
           setPickerMode("custom");
           setPickerLabel(UI_TEXT.data.pickerModes.custom);
           setOpen((current) => !current);
         }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            setPickerMode("custom");
-            setPickerLabel(UI_TEXT.data.pickerModes.custom);
-            setOpen((current) => !current);
-          }
-        }}
-      >
-        {open ? pickerLabel : label}
-      </span>
-      <button
-        type="button"
-        onClick={() => selectAdjacent(1)}
-        disabled={open ? pickerModeIndex === DATA_TREND_PICKER_MODES.length - 1 : !isSpecial && rollingIndex === DATA_ROLLING_TREND_RANGES.length - 1}
-        className="qp-control data-heatmap-range-arrow"
-        aria-label={open
-          ? UI_TEXT.accessibility.data.nextPickerMode
-          : isSpecial ? UI_TEXT.accessibility.data.resetTrendRange : UI_TEXT.accessibility.data.longerTrendRange}
-      >
-        <ChevronRight size={14} />
-      </button>
+      />
       {open && anchorRef.current ? (
         <DataTrendRangePicker
           anchor={anchorRef.current}
@@ -102,6 +80,6 @@ export default function DataTrendRangeControl({ ariaLabel, selection, onChange }
           }}
         />
       ) : null}
-    </div>
+    </>
   );
 }
