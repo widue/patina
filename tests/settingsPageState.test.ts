@@ -421,7 +421,7 @@ await runTest("normalizeSettingsRecord accepts current minimize behavior values"
   assert.equal(defaultSettings.titleRecordingEnabled, true);
   assert.equal(defaultSettings.minimizeBehavior, "widget");
   assert.equal(defaultSettings.closeBehavior, "tray");
-  assert.equal(defaultSettings.backgroundOptimization, false);
+  assert.equal(defaultSettings.backgroundOptimization, true);
   assert.equal(defaultSettings.themeMode, "light");
   assert.equal(defaultSettings.language, "zh-CN");
   assert.equal(defaultSettings.dynamicEffects, false);
@@ -492,6 +492,11 @@ await runTest("normalizeSettingsRecord accepts current minimize behavior values"
   assert.equal(widgetSettings.minimizeBehavior, "widget");
   assert.equal(widgetSettings.closeBehavior, "tray");
   assert.equal(widgetSettings.backgroundOptimization, true);
+
+  const existingSpeedFirstSettings = normalizeSettingsRecord({
+    background_optimization: "0",
+  });
+  assert.equal(existingSpeedFirstSettings.backgroundOptimization, false);
 
   const retiredTraySettings = normalizeSettingsRecord({
     minimize_behavior: "tray",

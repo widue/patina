@@ -1,4 +1,4 @@
-use crate::app::state::{DesktopBehaviorState, MainWindowLifecycleState};
+use crate::app::state::{AppExitState, DesktopBehaviorState, MainWindowLifecycleState};
 use crate::app::widget;
 use crate::domain::settings::MinimizeBehavior;
 use crate::platform::storage_paths;
@@ -16,7 +16,9 @@ const MAIN_WINDOW_MIN_HEIGHT: f64 = 636.0;
 const MAIN_WINDOW_DESTROY_AFTER_BACKGROUND_SECS: u64 = 3 * 60;
 
 pub(crate) fn show_main_window<R: Runtime + 'static>(app: &AppHandle<R>) {
-    app.state::<MainWindowLifecycleState>().show();
+    if app.state::<MainWindowLifecycleState>().show() {
+        return;
+    }
 
     let window = match ensure_main_window(app) {
         Ok(window) => window,
@@ -80,6 +82,32 @@ pub(crate) fn hide_main_window_for_background<R: Runtime + 'static>(
     {
         schedule_main_window_destroy_after_background(app.clone(), hide_generation);
     }
+}
+
+pub(crate) fn register_hidden_main_window_startup<R: Runtime + 'static>(
+    app: &AppHandle<R>,
+    optimize_background_resources: bool,
+) -> bool {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return false;
+    };
+
+    if window.is_visible().unwrap_or(false) {
+        return false;
+    }
+
+    let Some(hide_generation) = app
+        .state::<MainWindowLifecycleState>()
+        .try_hide_for_startup()
+    else {
+        return false;
+    };
+
+    if optimize_background_resources {
+        schedule_main_window_destroy_after_background(app.clone(), hide_generation);
+    }
+
+    true
 }
 
 pub(crate) fn ensure_main_window<R: Runtime>(
@@ -146,11 +174,6 @@ fn schedule_main_window_destroy_after_background<R: Runtime + 'static>(
             return;
         }
 
-        let lifecycle = app.state::<MainWindowLifecycleState>();
-        if !lifecycle.should_destroy_hidden_window(hide_generation) {
-            return;
-        }
-
         let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
             return;
         };
@@ -159,8 +182,18 @@ fn schedule_main_window_destroy_after_background<R: Runtime + 'static>(
             return;
         }
 
+        let lifecycle = app.state::<MainWindowLifecycleState>();
+        if !lifecycle.begin_destroy_hidden_window(hide_generation) {
+            return;
+        }
+
         if let Err(error) = window.destroy() {
             eprintln!("[main-window] failed to destroy idle main window: {error}");
+        }
+
+        let should_reopen = lifecycle.finish_destroy_hidden_window();
+        if should_reopen && !app.state::<AppExitState>().is_exit_requested() {
+            show_main_window(&app);
         }
     });
 }

@@ -1,8 +1,9 @@
+use crate::app::main_window;
 use crate::app::state::DesktopBehaviorState;
 use crate::app::tray::{apply_tray_visibility, show_main_window, MAIN_WINDOW_LABEL};
 use crate::app::widget;
 use crate::data::app_settings_service;
-use crate::domain::settings::MinimizeBehavior;
+use crate::domain::settings::StartupUiStrategy;
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 
@@ -79,20 +80,31 @@ pub(crate) async fn sync_desktop_behavior_from_storage<R: Runtime>(
     }
     apply_tray_visibility(&app, next);
 
-    if startup_state.should_reopen_main_window {
-        show_main_window(&app);
-    } else if launched_by_autostart {
-        if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-            if next.should_start_minimized_on_autostart() {
-                let _ = window.hide();
-                if next.minimize_behavior == MinimizeBehavior::Widget {
-                    let preferred_monitor = window.current_monitor().ok().flatten();
-                    if let Err(error) = widget::show_widget_window(&app, preferred_monitor).await {
-                        eprintln!("[widget] failed to show startup widget window: {error}");
-                    }
-                }
-            } else {
+    match next.startup_ui_strategy(
+        launched_by_autostart,
+        startup_state.should_reopen_main_window,
+    ) {
+        StartupUiStrategy::ShowMainWindow => {
+            if launched_by_autostart || startup_state.should_reopen_main_window {
                 show_main_window(&app);
+            }
+        }
+        StartupUiStrategy::KeepHiddenMainWindow => {
+            let _ = main_window::register_hidden_main_window_startup(&app, false);
+        }
+        StartupUiStrategy::OptimizeHiddenMainWindow => {
+            let _ = main_window::register_hidden_main_window_startup(&app, true);
+        }
+        StartupUiStrategy::ShowWidget {
+            optimize_main_window,
+        } => {
+            if main_window::register_hidden_main_window_startup(&app, optimize_main_window) {
+                let preferred_monitor = app
+                    .get_webview_window(MAIN_WINDOW_LABEL)
+                    .and_then(|window| window.current_monitor().ok().flatten());
+                if let Err(error) = widget::show_widget_window(&app, preferred_monitor).await {
+                    eprintln!("[widget] failed to show startup widget window: {error}");
+                }
             }
         }
     }

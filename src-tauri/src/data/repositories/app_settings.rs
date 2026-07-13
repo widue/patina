@@ -323,9 +323,25 @@ mod tests {
     }
 
     #[test]
-    fn desktop_behavior_settings_loads_background_optimization() {
+    fn desktop_behavior_settings_defaults_on_and_preserves_saved_background_optimization() {
         tauri::async_runtime::block_on(async {
             let pool = setup_test_db().await;
+
+            let settings = load_desktop_behavior_settings(&pool).await.unwrap();
+            assert!(settings.should_optimize_background_resources());
+
+            commit_app_setting_mutations(
+                &pool,
+                &[AppSettingMutation {
+                    key: "background_optimization".to_string(),
+                    value: "0".to_string(),
+                }],
+            )
+            .await
+            .unwrap();
+
+            let settings = load_desktop_behavior_settings(&pool).await.unwrap();
+            assert!(!settings.should_optimize_background_resources());
 
             commit_app_setting_mutations(
                 &pool,

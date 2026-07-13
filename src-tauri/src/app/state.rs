@@ -124,19 +124,22 @@ pub(crate) struct MainWindowLifecycleState {
 struct MainWindowLifecycle {
     desired_visible: bool,
     hide_generation: u64,
+    destroy_in_progress: bool,
 }
 
 impl MainWindowLifecycleState {
-    pub(crate) fn show(&self) {
+    pub(crate) fn show(&self) -> bool {
         match self.inner.lock() {
             Ok(mut guard) => {
                 guard.desired_visible = true;
                 guard.hide_generation = guard.hide_generation.wrapping_add(1);
+                guard.destroy_in_progress
             }
             Err(poisoned) => {
                 let mut guard = poisoned.into_inner();
                 guard.desired_visible = true;
                 guard.hide_generation = guard.hide_generation.wrapping_add(1);
+                guard.destroy_in_progress
             }
         }
     }
@@ -157,12 +160,62 @@ impl MainWindowLifecycleState {
         }
     }
 
-    pub(crate) fn should_destroy_hidden_window(&self, hide_generation: u64) -> bool {
+    pub(crate) fn try_hide_for_startup(&self) -> Option<u64> {
         match self.inner.lock() {
-            Ok(guard) => !guard.desired_visible && guard.hide_generation == hide_generation,
+            Ok(mut guard) => {
+                if guard.desired_visible {
+                    return None;
+                }
+                guard.hide_generation = guard.hide_generation.wrapping_add(1);
+                Some(guard.hide_generation)
+            }
             Err(poisoned) => {
-                let guard = poisoned.into_inner();
-                !guard.desired_visible && guard.hide_generation == hide_generation
+                let mut guard = poisoned.into_inner();
+                if guard.desired_visible {
+                    return None;
+                }
+                guard.hide_generation = guard.hide_generation.wrapping_add(1);
+                Some(guard.hide_generation)
+            }
+        }
+    }
+
+    pub(crate) fn begin_destroy_hidden_window(&self, hide_generation: u64) -> bool {
+        match self.inner.lock() {
+            Ok(mut guard) => {
+                if guard.desired_visible
+                    || guard.destroy_in_progress
+                    || guard.hide_generation != hide_generation
+                {
+                    return false;
+                }
+                guard.destroy_in_progress = true;
+                true
+            }
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                if guard.desired_visible
+                    || guard.destroy_in_progress
+                    || guard.hide_generation != hide_generation
+                {
+                    return false;
+                }
+                guard.destroy_in_progress = true;
+                true
+            }
+        }
+    }
+
+    pub(crate) fn finish_destroy_hidden_window(&self) -> bool {
+        match self.inner.lock() {
+            Ok(mut guard) => {
+                guard.destroy_in_progress = false;
+                guard.desired_visible
+            }
+            Err(poisoned) => {
+                let mut guard = poisoned.into_inner();
+                guard.destroy_in_progress = false;
+                guard.desired_visible
             }
         }
     }
@@ -286,12 +339,55 @@ mod tests {
     fn main_window_lifecycle_cancels_stale_destroy_after_show() {
         let state = MainWindowLifecycleState::default();
 
-        state.show();
+        let _ = state.show();
         let hide_generation = state.hide();
-        assert!(state.should_destroy_hidden_window(hide_generation));
-        state.show();
+        let _ = state.show();
 
-        assert!(!state.should_destroy_hidden_window(hide_generation));
+        assert!(!state.begin_destroy_hidden_window(hide_generation));
+    }
+
+    #[test]
+    fn main_window_lifecycle_rejects_late_startup_hide_after_show() {
+        let state = MainWindowLifecycleState::default();
+
+        let _ = state.show();
+
+        assert_eq!(state.try_hide_for_startup(), None);
+    }
+
+    #[test]
+    fn main_window_lifecycle_startup_hide_is_invalidated_by_later_show() {
+        let state = MainWindowLifecycleState::default();
+
+        let hide_generation = state
+            .try_hide_for_startup()
+            .expect("initial hidden startup should be accepted");
+        let _ = state.show();
+
+        assert!(!state.begin_destroy_hidden_window(hide_generation));
+    }
+
+    #[test]
+    fn main_window_lifecycle_queues_show_while_destroy_is_in_progress() {
+        let state = MainWindowLifecycleState::default();
+        let hide_generation = state.hide();
+
+        assert!(state.begin_destroy_hidden_window(hide_generation));
+        assert!(state.show());
+        assert!(state.finish_destroy_hidden_window());
+        assert!(!state.begin_destroy_hidden_window(hide_generation));
+    }
+
+    #[test]
+    fn main_window_lifecycle_rejects_stale_or_duplicate_destroy_claims() {
+        let state = MainWindowLifecycleState::default();
+        let stale_generation = state.hide();
+        let current_generation = state.hide();
+
+        assert!(!state.begin_destroy_hidden_window(stale_generation));
+        assert!(state.begin_destroy_hidden_window(current_generation));
+        assert!(!state.begin_destroy_hidden_window(current_generation));
+        assert!(!state.finish_destroy_hidden_window());
     }
 
     #[test]

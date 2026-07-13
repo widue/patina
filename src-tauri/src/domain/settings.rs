@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_LAUNCH_AT_LOGIN: bool = true;
 pub const DEFAULT_START_MINIMIZED: bool = true;
-pub const DEFAULT_BACKGROUND_OPTIMIZATION: bool = false;
+pub const DEFAULT_BACKGROUND_OPTIMIZATION: bool = true;
 pub const DEFAULT_WEB_ACTIVITY_ENABLED: bool = false;
 pub const DEFAULT_WEB_ACTIVITY_PORT: u16 = 12_345;
 pub const DEFAULT_WEB_ACTIVITY_TOKEN: &str = "";
@@ -35,6 +35,14 @@ pub struct DesktopBehaviorSettings {
     pub launch_at_login: bool,
     pub start_minimized: bool,
     pub background_optimization: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StartupUiStrategy {
+    ShowMainWindow,
+    KeepHiddenMainWindow,
+    OptimizeHiddenMainWindow,
+    ShowWidget { optimize_main_window: bool },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -247,6 +255,31 @@ impl DesktopBehaviorSettings {
     pub fn should_optimize_background_resources(self) -> bool {
         self.background_optimization
     }
+
+    pub(crate) fn startup_ui_strategy(
+        self,
+        launched_by_autostart: bool,
+        should_reopen_main_window: bool,
+    ) -> StartupUiStrategy {
+        if should_reopen_main_window
+            || !launched_by_autostart
+            || !self.should_start_minimized_on_autostart()
+        {
+            return StartupUiStrategy::ShowMainWindow;
+        }
+
+        if self.minimize_behavior == MinimizeBehavior::Widget {
+            return StartupUiStrategy::ShowWidget {
+                optimize_main_window: self.should_optimize_background_resources(),
+            };
+        }
+
+        if self.should_optimize_background_resources() {
+            StartupUiStrategy::OptimizeHiddenMainWindow
+        } else {
+            StartupUiStrategy::KeepHiddenMainWindow
+        }
+    }
 }
 
 pub fn parse_close_behavior(raw: &str) -> CloseBehavior {
@@ -285,9 +318,9 @@ mod tests {
     use super::{
         parse_boolean_setting, parse_close_behavior, parse_minimize_behavior,
         parse_web_activity_port, CloseBehavior, DesktopBehaviorSettings, MinimizeBehavior,
-        RemoteStatusBridgeSettings, WebActivityBridgeSettings, WebActivitySettings,
-        DEFAULT_BACKGROUND_OPTIMIZATION, DEFAULT_LAUNCH_AT_LOGIN, DEFAULT_START_MINIMIZED,
-        DEFAULT_WEB_ACTIVITY_PORT,
+        RemoteStatusBridgeSettings, StartupUiStrategy, WebActivityBridgeSettings,
+        WebActivitySettings, DEFAULT_BACKGROUND_OPTIMIZATION, DEFAULT_LAUNCH_AT_LOGIN,
+        DEFAULT_START_MINIMIZED, DEFAULT_WEB_ACTIVITY_PORT,
     };
 
     #[test]
@@ -444,7 +477,7 @@ mod tests {
         assert!(defaults.should_keep_tray_visible());
         assert_eq!(defaults.minimize_behavior, MinimizeBehavior::Widget);
         assert!(defaults.should_start_minimized_on_autostart());
-        assert!(!defaults.should_optimize_background_resources());
+        assert!(defaults.should_optimize_background_resources());
 
         let close_to_exit =
             defaults.with_desktop_behavior(CloseBehavior::Exit, MinimizeBehavior::Widget);
@@ -464,5 +497,78 @@ mod tests {
             DesktopBehaviorSettings::default().with_raw_desktop_behavior("tray", "taskbar");
         assert_eq!(updated.close_behavior, CloseBehavior::Tray);
         assert_eq!(updated.minimize_behavior, MinimizeBehavior::Taskbar);
+    }
+
+    #[test]
+    fn manual_start_and_update_reopen_show_the_main_window() {
+        let settings = DesktopBehaviorSettings::default()
+            .with_desktop_behavior(CloseBehavior::Tray, MinimizeBehavior::Taskbar)
+            .with_background_optimization(true);
+
+        assert_eq!(
+            settings.startup_ui_strategy(false, false),
+            StartupUiStrategy::ShowMainWindow
+        );
+        assert_eq!(
+            settings.startup_ui_strategy(true, true),
+            StartupUiStrategy::ShowMainWindow
+        );
+    }
+
+    #[test]
+    fn autostart_without_start_minimized_shows_the_main_window() {
+        let settings = DesktopBehaviorSettings::default().with_launch_behavior(true, false);
+
+        assert_eq!(
+            settings.startup_ui_strategy(true, false),
+            StartupUiStrategy::ShowMainWindow
+        );
+    }
+
+    #[test]
+    fn taskbar_autostart_uses_background_resource_preference() {
+        let speed_first = DesktopBehaviorSettings::default()
+            .with_desktop_behavior(CloseBehavior::Tray, MinimizeBehavior::Taskbar)
+            .with_background_optimization(false);
+        let resource_first = speed_first.with_background_optimization(true);
+
+        assert_eq!(
+            speed_first.startup_ui_strategy(true, false),
+            StartupUiStrategy::KeepHiddenMainWindow
+        );
+        assert_eq!(
+            resource_first.startup_ui_strategy(true, false),
+            StartupUiStrategy::OptimizeHiddenMainWindow
+        );
+    }
+
+    #[test]
+    fn widget_autostart_uses_background_resource_preference_for_main_window() {
+        let speed_first =
+            DesktopBehaviorSettings::default().with_background_optimization(false);
+        let resource_first = speed_first.with_background_optimization(true);
+
+        assert_eq!(
+            speed_first.startup_ui_strategy(true, false),
+            StartupUiStrategy::ShowWidget {
+                optimize_main_window: false,
+            }
+        );
+        assert_eq!(
+            resource_first.startup_ui_strategy(true, false),
+            StartupUiStrategy::ShowWidget {
+                optimize_main_window: true,
+            }
+        );
+    }
+
+    #[test]
+    fn stale_autostart_argument_without_enabled_setting_fails_open() {
+        let settings = DesktopBehaviorSettings::default().with_launch_behavior(false, true);
+
+        assert_eq!(
+            settings.startup_ui_strategy(true, false),
+            StartupUiStrategy::ShowMainWindow
+        );
     }
 }

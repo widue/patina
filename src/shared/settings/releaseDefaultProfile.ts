@@ -86,7 +86,7 @@ export const RELEASE_DEFAULT_SETTINGS: ReleaseDefaultSettingsProfile = {
   colorSchemeDark: "default",
   launchAtLogin: true,
   startMinimized: true,
-  backgroundOptimization: false,
+  backgroundOptimization: true,
   onboardingCompleted: true,
   webActivityEnabled: false,
   webActivityPort: 12345,
