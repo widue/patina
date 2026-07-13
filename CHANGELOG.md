@@ -20,17 +20,40 @@ App note en: TBD.
 
 ### Changed
 
-- 开机自启动并最小化时，“低耗后台”现在复用与手动进入后台相同的三分钟 WebView 回收策略；首次安装默认开启该设置，已有用户保存的开启或关闭选择保持不变。
-
 ### Fixed
-
-- 修复网页同步完整 URL 未写入本机网页活动记录，导致数据导出的“URL 地址”字段为空或只有站点根地址的问题；路径、查询参数和片段现会按浏览器提供的完整 URL 保存并导出，同时继续跳过私密窗口。
-- 修复升级或冷启动加载分类配置时可能清理当前版本暂时无法识别的分类设置键，避免已有分类配置被破坏；新增旧版数据库升级与重复冷启动回归。Refs [#37](https://github.com/Ceceliaee/patina/issues/37)
-- 修复有效的当前格式 Patina 备份被常见压缩软件重新压缩为 Deflated 后无法识别的问题；备份结构、内容校验和版本校验保持不变。Refs [#38](https://github.com/Ceceliaee/patina/issues/38)
 
 ### Removed
 
 ### Internal
+
+## [1.8.3] - 2026-07-13
+
+Release: 新增四格式活动记录导出与标题记录控制，并改进存储操作、排除规则和后台资源占用。
+App note: 新增四格式数据导出和标题记录控制，改进存储操作与后台资源占用。
+App note en: Adds four-format data export and title controls, with safer storage actions and lower background resource use.
+
+### Added
+
+- 设置页新增活动记录导出，可按时间范围和每种格式的默认字段导出 CSV、Markdown、Parquet 或 SQLite；支持在 32 个规范字段中按分组选择，导出结果使用稳定字段顺序与格式契约。
+- 设置页、分类页和托盘新增全局、应用与网页标题记录控制；关闭后停止写入相应新标题，同时保留已有历史记录。
+- “关于”页新增问题反馈渠道选择弹窗，可在 GitHub Issues 与 QQ 频道之间选择，并适配中英文和深浅主题。
+
+### Changed
+
+- 更改数据目录、恢复默认数据目录、清理 WebView 缓存等需要重启的存储操作，改为确认后立即安全重启并应用；取消操作不写入待处理状态。
+- “启动时最小化”更名为“静默启动”；开机自启动且启用该选项时，“低耗后台”复用与手动进入后台相同的三分钟 WebView 回收策略，首次安装默认开启低耗后台，已有用户选择保持不变。
+
+### Fixed
+
+- 修复已排除应用或网页域名仍会写入新会话的问题；排除规则现在同时约束桌面追踪和网页活动写入。
+- 修复网页同步完整 URL 丢失、升级或冷启动可能清理现有分类配置、Deflated 格式有效备份无法识别，以及远程状态接口跨域读取失败的问题。Refs [#36](https://github.com/Ceceliaee/patina/issues/36), [#37](https://github.com/Ceceliaee/patina/issues/37), [#38](https://github.com/Ceceliaee/patina/issues/38)
+
+### Removed
+
+### Internal
+
+- 数据导出收口到统一 Rust owner 与 32 字段规范契约，并补充四种格式、字段默认值、空值转义、长文本和真实浏览器交互回归。
+- 标题记录、排除规则、存储重启和主窗口后台回收均补充纯决策与生命周期测试，避免迟到设置、重复启动或销毁竞态覆盖用户最新意图。
 
 ## [1.8.2] - 2026-07-05
 

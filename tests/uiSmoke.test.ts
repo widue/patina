@@ -307,6 +307,15 @@ await runTest("Chinese and English copy packages keep the same key structure", (
   );
 });
 
+await runTest("settings names hidden autostart as silent launch in both languages", () => {
+  assert.equal(COPY["zh-CN"].settings.startMinimizedLabel, "静默启动");
+  assert.equal(COPY["zh-CN"].settings.startMinimizedHint, "仅随开机自启动生效；启动后隐藏主窗口。");
+  assert.equal(COPY["zh-CN"].accessibility.settings.toggleStartMinimized, "切换静默启动");
+  assert.equal(COPY["en-US"].settings.startMinimizedLabel, "Launch silently");
+  assert.equal(COPY["en-US"].settings.startMinimizedHint, "Only applies to launch at login. Hide the main window after startup.");
+  assert.equal(COPY["en-US"].accessibility.settings.toggleStartMinimized, "Toggle silent launch");
+});
+
 await runTest("app shell keeps History and Data snapshot loaders on their owning views", () => {
   const shell = readUtf8("src/app/AppShell.tsx");
   const historyBranch = shell.slice(shell.indexOf("<History"), shell.indexOf("<Data"));
