@@ -444,6 +444,53 @@ await runTest("operation-oriented pages keep explicit busy feedback", () => {
   assert.match(updateDialog, /UI_TEXT\.update\.processing/);
 });
 
+await runTest("storage restart commands yield before the runtime exits", () => {
+  const storageCommands = readUtf8("src-tauri/src/commands/storage.rs");
+
+  assert.match(storageCommands, /app\.request_restart\(\);\s*Ok\(\(\)\)/);
+  assert.doesNotMatch(storageCommands, /app\.restart\(\)/);
+});
+
+await runTest("storage restarts explicitly restore the main window", () => {
+  const bootstrap = readUtf8("src-tauri/src/app/bootstrap.rs");
+  const runtime = readUtf8("src-tauri/src/app/runtime.rs");
+  const desktopBehavior = readUtf8("src-tauri/src/app/desktop_behavior.rs");
+
+  assert.match(
+    bootstrap,
+    /effective_autostart_launch\(launched_by_autostart, handled_storage_restart\),\s*handled_storage_restart/,
+  );
+  assert.match(
+    runtime,
+    /spawn_sync_from_storage\([\s\S]*should_reopen_main_window/,
+  );
+  assert.match(
+    runtime,
+    /else if should_reopen_main_window \{\s*main_window::show_main_window\(&app_handle\)/,
+  );
+  assert.match(
+    desktopBehavior,
+    /should_reopen_main_window \|\| startup_state\.should_reopen_main_window/,
+  );
+  assert.match(
+    desktopBehavior,
+    /if launched_by_autostart \|\| should_reopen_main_window \{\s*show_main_window\(&app\)/,
+  );
+});
+
+await runTest("cache directory migration preserves persistent WebView state", () => {
+  const storageMigration = readUtf8("src-tauri/src/data/storage_migration.rs");
+  const webviewCache = readUtf8("src-tauri/src/platform/webview_cache.rs");
+
+  assert.match(storageMigration, /migrate_persistent_profile_state/);
+  assert.match(webviewCache, /"Default", "Local Storage"/);
+  assert.match(webviewCache, /"Default", "IndexedDB"/);
+  const persistentPaths = webviewCache.match(
+    /const PERSISTENT_PROFILE_PATHS:[\s\S]*?=([\s\S]*?);/,
+  )?.[1] ?? "";
+  assert.doesNotMatch(persistentPaths, /Cache/);
+});
+
 await runTest("settings appearance keeps dynamic effects as the fourth option", () => {
   const appearance = readUtf8("src/features/settings/components/SettingsAppearancePanel.tsx");
   const themeModeIndex = appearance.indexOf("UI_TEXT.settings.themeModeLabel");

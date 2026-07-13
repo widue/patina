@@ -170,22 +170,21 @@ pub async fn schedule_restore_default_webview_cache_migration(
     Ok(preview)
 }
 
-pub async fn run_pending_storage_migration<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+pub async fn run_pending_storage_migration<R: Runtime>(app: &AppHandle<R>) -> Result<bool, String> {
     let pending = match storage_anchor::read_pending_migration(app) {
         Ok(pending) => pending,
         Err(error) => {
             storage_anchor::discard_unreadable_pending_migration(app, &error)?;
-            return Ok(());
+            return Ok(true);
         }
     };
     let Some(pending) = pending else {
-        return Ok(());
+        return Ok(false);
     };
-
     match execute_pending_storage_migration(app, &pending).await {
         Ok(()) => {
             storage_anchor::remove_pending_migration(app)?;
-            Ok(())
+            Ok(true)
         }
         Err(error) => {
             let _ = storage_anchor::remove_pending_migration(app);
@@ -194,11 +193,10 @@ pub async fn run_pending_storage_migration<R: Runtime>(app: &AppHandle<R>) -> Re
                 format!("storage migration `{}` failed: {error}", pending.id),
             );
             eprintln!("storage migration `{}` failed: {error}", pending.id);
-            Ok(())
+            Ok(true)
         }
     }
 }
-
 async fn execute_pending_storage_migration<R: Runtime>(
     app: &AppHandle<R>,
     pending: &storage_anchor::PendingStorageMigration,
@@ -214,14 +212,12 @@ async fn execute_pending_storage_migration<R: Runtime>(
     let source_webview_root = source_paths.webview_root.clone();
     let data_root_changes = !same_path(&pending.source_data_root, &pending.target_data_root);
     let webview_root_changes = !same_path(&source_webview_root, &pending.target_webview_root);
-
     let default_paths = storage_paths::default_storage_paths(app)?;
     let target_mode = if same_path(&pending.target_data_root, &default_paths.data_root) {
         TargetDataRootMode::RestoreDefault
     } else {
         TargetDataRootMode::Custom
     };
-
     if data_root_changes {
         if !pending
             .source_data_root
@@ -285,6 +281,14 @@ async fn execute_pending_storage_migration<R: Runtime>(
                 ),
             );
         }
+    }
+
+    if webview_root_changes {
+        webview_cache::migrate_persistent_profile_state(
+            &source_webview_root,
+            &pending.target_webview_root,
+            &pending.id,
+        )?;
     }
 
     if pending.clear_webview_cache {

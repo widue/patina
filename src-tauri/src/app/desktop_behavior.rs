@@ -69,6 +69,7 @@ pub(crate) fn set_background_optimization(
 pub(crate) async fn sync_desktop_behavior_from_storage<R: Runtime>(
     app: AppHandle<R>,
     launched_by_autostart: bool,
+    should_reopen_main_window: bool,
 ) -> Result<(), String> {
     let startup_state = app_settings_service::load_desktop_behavior_startup_state(&app).await?;
 
@@ -80,12 +81,12 @@ pub(crate) async fn sync_desktop_behavior_from_storage<R: Runtime>(
     }
     apply_tray_visibility(&app, next);
 
-    match next.startup_ui_strategy(
-        launched_by_autostart,
-        startup_state.should_reopen_main_window,
-    ) {
+    let should_reopen_main_window =
+        should_reopen_main_window || startup_state.should_reopen_main_window;
+
+    match next.startup_ui_strategy(launched_by_autostart, should_reopen_main_window) {
         StartupUiStrategy::ShowMainWindow => {
-            if launched_by_autostart || startup_state.should_reopen_main_window {
+            if launched_by_autostart || should_reopen_main_window {
                 show_main_window(&app);
             }
         }
@@ -115,9 +116,16 @@ pub(crate) async fn sync_desktop_behavior_from_storage<R: Runtime>(
 pub(crate) fn spawn_sync_from_storage<R: Runtime + 'static>(
     app: AppHandle<R>,
     launched_by_autostart: bool,
+    should_reopen_main_window: bool,
 ) {
     tauri::async_runtime::spawn(async move {
-        if let Err(error) = sync_desktop_behavior_from_storage(app, launched_by_autostart).await {
+        if let Err(error) = sync_desktop_behavior_from_storage(
+            app,
+            launched_by_autostart,
+            should_reopen_main_window,
+        )
+        .await
+        {
             eprintln!("[tray] failed to sync desktop behavior from storage: {error}");
         }
     });

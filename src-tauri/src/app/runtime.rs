@@ -49,6 +49,7 @@ pub fn setup(
     app: &mut tauri::App,
     runtime_health: Arc<RuntimeHealthState>,
     launched_by_autostart: bool,
+    should_reopen_main_window: bool,
 ) -> tauri::Result<()> {
     tauri::async_runtime::block_on(crate::engine::remote_status_bridge::ensure_machine_id(
         &app.handle().clone(),
@@ -72,9 +73,15 @@ pub fn setup(
         if let Some(window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) {
             let _ = window.hide();
         }
+    } else if should_reopen_main_window {
+        main_window::show_main_window(&app_handle);
     }
 
-    desktop_behavior::spawn_sync_from_storage(app.handle().clone(), launched_by_autostart);
+    desktop_behavior::spawn_sync_from_storage(
+        app.handle().clone(),
+        launched_by_autostart,
+        should_reopen_main_window,
+    );
     runtime_tasks::spawn_updater_startup_auto_check(app.handle().clone());
     runtime_tasks::spawn_tracking_runtime_restart_loop(
         app.handle().clone(),

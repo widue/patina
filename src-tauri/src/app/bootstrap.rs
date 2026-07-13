@@ -184,18 +184,23 @@ fn register_runtime_hooks(
         .on_tray_icon_event(tray::handle_tray_icon_event)
         .on_window_event(tray::handle_window_event)
         .setup(move |app| {
-            tauri::async_runtime::block_on(data::storage_migration::run_pending_storage_migration(
-                app.handle(),
-            ))
+            let handled_storage_restart = tauri::async_runtime::block_on(
+                data::storage_migration::run_pending_storage_migration(app.handle()),
+            )
             .map_err(std::io::Error::other)?;
             tauri::async_runtime::block_on(data::sqlite_pool::initialize_app_sqlite(app.handle()))
                 .map_err(std::io::Error::other)?;
             Ok(runtime::setup(
                 app,
                 runtime_health.clone(),
-                launched_by_autostart,
+                effective_autostart_launch(launched_by_autostart, handled_storage_restart),
+                handled_storage_restart,
             )?)
         })
+}
+
+fn effective_autostart_launch(launched_by_autostart: bool, handled_storage_restart: bool) -> bool {
+    launched_by_autostart && !handled_storage_restart
 }
 
 pub(crate) fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
@@ -209,5 +214,22 @@ pub(crate) fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
         if keep_tray_visible && !exit_requested {
             api.prevent_exit();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::effective_autostart_launch;
+
+    #[test]
+    fn user_requested_storage_restart_reopens_the_main_window() {
+        assert!(!effective_autostart_launch(true, true));
+        assert!(!effective_autostart_launch(false, true));
+    }
+
+    #[test]
+    fn ordinary_autostart_remains_silent() {
+        assert!(effective_autostart_launch(true, false));
+        assert!(!effective_autostart_launch(false, false));
     }
 }

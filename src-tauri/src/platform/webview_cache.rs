@@ -5,6 +5,10 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Runtime};
 
 const EBWEBVIEW_DIR_NAME: &str = "EBWebView";
+const PROFILE_MIGRATION_STAGING_PREFIX: &str = ".patina-webview-state-staging";
+
+const PERSISTENT_PROFILE_PATHS: &[&[&str]] =
+    &[&["Default", "Local Storage"], &["Default", "IndexedDB"]];
 
 const CACHE_ALLOWLIST: &[(&str, &[&str])] = &[
     ("HTTP cache", &["EBWebView", "Default", "Cache"]),
@@ -65,6 +69,86 @@ pub fn clear_regenerable_cache_dirs(webview_root: &Path) -> Result<(), String> {
     clear_allowlisted_cache_dirs(webview_root)
 }
 
+pub fn migrate_persistent_profile_state(
+    source_root: &Path,
+    target_root: &Path,
+    migration_id: &str,
+) -> Result<(), String> {
+    let source_profile = ebwebview_path(source_root);
+    if !source_profile.exists() {
+        return Ok(());
+    }
+
+    let safe_id = migration_id
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric() || matches!(character, '-' | '_'))
+        .collect::<String>();
+    let staging_name = if safe_id.is_empty() {
+        PROFILE_MIGRATION_STAGING_PREFIX.to_string()
+    } else {
+        format!("{PROFILE_MIGRATION_STAGING_PREFIX}-{safe_id}")
+    };
+    let staging_root = target_root.join(staging_name);
+    remove_dir_if_exists(&staging_root)?;
+
+    let copied_any = match stage_persistent_profile_state(&source_profile, &staging_root) {
+        Ok(copied_any) => copied_any,
+        Err(error) => {
+            let _ = remove_dir_if_exists(&staging_root);
+            return Err(error);
+        }
+    };
+
+    if !copied_any {
+        return Ok(());
+    }
+
+    let target_profile = ebwebview_path(target_root);
+    for segments in PERSISTENT_PROFILE_PATHS {
+        let staged = join_segments(&staging_root, segments);
+        if !staged.exists() {
+            continue;
+        }
+        let target = join_segments(&target_profile, segments);
+        remove_dir_if_exists(&target)?;
+        let parent = target.parent().ok_or_else(|| {
+            format!(
+                "persistent WebView path `{}` has no parent",
+                target.display()
+            )
+        })?;
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "failed to create persistent WebView target `{}`: {error}",
+                parent.display()
+            )
+        })?;
+        fs::rename(&staged, &target).map_err(|error| {
+            format!(
+                "failed to promote persistent WebView state from `{}` to `{}`: {error}",
+                staged.display(),
+                target.display()
+            )
+        })?;
+    }
+
+    remove_dir_if_exists(&staging_root)
+}
+
+fn stage_persistent_profile_state(source: &Path, staging: &Path) -> Result<bool, String> {
+    let mut copied_any = false;
+    for segments in PERSISTENT_PROFILE_PATHS {
+        let source = join_segments(source, segments);
+        if !source.exists() {
+            continue;
+        }
+        let staged = join_segments(staging, segments);
+        copy_dir_without_links(&source, &staged)?;
+        copied_any = true;
+    }
+    Ok(copied_any)
+}
+
 pub fn remove_retired_cache_root(
     webview_root: &Path,
     remove_empty_root: bool,
@@ -112,6 +196,84 @@ fn allowlisted_cache_paths(webview_root: &Path) -> Vec<(String, PathBuf)> {
             ((*label).to_string(), path)
         })
         .collect()
+}
+
+fn join_segments(root: &Path, segments: &[&str]) -> PathBuf {
+    segments
+        .iter()
+        .fold(root.to_path_buf(), |path, segment| path.join(segment))
+}
+
+fn copy_dir_without_links(source: &Path, target: &Path) -> Result<(), String> {
+    if is_reparse_or_symlink(source) {
+        return Err(format!(
+            "refusing to migrate linked WebView path `{}`",
+            source.display()
+        ));
+    }
+    fs::create_dir_all(target).map_err(|error| {
+        format!(
+            "failed to create WebView migration target `{}`: {error}",
+            target.display()
+        )
+    })?;
+    for entry in fs::read_dir(source).map_err(|error| {
+        format!(
+            "failed to read WebView path `{}`: {error}",
+            source.display()
+        )
+    })? {
+        let entry = entry.map_err(|error| {
+            format!(
+                "failed to read WebView entry in `{}`: {error}",
+                source.display()
+            )
+        })?;
+        let source_path = entry.path();
+        if is_reparse_or_symlink(&source_path) {
+            return Err(format!(
+                "refusing to migrate linked WebView entry `{}`",
+                source_path.display()
+            ));
+        }
+        let target_path = target.join(entry.file_name());
+        let metadata = entry.metadata().map_err(|error| {
+            format!(
+                "failed to inspect WebView entry `{}`: {error}",
+                source_path.display()
+            )
+        })?;
+        if metadata.is_dir() {
+            copy_dir_without_links(&source_path, &target_path)?;
+        } else if metadata.is_file() {
+            fs::copy(&source_path, &target_path).map_err(|error| {
+                format!(
+                    "failed to copy WebView state `{}` to `{}`: {error}",
+                    source_path.display(),
+                    target_path.display()
+                )
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn remove_dir_if_exists(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Ok(());
+    }
+    if is_reparse_or_symlink(path) {
+        return Err(format!(
+            "refusing to remove linked WebView path `{}`",
+            path.display()
+        ));
+    }
+    fs::remove_dir_all(path).map_err(|error| {
+        format!(
+            "failed to remove WebView path `{}`: {error}",
+            path.display()
+        )
+    })
 }
 
 fn remove_cache_dir(webview_root: &Path, path: &Path) -> Result<(), String> {
@@ -302,6 +464,63 @@ mod tests {
         assert!(!cache_file.exists());
         assert!(local_storage_file.exists());
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn profile_migration_preserves_local_state_without_copying_cache() {
+        let source = temp_dir("profile-migration-source");
+        let target = temp_dir("profile-migration-target");
+        let source_local_storage = source
+            .join("EBWebView")
+            .join("Default")
+            .join("Local Storage")
+            .join("leveldb")
+            .join("state");
+        let source_indexed_db = source
+            .join("EBWebView")
+            .join("Default")
+            .join("IndexedDB")
+            .join("state");
+        let source_cache = source
+            .join("EBWebView")
+            .join("Default")
+            .join("Cache")
+            .join("entry");
+        let stale_target_state = target
+            .join("EBWebView")
+            .join("Default")
+            .join("Local Storage")
+            .join("stale");
+        write_file(&source_local_storage, 10);
+        write_file(&source_indexed_db, 20);
+        write_file(&source_cache, 30);
+        write_file(&stale_target_state, 5);
+
+        migrate_persistent_profile_state(&source, &target, "test-1").unwrap();
+
+        assert!(target
+            .join("EBWebView")
+            .join("Default")
+            .join("Local Storage")
+            .join("leveldb")
+            .join("state")
+            .exists());
+        assert!(target
+            .join("EBWebView")
+            .join("Default")
+            .join("IndexedDB")
+            .join("state")
+            .exists());
+        assert!(!stale_target_state.exists());
+        assert!(!target
+            .join("EBWebView")
+            .join("Default")
+            .join("Cache")
+            .exists());
+        assert!(source_cache.exists());
+
+        let _ = fs::remove_dir_all(source);
+        let _ = fs::remove_dir_all(target);
     }
 
     #[test]

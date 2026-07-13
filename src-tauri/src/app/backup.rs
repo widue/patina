@@ -9,7 +9,7 @@ pub(crate) async fn restore_backup_and_refresh(
     strategy: RestoreStrategy,
 ) -> Result<(), String> {
     backup::restore_backup(backup_path, app.clone(), strategy).await?;
-    desktop_behavior::sync_desktop_behavior_from_storage(app.clone(), false).await?;
+    desktop_behavior::sync_desktop_behavior_from_storage(app.clone(), false, false).await?;
     app.emit("app-settings-changed", serde_json::json!({}))
         .map_err(|error| format!("failed to emit settings refresh event: {error}"))?;
     tracking_runtime::emit_tracking_data_changed(&app, "backup-restored", now_ms())

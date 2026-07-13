@@ -140,7 +140,8 @@ where
         return Err(error);
     }
     app.state::<AppExitState>().request_exit();
-    app.restart()
+    app.request_restart();
+    Ok(())
 }
 
 #[tauri::command]
