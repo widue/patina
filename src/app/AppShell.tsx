@@ -64,6 +64,7 @@ import {
   watchCurrentWindowMaximized,
 } from "../platform/desktop/windowControlGateway";
 import ToolsSidebarStatusEntry from "../features/tools/components/ToolsSidebarStatusEntry.tsx";
+import NotificationToastStack from "../features/tools/components/NotificationToastStack.tsx";
 import ToolAlertDialog from "../features/tools/components/ToolAlertDialog.tsx";
 import type { ToolsOpenTarget } from "../features/tools/types.ts";
 import {
@@ -471,6 +472,7 @@ function AppShellContent() {
       <div className="qp-shell flex-1 min-h-0 p-4 md:p-5 lg:p-6 flex gap-4 md:gap-5 lg:gap-6 overflow-hidden">
         <QuietToastStack toasts={toasts} />
         <ToolAlertDialog />
+        <NotificationToastStack />
         {dialogs}
         <AppSidebar
           currentView={currentView}

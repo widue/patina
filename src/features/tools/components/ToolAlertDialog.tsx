@@ -22,61 +22,59 @@ function alertIcon(alert: ToolAlert): ReactNode {
 }
 
 export default function ToolAlertDialog() {
-  const { activeAlert, dismissActiveAlert } = useToolAlerts();
+  const { alerts, dismissAlert } = useToolAlerts();
+  const pomodoroAlert = alerts.find((a) => a.kind === "pomodoro") ?? null;
   const [pausingPomodoro, setPausingPomodoro] = useState(false);
-  const title = activeAlert?.title.trim() || UI_TEXT.tools.notificationStatus;
-  const message = activeAlert?.body.trim() || UI_TEXT.tools.defaultReminderLabel;
-  const occurredAtLabel = activeAlert
-    ? UI_TEXT.tools.alertOccurredAt(formatAlertTime(activeAlert.occurredAt))
+  const title = pomodoroAlert?.title.trim() || UI_TEXT.tools.notificationStatus;
+  const message = pomodoroAlert?.body.trim() || UI_TEXT.tools.defaultReminderLabel;
+  const occurredAtLabel = pomodoroAlert
+    ? UI_TEXT.tools.alertOccurredAt(formatAlertTime(pomodoroAlert.occurredAt))
     : "";
-  const canPausePomodoro = activeAlert?.kind === "pomodoro";
   const handlePausePomodoro = useCallback(async () => {
-    if (activeAlert?.kind !== "pomodoro" || pausingPomodoro) return;
+    if (!pomodoroAlert || pausingPomodoro) return;
 
     setPausingPomodoro(true);
     try {
       await ToolsRuntimeService.pausePomodoro();
-      dismissActiveAlert();
+      dismissAlert(pomodoroAlert.id);
     } catch (error) {
       console.warn("pause pomodoro from alert failed", error);
     } finally {
       setPausingPomodoro(false);
     }
-  }, [activeAlert?.kind, dismissActiveAlert, pausingPomodoro]);
+  }, [pomodoroAlert, dismissAlert, pausingPomodoro]);
 
   return (
     <QuietDialog
-      open={Boolean(activeAlert)}
+      open={Boolean(pomodoroAlert)}
       title={title}
       closeOnBackdrop={false}
-      onClose={dismissActiveAlert}
+      onClose={() => pomodoroAlert && dismissAlert(pomodoroAlert.id)}
       surfaceClassName="tools-alert-dialog-surface"
       actions={(
         <>
-          {canPausePomodoro && (
-            <button
-              type="button"
-              className="qp-button-secondary qp-dialog-action disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={() => void handlePausePomodoro()}
-              disabled={pausingPomodoro}
-            >
-              {pausingPomodoro ? UI_TEXT.tools.alertPausingPomodoro : UI_TEXT.tools.alertPausePomodoro}
-            </button>
-          )}
+          <button
+            type="button"
+            className="qp-button-secondary qp-dialog-action disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => void handlePausePomodoro()}
+            disabled={pausingPomodoro}
+          >
+            {pausingPomodoro ? UI_TEXT.tools.alertPausingPomodoro : UI_TEXT.tools.alertPausePomodoro}
+          </button>
           <button
             type="button"
             className="qp-button-primary qp-dialog-action"
-            onClick={dismissActiveAlert}
+            onClick={() => pomodoroAlert && dismissAlert(pomodoroAlert.id)}
           >
             {UI_TEXT.tools.alertDismiss}
           </button>
         </>
       )}
     >
-      {activeAlert && (
+      {pomodoroAlert && (
         <div className="tools-alert-dialog-body">
           <div className="tools-alert-dialog-icon" aria-hidden="true">
-            {alertIcon(activeAlert)}
+            {alertIcon(pomodoroAlert)}
           </div>
           <div className="tools-alert-dialog-copy">
             <p className="tools-alert-dialog-message">{message}</p>
