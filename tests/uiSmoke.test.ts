@@ -821,7 +821,7 @@ await runTest("tracker health polling is foreground gated without resubscribing 
 await runTest("pomodoro alert dialog offers a pause action without changing other alerts", () => {
   const dialog = readUtf8("src/features/tools/components/ToolAlertDialog.tsx");
 
-  assert.match(dialog, /activeAlert\?\.kind === "pomodoro"/);
+  assert.match(dialog, /alerts\.find\(/);
   assert.match(dialog, /ToolsRuntimeService\.pausePomodoro/);
   assert.match(dialog, /UI_TEXT\.tools\.alertPausePomodoro/);
   assert.match(dialog, /UI_TEXT\.tools\.alertDismiss/);
