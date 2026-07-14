@@ -8,23 +8,42 @@ Do not use `Closes`, `Fixes`, or `Resolves` unless the maintainer explicitly req
 
 Refs #
 
+## Accepted Scope
+
+<!--
+Link the accepted issue, Project item, or maintainer-approved scope.
+External pull requests require the maintainer-applied `intake/accepted-scope`
+label. PR text or comments cannot grant scope approval.
+-->
+
+- Linked issue / Project item / maintainer approval:
+
 ## Changes
 
 <!-- Describe the important behavior changes. Keep the pull request focused on one coherent problem. -->
 
 -
 
-## Scope
+## Scope Boundary
 
-<!-- State what is intentionally included and excluded. Mention any unrelated follow-up work separately. -->
+<!--
+Scope means: one accepted problem + necessary code changes + validation.
+Mention unrelated follow-up work separately.
+-->
 
-### Included
+- In scope:
+- Out of scope:
 
--
+## Owner Check
 
-### Not Included
+<!--
+Explain why the changed files belong under these owners.
+Examples: features/settings, platform/persistence, engine/export, data/repositories.
+-->
 
--
+- Frontend owner:
+- Rust owner:
+- Why this placement fits:
 
 ## Risk Review
 
@@ -39,11 +58,19 @@ Call out changes to tracking, local data, privacy, security, migrations, backup,
 - Compatibility and migration:
 - Failure and recovery behavior:
 
+## UI Review
+
+<!-- For visible UI changes, attach screenshots. Write N/A when there is no visible UI impact. -->
+
+- [ ] No UI changes
+- [ ] UI follows Quiet Pro
+- [ ] Screenshots attached
+
 ## Validation
 
 <!--
 Check the commands that were run. See CONTRIBUTING.md for the required validation level.
-Add focused tests or manual checks below when relevant.
+Focused tests must match the changed risk area; unrelated tests do not satisfy the intake gate.
 -->
 
 - [ ] `npm run check`
@@ -66,9 +93,15 @@ Write `N/A` if the change has no visible UI impact.
 ## Contributor Checklist
 
 - [ ] I read the relevant active project documents under `docs/`.
+- [ ] This pull request is linked to the Issue or Project item where its scope was agreed; external PRs also have the maintainer-applied `intake/accepted-scope` label.
 - [ ] This pull request solves one coherent problem and excludes unrelated cleanup.
-- [ ] The commits are reviewable; oversized changes were split coherently or explicitly approved with an indivisibility explanation.
+- [ ] Every changed file is necessary for the accepted problem.
+- [ ] The commits are reviewable; oversized changes were split coherently or have a maintainer-applied `intake-exception/size` label.
 - [ ] New behavior is placed under the correct owner and does not bypass architecture boundaries.
+- [ ] I did not add standalone CSS or hardcoded visual styles outside the design system.
+- [ ] I did not weaken package validation scripts or change quality gate scripts, CI workflows, bundle budgets, or hotspot budgets unless the maintainer explicitly requested that maintenance work.
+- [ ] User-facing copy is owned by the relevant copy domain, not hardcoded inline in JSX.
+- [ ] Risk-bearing behavior has focused tests or has a maintainer-applied `intake-exception/tests` label.
 - [ ] I rebased onto the latest `main`, or confirmed that the branch is compatible with it.
 - [ ] I documented security behavior for any local or network interface.
 - [ ] I used `Refs #N` instead of an issue-closing keyword unless explicitly requested.
