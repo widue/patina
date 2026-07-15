@@ -32,6 +32,10 @@ import {
   type ClassificationDraftState,
 } from "../src/features/classification/services/classificationDraftState.ts";
 import type { AppSettings } from "../src/shared/settings/appSettings.ts";
+import {
+  getHistoryTimelineWheelZoomDurationMs,
+  normalizeHistoryTimelineWheelDelta,
+} from "../src/features/history/hooks/useHistoryTimelineViewportInteraction.ts";
 
 const BASE_SETTINGS: AppSettings = {
   idleTimeoutSecs: 300,
@@ -189,6 +193,22 @@ async function runTest(name: string, fn: () => Promise<void> | void) {
   passed += 1;
   console.log(`PASS ${name}`);
 }
+
+await runTest("history timeline normalizes pixel line and page wheel deltas", () => {
+  assert.equal(normalizeHistoryTimelineWheelDelta(12, 0, 500), 12);
+  assert.equal(normalizeHistoryTimelineWheelDelta(2, 1, 500), 32);
+  assert.equal(normalizeHistoryTimelineWheelDelta(-1, 2, 500), -500);
+  assert.equal(normalizeHistoryTimelineWheelDelta(Number.NaN, 0, 500), 0);
+  assert.equal(normalizeHistoryTimelineWheelDelta(1, 2, 0), 1);
+});
+
+await runTest("history timeline wheel zoom changes the window by 0.2 hours per event", () => {
+  const fourHoursMs = 4 * 60 * 60_000;
+  const stepMs = 0.2 * 60 * 60_000;
+  assert.equal(getHistoryTimelineWheelZoomDurationMs(fourHoursMs, -120), fourHoursMs - stepMs);
+  assert.equal(getHistoryTimelineWheelZoomDurationMs(fourHoursMs, 120), fourHoursMs + stepMs);
+  assert.equal(getHistoryTimelineWheelZoomDurationMs(fourHoursMs, 0.1), fourHoursMs);
+});
 
 await runTest("settings interaction helpers cover save, cancel, and failed save semantics", async () => {
   const savedSettings = buildSettings();

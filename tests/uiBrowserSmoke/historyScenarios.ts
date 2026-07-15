@@ -156,34 +156,49 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
       ),
       "按分类显示",
     );
-    assert.equal(
-      await evaluate(client!, sessionId, `
-        (() => {
-          const segment = document.querySelector(".history-horizontal-timeline-segment");
-          if (!segment) return false;
-          segment.focus();
-          return document.activeElement === segment;
-        })()
-      `),
-      true,
-    );
-    await waitForExpression(client!, sessionId, "Boolean(document.querySelector('.history-horizontal-timeline-tooltip'))");
+    const hoverSegmentRect = JSON.parse(String(await evaluate(client!, sessionId, `
+      (() => {
+        const segment = document.querySelector(".history-horizontal-timeline-segment");
+        if (!segment) return JSON.stringify(null);
+        const rect = segment.getBoundingClientRect();
+        return JSON.stringify({
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+          tabIndex: segment.tabIndex,
+          hasClickHandler: typeof segment.onclick === "function",
+        });
+      })()
+    `))) as { x: number; y: number; tabIndex: number; hasClickHandler: boolean };
+    assert.equal(hoverSegmentRect.tabIndex, -1);
+    assert.equal(hoverSegmentRect.hasClickHandler, false);
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: hoverSegmentRect.x,
+      y: hoverSegmentRect.y,
+    }, sessionId);
+    await waitForExpression(client!, sessionId, `
+      (() => {
+        const tooltip = document.querySelector('.history-horizontal-timeline-tooltip');
+        if (!(tooltip instanceof HTMLElement)) return false;
+        const rect = tooltip.getBoundingClientRect();
+        return getComputedStyle(tooltip).visibility === "visible" && rect.width > 0 && rect.height > 0;
+      })()
+    `);
     assert.equal(
       await evaluate(client!, sessionId, `
         (() => {
           const tooltip = document.querySelector(".history-horizontal-timeline-tooltip");
-          return Boolean(tooltip?.textContent?.includes(" - "));
-        })()
-      `),
-      true,
-    );
-    assert.equal(
-      await evaluate(client!, sessionId, `
-        (() => {
-          const segment = document.querySelector(".history-horizontal-timeline-segment");
-          if (!segment) return false;
-          segment.click();
-          return !document.querySelector(".history-activity-popover");
+          if (!(tooltip instanceof HTMLElement)) return false;
+          const rect = tooltip.getBoundingClientRect();
+          return Boolean(
+            tooltip.textContent?.includes(" - ")
+            && tooltip.parentElement === document.body
+            && Number(getComputedStyle(tooltip).zIndex) >= 160
+            && rect.top >= 0
+            && rect.left >= 0
+            && rect.right <= window.innerWidth
+            && rect.bottom <= window.innerHeight
+          );
         })()
       `),
       true,
@@ -479,6 +494,9 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
       (() => {
         const dialog = document.querySelector(".history-timeline-zoom-dialog-surface");
         const timeline = document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline");
+        const laneTimeline = document.querySelector(".history-timeline-lane-track .history-horizontal-timeline");
+        const laneScroll = document.querySelector(".history-timeline-lanes-scroll");
+        const slider = document.querySelector('.history-timeline-hour-slider input[type="range"]');
         return JSON.stringify({
           hasDialog: Boolean(
             dialog
@@ -486,82 +504,90 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
             && dialog.getAttribute("aria-label") === "时间轴缩放"
             && timeline
           ),
-          zoomHours: timeline?.getAttribute("data-history-timeline-zoom-hours") ?? null,
+          viewportZoomHours: timeline?.getAttribute("data-history-timeline-zoom-hours") ?? null,
+          laneZoomHours: laneTimeline?.getAttribute("data-history-timeline-zoom-hours") ?? null,
           hasTrack: Boolean(document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline-track")),
-          hasZoomSwitch: Boolean(document.querySelector(".history-timeline-zoom-dialog-surface .history-timeline-zoom-switch")),
+          sliderValue: slider instanceof HTMLInputElement ? slider.value : null,
+          hasSelection: Boolean(document.querySelector(".history-timeline-overview-selection")),
           hasList: Boolean(document.querySelector(".history-timeline-zoom-dialog-surface .history-timeline-list")),
+          laneCount: Number(document.querySelector(".history-timeline-lanes-scroll")
+            ?.getAttribute("data-history-timeline-lane-count") ?? 0),
+          laneRows: document.querySelectorAll(".history-timeline-lane-row").length,
+          laneTracks: document.querySelectorAll(".history-timeline-lane-track .history-horizontal-timeline-track").length,
+          laneAxes: document.querySelectorAll(".history-timeline-lane-track .history-horizontal-timeline-axis").length,
+          laneOverflowY: getComputedStyle(
+            laneScroll ?? document.body
+          ).overflowY,
+          laneViewportHeight: laneScroll?.clientHeight ?? 0,
+          expectedLaneViewportHeight: 250,
+          dialogBottomGap: dialog && laneScroll
+            ? Math.round(dialog.getBoundingClientRect().bottom - laneScroll.getBoundingClientRect().bottom)
+            : null,
         });
       })()
     `)));
     assert.equal(initialZoomDialogState.hasDialog, true);
-    assert.equal(initialZoomDialogState.zoomHours, "24");
+    assert.equal(initialZoomDialogState.viewportZoomHours, "4");
+    assert.equal(initialZoomDialogState.laneZoomHours, "4");
     assert.equal(initialZoomDialogState.hasTrack, true);
-    assert.equal(initialZoomDialogState.hasZoomSwitch, true);
+    assert.equal(initialZoomDialogState.sliderValue, "4");
+    assert.equal(initialZoomDialogState.hasSelection, false);
     assert.equal(initialZoomDialogState.hasList, false);
-    assert.equal(
-      await evaluate(client!, sessionId, `
-        (() => {
-          const button = Array.from(document.querySelectorAll(".history-timeline-zoom-dialog-surface .history-timeline-zoom-switch button"))
-            .find((candidate) => candidate.textContent?.trim() === "4h");
-          if (!(button instanceof HTMLButtonElement)) return false;
-          button.click();
-          return true;
-        })()
-      `),
-      true,
-    );
-    await waitForExpression(
-      client!,
-      sessionId,
-      `document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline")
-        ?.getAttribute("data-history-timeline-zoom-hours") === "4"`,
-    );
-    const zoomedTimelineState = JSON.parse(String(await evaluate(client!, sessionId, `
+    assert.ok(initialZoomDialogState.laneCount > 0);
+    assert.equal(initialZoomDialogState.laneRows, initialZoomDialogState.laneCount);
+    assert.equal(initialZoomDialogState.laneTracks, initialZoomDialogState.laneCount);
+    assert.equal(initialZoomDialogState.laneAxes, 0);
+    assert.equal(initialZoomDialogState.laneOverflowY, "auto");
+    assert.equal(initialZoomDialogState.laneViewportHeight, initialZoomDialogState.expectedLaneViewportHeight);
+    assert.ok(initialZoomDialogState.laneViewportHeight <= 250);
+    assert.ok(initialZoomDialogState.dialogBottomGap >= 0 && initialZoomDialogState.dialogBottomGap <= 32);
+    const laneHoverPoint = JSON.parse(String(await evaluate(client!, sessionId, `
       (() => {
-        const timeline = document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline");
-        const axisLabels = Array.from(document.querySelectorAll(
-          ".history-timeline-zoom-dialog-timeline .history-horizontal-timeline-axis span"
-        )).map((label) => label.textContent?.trim() ?? "");
+        const segment = document.querySelector(".history-timeline-lane-track .history-horizontal-timeline-segment");
+        if (!(segment instanceof HTMLElement)) return JSON.stringify(null);
+        const rect = segment.getBoundingClientRect();
         return JSON.stringify({
-          zoomHours: timeline?.getAttribute("data-history-timeline-zoom-hours") ?? null,
-          windowStart: timeline?.getAttribute("data-history-timeline-window-start") ?? null,
-          windowEnd: timeline?.getAttribute("data-history-timeline-window-end") ?? null,
-          axisLabels,
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
         });
       })()
-    `)));
-    assert.equal(zoomedTimelineState.zoomHours, "4");
-    assert.equal(zoomedTimelineState.axisLabels.length, 5);
-    assert.equal(
-      (zoomedTimelineState.axisLabels as string[]).every((label) => (
-        label === "24:00" || /:(00|30)$/.test(label)
-      )),
-      true,
-    );
-    assert.ok(zoomedTimelineState.windowStart);
-    assert.ok(zoomedTimelineState.windowEnd);
-    const panStartBefore = zoomedTimelineState.windowStart;
-    const panEndBefore = zoomedTimelineState.windowEnd;
-    const timelinePanDeltaY = await evaluate(client!, sessionId, `
+    `))) as { x: number; y: number };
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: laneHoverPoint.x,
+      y: laneHoverPoint.y,
+    }, sessionId);
+    await waitForExpression(client!, sessionId, `
       (() => {
-        const startMs = Number(${jsonString(panStartBefore)});
-        const endMs = Number(${jsonString(panEndBefore)});
-        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return 120;
-        const dayStartMs = new Date(startMs).setHours(0, 0, 0, 0);
-        const dayEndMs = dayStartMs + 24 * 60 * 60 * 1000;
-        return endMs >= dayEndMs ? -120 : 120;
+        const tooltip = document.querySelector(".history-horizontal-timeline-tooltip");
+        if (!(tooltip instanceof HTMLElement)) return false;
+        const rect = tooltip.getBoundingClientRect();
+        return getComputedStyle(tooltip).visibility === "visible" && rect.width > 0 && rect.height > 0;
       })()
     `);
     assert.equal(
       await evaluate(client!, sessionId, `
         (() => {
-          const target = document.querySelector(".history-timeline-zoom-dialog-timeline");
-          if (!target) return false;
-          target.dispatchEvent(new WheelEvent("wheel", {
-            deltaY: ${timelinePanDeltaY},
-            bubbles: true,
-            cancelable: true,
-          }));
+          const tooltip = document.querySelector(".history-horizontal-timeline-tooltip");
+          const laneScroll = document.querySelector(".history-timeline-lanes-scroll");
+          return Boolean(
+            tooltip
+            && laneScroll
+            && tooltip.parentElement === document.body
+            && !laneScroll.contains(tooltip)
+          );
+        })()
+      `),
+      true,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const slider = document.querySelector('.history-timeline-hour-slider input[type="range"]');
+          if (!(slider instanceof HTMLInputElement)) return false;
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+          setter?.call(slider, "8");
+          slider.dispatchEvent(new Event("input", { bubbles: true }));
           return true;
         })()
       `),
@@ -571,8 +597,269 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
       client!,
       sessionId,
       `document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline")
-        ?.getAttribute("data-history-timeline-window-start") !== ${jsonString(panStartBefore)}`,
+        ?.getAttribute("data-history-timeline-zoom-hours") === "8"`,
     );
+    const zoomedTimelineState = JSON.parse(String(await evaluate(client!, sessionId, `
+      (() => {
+        const timeline = document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline");
+        const laneTimeline = document.querySelector(".history-timeline-lane-track .history-horizontal-timeline");
+        return JSON.stringify({
+          zoomHours: timeline?.getAttribute("data-history-timeline-zoom-hours") ?? null,
+          laneZoomHours: laneTimeline?.getAttribute("data-history-timeline-zoom-hours") ?? null,
+          windowStart: timeline?.getAttribute("data-history-timeline-window-start") ?? null,
+          windowEnd: timeline?.getAttribute("data-history-timeline-window-end") ?? null,
+        });
+      })()
+    `)));
+    assert.equal(zoomedTimelineState.zoomHours, "8");
+    assert.equal(zoomedTimelineState.laneZoomHours, "8");
+    assert.ok(zoomedTimelineState.windowStart);
+    assert.ok(zoomedTimelineState.windowEnd);
+    const timelineInteractionRect = JSON.parse(String(await evaluate(client!, sessionId, `
+      (() => {
+        const target = document.querySelector(".history-timeline-zoom-dialog-timeline");
+        if (!target) return JSON.stringify(null);
+        const rect = target.getBoundingClientRect();
+        return JSON.stringify({
+          left: rect.left,
+          top: rect.top,
+          width: rect.width,
+          height: rect.height,
+        });
+      })()
+    `))) as { left: number; top: number; width: number; height: number };
+    assert.ok(timelineInteractionRect.width > 0);
+    const zoomAnchorRatio = 0.25;
+    const interactionX = timelineInteractionRect.left + timelineInteractionRect.width * zoomAnchorRatio;
+    const interactionY = timelineInteractionRect.top + timelineInteractionRect.height / 2;
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseWheel",
+      x: interactionX,
+      y: interactionY,
+      deltaX: 0,
+      deltaY: -120,
+    }, sessionId);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline")
+        ?.getAttribute("data-history-timeline-zoom-hours") !== "8"`,
+    );
+    const continuousZoomState = JSON.parse(String(await evaluate(client!, sessionId, `
+      (() => {
+        const timeline = document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline");
+        const laneTimeline = document.querySelector(".history-timeline-lane-track .history-horizontal-timeline");
+        const slider = document.querySelector('.history-timeline-hour-slider input[type="range"]');
+        return JSON.stringify({
+          zoomHours: Number(timeline?.getAttribute("data-history-timeline-zoom-hours")),
+          laneZoomHours: Number(laneTimeline?.getAttribute("data-history-timeline-zoom-hours")),
+          windowStart: Number(timeline?.getAttribute("data-history-timeline-window-start")),
+          windowEnd: Number(timeline?.getAttribute("data-history-timeline-window-end")),
+          sliderValue: slider instanceof HTMLInputElement ? Number(slider.value) : 0,
+        });
+      })()
+    `))) as {
+      zoomHours: number;
+      laneZoomHours: number;
+      windowStart: number;
+      windowEnd: number;
+      sliderValue: number;
+    };
+    assert.ok(Math.abs(continuousZoomState.zoomHours - 7.8) < 0.001);
+    assert.ok(Math.abs(continuousZoomState.laneZoomHours - continuousZoomState.zoomHours) < 0.001);
+    assert.ok(Math.abs(continuousZoomState.sliderValue - continuousZoomState.zoomHours) < 0.001);
+    const anchorBefore = Number(zoomedTimelineState.windowStart)
+      + (Number(zoomedTimelineState.windowEnd) - Number(zoomedTimelineState.windowStart)) * zoomAnchorRatio;
+    const anchorAfter = continuousZoomState.windowStart
+      + (continuousZoomState.windowEnd - continuousZoomState.windowStart) * zoomAnchorRatio;
+    const anchorErrorPixels = Math.abs(anchorAfter - anchorBefore)
+      / (continuousZoomState.windowEnd - continuousZoomState.windowStart)
+      * timelineInteractionRect.width;
+    assert.ok(anchorErrorPixels < 3);
+
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseWheel",
+      x: interactionX,
+      y: interactionY,
+      deltaX: 120,
+      deltaY: 0,
+    }, sessionId);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `Number(document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline")
+        ?.getAttribute("data-history-timeline-window-start")) > ${continuousZoomState.windowStart}`,
+    );
+    const wheelPanState = JSON.parse(String(await evaluate(client!, sessionId, `
+      (() => {
+        const timeline = document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline");
+        return JSON.stringify({
+          zoomHours: Number(timeline?.getAttribute("data-history-timeline-zoom-hours")),
+          windowStart: Number(timeline?.getAttribute("data-history-timeline-window-start")),
+          windowEnd: Number(timeline?.getAttribute("data-history-timeline-window-end")),
+        });
+      })()
+    `))) as { zoomHours: number; windowStart: number; windowEnd: number };
+    assert.ok(Math.abs(wheelPanState.zoomHours - continuousZoomState.zoomHours) < 0.001);
+    assert.equal(
+      wheelPanState.windowEnd - wheelPanState.windowStart,
+      continuousZoomState.windowEnd - continuousZoomState.windowStart,
+    );
+
+    const dragStartPoint = JSON.parse(String(await evaluate(client!, sessionId, `
+      (() => {
+        const segment = document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline-segment");
+        if (!(segment instanceof HTMLElement)) return JSON.stringify(null);
+        const rect = segment.getBoundingClientRect();
+        return JSON.stringify({
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        });
+      })()
+    `))) as { x: number; y: number };
+    const dragStartX = dragStartPoint.x;
+    const dragStartY = dragStartPoint.y;
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: dragStartX,
+      y: dragStartY,
+    }, sessionId);
+    await waitForExpression(client!, sessionId, `Boolean(document.querySelector(
+      ".history-horizontal-timeline-tooltip"
+    ))`);
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: dragStartX,
+      y: dragStartY,
+      button: "left",
+      clickCount: 1,
+    }, sessionId);
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: dragStartX + 2,
+      y: dragStartY,
+      button: "left",
+      buttons: 1,
+    }, sessionId);
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: dragStartX + 2,
+      y: dragStartY,
+      button: "left",
+      clickCount: 1,
+    }, sessionId);
+    assert.equal(
+      Number(await evaluate(client!, sessionId, `document.querySelector(".history-timeline-lane-track .history-horizontal-timeline")
+        ?.getAttribute("data-history-timeline-window-start")`)),
+      wheelPanState.windowStart,
+    );
+
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: dragStartX,
+      y: dragStartY,
+    }, sessionId);
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mousePressed",
+      x: dragStartX,
+      y: dragStartY,
+      button: "left",
+      clickCount: 1,
+    }, sessionId);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: dragStartX + 100,
+      y: dragStartY,
+      button: "left",
+      buttons: 1,
+    }, sessionId);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelector(".history-timeline-zoom-dialog-timeline")
+        ?.classList.contains("history-timeline-zoom-dialog-timeline-dragging") === true`,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `Boolean(document.querySelector(
+        ".history-horizontal-timeline-tooltip"
+      ))`),
+      false,
+    );
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseReleased",
+      x: dragStartX + 100,
+      y: dragStartY,
+      button: "left",
+      clickCount: 1,
+    }, sessionId);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `Number(document.querySelector(".history-timeline-lane-track .history-horizontal-timeline")
+        ?.getAttribute("data-history-timeline-window-start")) < ${wheelPanState.windowStart}`,
+    );
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const repeatedDragState = JSON.parse(String(await evaluate(client!, sessionId, `
+        (() => {
+          const timeline = document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline");
+          const segment = document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline-segment");
+          if (!(segment instanceof HTMLElement)) return JSON.stringify(null);
+          const rect = segment.getBoundingClientRect();
+          return JSON.stringify({
+            windowStart: Number(timeline?.getAttribute("data-history-timeline-window-start")),
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          });
+        })()
+      `))) as { windowStart: number; x: number; y: number };
+      const dragDeltaX = attempt % 2 === 0 ? -80 : 80;
+      await client!.command("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: repeatedDragState.x,
+        y: repeatedDragState.y,
+      }, sessionId);
+      await waitForExpression(client!, sessionId, `Boolean(document.querySelector(
+        ".history-horizontal-timeline-tooltip"
+      ))`);
+      await client!.command("Input.dispatchMouseEvent", {
+        type: "mousePressed",
+        x: repeatedDragState.x,
+        y: repeatedDragState.y,
+        button: "left",
+        clickCount: 1,
+      }, sessionId);
+      await new Promise((resolve) => setTimeout(resolve, 350));
+      await client!.command("Input.dispatchMouseEvent", {
+        type: "mouseMoved",
+        x: repeatedDragState.x + dragDeltaX,
+        y: repeatedDragState.y,
+        button: "left",
+        buttons: 1,
+      }, sessionId);
+      await client!.command("Input.dispatchMouseEvent", {
+        type: "mouseReleased",
+        x: repeatedDragState.x + dragDeltaX,
+        y: repeatedDragState.y,
+        button: "left",
+        clickCount: 1,
+      }, sessionId);
+      const comparison = dragDeltaX > 0 ? "<" : ">";
+      await waitForExpression(
+        client!,
+        sessionId,
+        `Number(document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline")
+          ?.getAttribute("data-history-timeline-window-start")) ${comparison} ${repeatedDragState.windowStart}`,
+      );
+    }
+    const draggedStart = Number(await evaluate(client!, sessionId, `document.querySelector(
+      ".history-timeline-lane-track .history-horizontal-timeline"
+    )?.getAttribute("data-history-timeline-window-start")`));
+    const persistedZoomHours = Number(await evaluate(client!, sessionId, `localStorage.getItem(
+      "patina:history-timeline-zoom-hours"
+    )`));
+    assert.ok(Math.abs(persistedZoomHours - continuousZoomState.zoomHours) < 0.001);
     assert.equal(
       await evaluate(client!, sessionId, `
         document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1
@@ -609,9 +896,78 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
     await waitForExpression(
       client!,
       sessionId,
-      `document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline")
-        ?.getAttribute("data-history-timeline-zoom-hours") === "4"`,
+      `Math.abs(Number(document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline")
+        ?.getAttribute("data-history-timeline-zoom-hours")) - ${persistedZoomHours}) < 0.001`,
     );
+    const reopenedTimelineState = JSON.parse(String(await evaluate(client!, sessionId, `
+      (() => {
+        const timeline = document.querySelector(".history-timeline-lane-track .history-horizontal-timeline");
+        return JSON.stringify({
+          zoomHours: Number(timeline?.getAttribute("data-history-timeline-zoom-hours")),
+          windowStart: Number(timeline?.getAttribute("data-history-timeline-window-start")),
+        });
+      })()
+    `))) as { zoomHours: number; windowStart: number };
+    assert.equal(reopenedTimelineState.zoomHours, persistedZoomHours);
+    assert.notEqual(reopenedTimelineState.windowStart, draggedStart);
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const button = document.querySelector('.history-timeline-hour-slider button[aria-label="增加一小时"]');
+          if (!(button instanceof HTMLButtonElement)) return false;
+          button.click();
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline")
+        ?.getAttribute("data-history-timeline-zoom-hours") === "8"`,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `document.querySelector('.history-timeline-hour-slider input[type="range"]')?.value`),
+      "8",
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const button = document.querySelector('.history-timeline-hour-slider button[aria-label="减少一小时"]');
+          if (!(button instanceof HTMLButtonElement)) return false;
+          button.click();
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelector(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline")
+        ?.getAttribute("data-history-timeline-zoom-hours") === "7"`,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const slider = document.querySelector('.history-timeline-hour-slider input[type="range"]');
+          if (!(slider instanceof HTMLInputElement)) return false;
+          const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+          setter?.call(slider, "24");
+          slider.dispatchEvent(new Event("input", { bubbles: true }));
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelector(".history-timeline-lane-track .history-horizontal-timeline")
+        ?.getAttribute("data-history-timeline-zoom-hours") === "24"`,
+    );
+    assert.equal(await evaluate(client!, sessionId, `document.querySelector(".history-timeline-viewport-reset")`), null);
     assert.equal(
       await evaluate(client!, sessionId, `
         (() => {
