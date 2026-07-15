@@ -6,10 +6,18 @@ use crc32fast::Hasher;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{Cursor, Read, Write};
+#[cfg(test)]
+use std::io::Write;
+use std::io::{Cursor, Read};
 use std::path::Path;
+#[cfg(test)]
 use zip::write::SimpleFileOptions;
-use zip::{CompressionMethod, ZipArchive, ZipWriter};
+use zip::ZipArchive;
+
+const MAX_LEGACY_ARCHIVE_BYTES: u64 = 128 * 1024 * 1024;
+const MAX_LEGACY_ENTRY_BYTES: u64 = 64 * 1024 * 1024;
+#[cfg(test)]
+use zip::{CompressionMethod, ZipWriter};
 
 pub(super) const BACKUP_FORMAT: &str = "PatinaBackup";
 pub(super) const BACKUP_MANIFEST_ENTRY_NAME: &str = "manifest.json";
@@ -84,6 +92,7 @@ pub(super) struct BackupArchiveChecksums {
     pub(super) files: BTreeMap<String, String>,
 }
 
+#[cfg(test)]
 fn build_backup_manifest(payload: &BackupPayload) -> BackupArchiveManifest {
     BackupArchiveManifest {
         format: BACKUP_FORMAT.to_string(),
@@ -118,6 +127,7 @@ fn build_backup_manifest(payload: &BackupPayload) -> BackupArchiveManifest {
     }
 }
 
+#[cfg(test)]
 pub(super) fn serialize_pretty<T: Serialize>(value: &T, label: &str) -> Result<String, String> {
     serde_json::to_string_pretty(value)
         .map_err(|error| format!("failed to serialize backup {label}: {error}"))
@@ -129,6 +139,7 @@ pub(super) fn checksum(value: &str) -> String {
     format!("{:08x}", hasher.finalize())
 }
 
+#[cfg(test)]
 fn zip_start_file(
     archive: &mut ZipWriter<Cursor<Vec<u8>>>,
     name: &str,
@@ -139,6 +150,7 @@ fn zip_start_file(
         .map_err(|error| format!("failed to start backup archive entry `{name}`: {error}"))
 }
 
+#[cfg(test)]
 pub(super) fn zip_write_file(
     archive: &mut ZipWriter<Cursor<Vec<u8>>>,
     name: &str,
@@ -151,6 +163,7 @@ pub(super) fn zip_write_file(
         .map_err(|error| format!("failed to write backup archive entry `{name}`: {error}"))
 }
 
+#[cfg(test)]
 pub(super) fn encode_backup_archive(payload: &BackupPayload) -> Result<Vec<u8>, String> {
     let manifest = build_backup_manifest(payload);
     let sessions = serialize_pretty(&payload.sessions, "sessions")?;
@@ -288,19 +301,32 @@ fn read_zip_entry(
     entry_name: &str,
     backup_path: &Path,
 ) -> Result<String, String> {
-    let mut entry = archive.by_name(entry_name).map_err(|error| {
+    let entry = archive.by_name(entry_name).map_err(|error| {
         format!(
             "backup archive `{}` does not contain {entry_name}: {error}",
             backup_path.display()
         )
     })?;
+    if entry.size() > MAX_LEGACY_ENTRY_BYTES {
+        return Err(format!(
+            "backup archive entry `{entry_name}` exceeds the legacy reader limit"
+        ));
+    }
     let mut content = String::new();
-    entry.read_to_string(&mut content).map_err(|error| {
-        format!(
-            "failed to read backup archive entry `{entry_name}` from `{}`: {error}",
-            backup_path.display()
-        )
-    })?;
+    entry
+        .take(MAX_LEGACY_ENTRY_BYTES + 1)
+        .read_to_string(&mut content)
+        .map_err(|error| {
+            format!(
+                "failed to read backup archive entry `{entry_name}` from `{}`: {error}",
+                backup_path.display()
+            )
+        })?;
+    if content.len() as u64 > MAX_LEGACY_ENTRY_BYTES {
+        return Err(format!(
+            "backup archive entry `{entry_name}` exceeds the legacy reader limit"
+        ));
+    }
     Ok(content)
 }
 
@@ -534,15 +560,28 @@ pub(super) fn decode_structured_backup_archive(
         settings,
         icon_cache,
         web_activity_segments,
+        web_favicon_cache: Vec::new(),
         tool_reminders,
         tool_timers,
         tool_timer_laps,
         tool_pomodoro_runs,
         tool_daily_stats,
+        tool_software_reminder_rules: Vec::new(),
     })
 }
 
 pub(super) fn read_backup_payload(backup_path: &Path) -> Result<BackupPayload, String> {
+    let archive_size = fs::metadata(backup_path)
+        .map_err(|error| {
+            format!(
+                "failed to read backup file metadata `{}`: {error}",
+                backup_path.display()
+            )
+        })?
+        .len();
+    if archive_size > MAX_LEGACY_ARCHIVE_BYTES {
+        return Err("legacy backup archive exceeds the supported size limit".to_string());
+    }
     let raw_bytes = fs::read(backup_path).map_err(|error| {
         format!(
             "failed to read backup file `{}`: {error}",

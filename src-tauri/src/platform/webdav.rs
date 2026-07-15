@@ -1,6 +1,11 @@
-use reqwest::{Method, StatusCode, Url};
+use futures_util::StreamExt;
+use reqwest::{Body, Method, StatusCode, Url};
 use std::path::Path;
 use std::time::Duration;
+use tokio::io::AsyncWriteExt;
+use tokio_util::io::ReaderStream;
+
+const MAX_TRANSFER_BYTES: u64 = 512 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WebDavConfig {
@@ -67,7 +72,6 @@ impl WebDavClient {
     pub fn new(config: &WebDavConfig, password: String) -> Result<Self, String> {
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(8))
-            .timeout(Duration::from_secs(60))
             .build()
             .map_err(|error| format!("failed to create WebDAV client: {error}"))?;
 
@@ -190,14 +194,24 @@ impl WebDavClient {
     }
 
     pub async fn upload_file(&self, local_path: &Path, remote_path: &str) -> Result<(), String> {
-        let bytes = tokio::fs::read(local_path)
+        let file = tokio::fs::File::open(local_path)
             .await
             .map_err(|error| format!("failed to read local backup before upload: {error}"))?;
+        let size = file
+            .metadata()
+            .await
+            .map_err(|error| format!("failed to read local backup metadata: {error}"))?
+            .len();
+        if size > MAX_TRANSFER_BYTES {
+            return Err("local backup exceeds the WebDAV transfer size limit".to_string());
+        }
+        let body = Body::wrap_stream(ReaderStream::new(file));
         let response = self
             .request(Method::PUT, remote_path)
             .await?
             .header("Content-Type", "application/zip")
-            .body(bytes)
+            .header("Content-Length", size)
+            .body(body)
             .send()
             .await
             .map_err(|error| format!("failed to upload WebDAV backup: {error}"))?;
@@ -220,18 +234,60 @@ impl WebDavClient {
         if !status.is_success() {
             return Err(format!("failed to download WebDAV backup: HTTP {status}"));
         }
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|error| format!("failed to read WebDAV backup response: {error}"))?;
+        if response
+            .content_length()
+            .is_some_and(|size| size > MAX_TRANSFER_BYTES)
+        {
+            return Err("remote backup exceeds the WebDAV transfer size limit".to_string());
+        }
         if let Some(parent) = local_path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
                 .map_err(|error| format!("failed to create backup download dir: {error}"))?;
         }
-        tokio::fs::write(local_path, bytes)
+        let partial_path = local_path.with_extension("zip.partial");
+        for stale_path in [local_path, partial_path.as_path()] {
+            match tokio::fs::remove_file(stale_path).await {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(format!("failed to clear stale backup download: {error}"));
+                }
+            }
+        }
+        let mut file = tokio::fs::File::create(&partial_path)
             .await
-            .map_err(|error| format!("failed to write downloaded backup: {error}"))
+            .map_err(|error| format!("failed to create downloaded backup: {error}"))?;
+        let mut received = 0_u64;
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = match chunk {
+                Ok(chunk) => chunk,
+                Err(error) => {
+                    drop(file);
+                    let _ = tokio::fs::remove_file(&partial_path).await;
+                    return Err(format!("failed to read WebDAV backup response: {error}"));
+                }
+            };
+            received = received.saturating_add(chunk.len() as u64);
+            if received > MAX_TRANSFER_BYTES {
+                let _ = tokio::fs::remove_file(&partial_path).await;
+                return Err("remote backup exceeds the WebDAV transfer size limit".to_string());
+            }
+            if let Err(error) = file.write_all(&chunk).await {
+                let _ = tokio::fs::remove_file(&partial_path).await;
+                return Err(format!("failed to write downloaded backup: {error}"));
+            }
+        }
+        if let Err(error) = file.flush().await {
+            drop(file);
+            let _ = tokio::fs::remove_file(&partial_path).await;
+            return Err(format!("failed to flush downloaded backup: {error}"));
+        }
+        drop(file);
+        tokio::fs::rename(&partial_path, local_path)
+            .await
+            .map_err(|error| format!("failed to publish downloaded backup: {error}"))
     }
 }
 

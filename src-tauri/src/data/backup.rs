@@ -1,23 +1,34 @@
-use crate::data::repositories;
-use crate::data::sqlite_pool::wait_for_sqlite_pool;
-use crate::domain::backup::{
-    BackupMeta, BackupPayload, BackupPreview, CURRENT_BACKUP_SCHEMA_VERSION, CURRENT_BACKUP_VERSION,
+use crate::data::sqlite_pool::{
+    acquire_sqlite_maintenance, checkpoint_sqlite_pool, open_single_connection_sqlite_pool,
+    prepare_pool_schema, replace_product_db_from_candidate, wait_for_sqlite_pool,
 };
-use serde::Deserialize;
-use sqlx::{Pool, Sqlite};
+#[cfg(test)]
+use crate::domain::backup::BackupPayload;
+use crate::domain::backup::BackupPreview;
+#[cfg(test)]
+use crate::domain::backup::{BackupMeta, CURRENT_BACKUP_SCHEMA_VERSION, CURRENT_BACKUP_VERSION};
+#[cfg(test)]
 use std::fs;
-use std::path::PathBuf;
-use tauri::{AppHandle, Runtime};
+use std::path::{Path, PathBuf};
+use tauri::AppHandle;
 
 mod archive;
 #[cfg(test)]
 mod archive_tests;
 mod paths;
+mod payload;
+mod restore_payload;
+mod snapshot;
 
-use archive::{encode_backup_archive, read_backup_payload};
+#[cfg(test)]
+use archive::encode_backup_archive;
+use archive::read_backup_payload;
 use paths::resolve_backup_path;
+use payload::load_backup_payload_from_pool;
+use restore_payload::restore_backup_payload;
 
 pub use paths::{pick_backup_file, pick_backup_save_file};
+pub use payload::RestoreStrategy;
 
 #[cfg(test)]
 use archive::*;
@@ -28,67 +39,14 @@ use std::collections::BTreeMap;
 #[cfg(test)]
 use std::io::{Cursor, Read};
 #[cfg(test)]
-use std::path::Path;
-#[cfg(test)]
 use zip::write::SimpleFileOptions;
 #[cfg(test)]
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
-async fn load_backup_payload<R: Runtime>(app: &AppHandle<R>) -> Result<BackupPayload, String> {
-    let pool = wait_for_sqlite_pool(app).await?;
-    let sessions = repositories::sessions::fetch_all_for_backup(&pool).await?;
-    let title_samples = repositories::session_title_samples::fetch_all_for_backup(&pool).await?;
-    let settings = repositories::settings::fetch_all_for_backup(&pool).await?;
-    let icon_cache = repositories::icon_cache::fetch_all_for_backup(&pool).await?;
-    let web_activity_segments = repositories::web_activity::fetch_all_for_backup(&pool).await?;
-    let tool_reminders = repositories::tools::fetch_all_reminders_for_backup(&pool).await?;
-    let tool_timers = repositories::tools::fetch_all_timers_for_backup(&pool).await?;
-    let tool_timer_laps = repositories::tools::fetch_all_timer_laps_for_backup(&pool).await?;
-    let tool_pomodoro_runs = repositories::tools::fetch_all_pomodoro_runs_for_backup(&pool).await?;
-    let tool_daily_stats = repositories::tools::fetch_all_daily_stats_for_backup(&pool).await?;
-
-    Ok(BackupPayload {
-        version: CURRENT_BACKUP_VERSION,
-        meta: BackupMeta {
-            exported_at_ms: now_ms(),
-            schema_version: CURRENT_BACKUP_SCHEMA_VERSION,
-            app_version: env!("CARGO_PKG_VERSION").to_string(),
-        },
-        sessions,
-        title_samples,
-        settings,
-        icon_cache,
-        web_activity_segments,
-        tool_reminders,
-        tool_timers,
-        tool_timer_laps,
-        tool_pomodoro_runs,
-        tool_daily_stats,
-    })
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or_default()
-}
-
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum RestoreStrategy {
-    #[default]
-    Replace,
-    Merge,
-}
-
 pub async fn export_backup(backup_path: Option<String>, app: AppHandle) -> Result<String, String> {
-    let payload = load_backup_payload(&app).await?;
     let target_path = resolve_backup_path(&app, backup_path)?;
-
-    let archive = encode_backup_archive(&payload)?;
-    fs::write(&target_path, archive)
-        .map_err(|error| format!("failed to write backup file: {error}"))?;
+    let pool = wait_for_sqlite_pool(&app).await?;
+    snapshot::write_snapshot_archive(&pool, &target_path, env!("CARGO_PKG_VERSION")).await?;
 
     Ok(target_path.to_string_lossy().to_string())
 }
@@ -102,6 +60,11 @@ pub async fn restore_backup(
     if backup_path.as_os_str().is_empty() {
         return Err("backup path cannot be empty".to_string());
     }
+    let _maintenance = acquire_sqlite_maintenance().await;
+
+    if snapshot::is_snapshot_archive(&backup_path)? {
+        return restore_snapshot_backup(&backup_path, &app, strategy).await;
+    }
 
     let payload = read_backup_payload(&backup_path)?;
     let restore_safety = payload.restore_safety();
@@ -114,89 +77,58 @@ pub async fn restore_backup(
     Ok(())
 }
 
-async fn restore_backup_payload(
-    pool: &Pool<Sqlite>,
-    payload: &BackupPayload,
+async fn restore_snapshot_backup(
+    backup_path: &Path,
+    app: &AppHandle,
     strategy: RestoreStrategy,
 ) -> Result<(), String> {
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|error| format!("failed to start restore transaction: {error}"))?;
-    match strategy {
-        RestoreStrategy::Replace => {
-            repositories::session_title_samples::clear_for_restore(&mut tx).await?;
-            repositories::sessions::clear_for_restore(&mut tx).await?;
-            repositories::settings::clear_for_restore(&mut tx).await?;
-            repositories::icon_cache::clear_for_restore(&mut tx).await?;
-            repositories::web_activity::clear_for_restore(&mut tx).await?;
-            repositories::tools::clear_for_restore(&mut tx).await?;
-
-            repositories::sessions::insert_for_restore(&mut tx, &payload.sessions).await?;
-            let session_id_map =
-                repositories::sessions::resolve_restore_session_id_map(&mut tx, &payload.sessions)
-                    .await?;
-            repositories::session_title_samples::insert_for_restore(
-                &mut tx,
-                &payload.title_samples,
-                &session_id_map,
-            )
-            .await?;
-            repositories::settings::insert_for_restore(&mut tx, &payload.settings).await?;
-            repositories::icon_cache::insert_for_restore(&mut tx, &payload.icon_cache).await?;
-            repositories::web_activity::insert_for_restore(&mut tx, &payload.web_activity_segments)
-                .await?;
-            repositories::tools::insert_for_restore(
-                &mut tx,
-                &payload.tool_reminders,
-                &payload.tool_timers,
-                &payload.tool_timer_laps,
-                &payload.tool_pomodoro_runs,
-                &payload.tool_daily_stats,
-            )
-            .await?;
-        }
-        RestoreStrategy::Merge => {
-            repositories::sessions::insert_missing_for_restore(&mut tx, &payload.sessions).await?;
-            let session_id_map =
-                repositories::sessions::resolve_restore_session_id_map(&mut tx, &payload.sessions)
-                    .await?;
-            repositories::session_title_samples::insert_missing_for_restore(
-                &mut tx,
-                &payload.title_samples,
-                &session_id_map,
-            )
-            .await?;
-            repositories::settings::insert_missing_for_restore(&mut tx, &payload.settings).await?;
-            repositories::icon_cache::insert_missing_for_restore(&mut tx, &payload.icon_cache)
-                .await?;
-            repositories::web_activity::insert_missing_for_restore(
-                &mut tx,
-                &payload.web_activity_segments,
-            )
-            .await?;
-            repositories::tools::insert_missing_for_restore(
-                &mut tx,
-                &payload.tool_reminders,
-                &payload.tool_timers,
-                &payload.tool_timer_laps,
-                &payload.tool_pomodoro_runs,
-                &payload.tool_daily_stats,
-            )
-            .await?;
-        }
+    let extracted = snapshot::extract_snapshot_archive(backup_path, true).await?;
+    if !extracted.preview.restore_supported {
+        return Err(extracted.preview.restore_message.clone());
     }
 
-    tx.commit()
-        .await
-        .map_err(|error| format!("failed to commit restore transaction: {error}"))?;
-    Ok(())
+    let candidate_pool = open_single_connection_sqlite_pool(&extracted.db_path, false).await?;
+    if let Err(error) = prepare_pool_schema(&candidate_pool, &extracted.db_path).await {
+        candidate_pool.close().await;
+        return Err(error);
+    }
+    if let Err(error) = snapshot::validate_sqlite(&candidate_pool, true).await {
+        candidate_pool.close().await;
+        return Err(error);
+    }
+    if let Err(error) = checkpoint_sqlite_pool(&candidate_pool).await {
+        candidate_pool.close().await;
+        return Err(error);
+    }
+
+    match strategy {
+        RestoreStrategy::Replace => {
+            candidate_pool.close().await;
+            replace_product_db_from_candidate(app, &extracted.db_path).await
+        }
+        RestoreStrategy::Merge => {
+            let payload_result =
+                load_backup_payload_from_pool(&candidate_pool, &extracted.preview.app_version)
+                    .await;
+            candidate_pool.close().await;
+            let payload = payload_result?;
+            let pool = wait_for_sqlite_pool(app).await?;
+            restore_backup_payload(&pool, &payload, RestoreStrategy::Merge).await
+        }
+    }
 }
 
 pub async fn preview_backup(backup_path: String) -> Result<BackupPreview, String> {
     let backup_path = PathBuf::from(backup_path.trim());
     if backup_path.as_os_str().is_empty() {
         return Err("backup path cannot be empty".to_string());
+    }
+
+    if snapshot::is_snapshot_archive(&backup_path)? {
+        return Ok(snapshot::extract_snapshot_archive(&backup_path, false)
+            .await?
+            .preview
+            .clone());
     }
 
     let payload = read_backup_payload(&backup_path)?;
@@ -255,11 +187,13 @@ mod tests {
                 last_updated: Some(30),
             }],
             web_activity_segments: Vec::new(),
+            web_favicon_cache: Vec::new(),
             tool_reminders: Vec::new(),
             tool_timers: Vec::new(),
             tool_timer_laps: Vec::new(),
             tool_pomodoro_runs: Vec::new(),
             tool_daily_stats: Vec::new(),
+            tool_software_reminder_rules: Vec::new(),
         };
 
         let archive = encode_backup_archive(&payload).unwrap();
@@ -317,11 +251,13 @@ mod tests {
                 last_updated: Some(30),
             }],
             web_activity_segments: Vec::new(),
+            web_favicon_cache: Vec::new(),
             tool_reminders: Vec::new(),
             tool_timers: Vec::new(),
             tool_timer_laps: Vec::new(),
             tool_pomodoro_runs: Vec::new(),
             tool_daily_stats: Vec::new(),
+            tool_software_reminder_rules: Vec::new(),
         };
 
         let archive = encode_backup_archive(&payload).unwrap();
@@ -632,6 +568,9 @@ mod tests {
         pool.execute(db_schema::TOOLS_TABLES_SCHEMA_SQL)
             .await
             .unwrap();
+        pool.execute(db_schema::SOFTWARE_REMINDER_RULES_SCHEMA_SQL)
+            .await
+            .unwrap();
         pool.execute(db_schema::WEB_ACTIVITY_SCHEMA_SQL)
             .await
             .unwrap();
@@ -705,11 +644,13 @@ mod tests {
                     last_updated: Some(5678),
                 }],
                 web_activity_segments: Vec::new(),
+                web_favicon_cache: Vec::new(),
                 tool_reminders: Vec::new(),
                 tool_timers: Vec::new(),
                 tool_timer_laps: Vec::new(),
                 tool_pomodoro_runs: Vec::new(),
                 tool_daily_stats: Vec::new(),
+                tool_software_reminder_rules: Vec::new(),
             };
 
             let result =
@@ -787,11 +728,13 @@ mod tests {
                 settings: Vec::new(),
                 icon_cache: Vec::new(),
                 web_activity_segments: Vec::new(),
+                web_favicon_cache: Vec::new(),
                 tool_reminders: Vec::new(),
                 tool_timers: Vec::new(),
                 tool_timer_laps: Vec::new(),
                 tool_pomodoro_runs: Vec::new(),
                 tool_daily_stats: Vec::new(),
+                tool_software_reminder_rules: Vec::new(),
             };
 
             restore_backup_payload(&pool, &payload, RestoreStrategy::Replace)
@@ -857,11 +800,13 @@ mod tests {
                 settings: Vec::new(),
                 icon_cache: Vec::new(),
                 web_activity_segments: Vec::new(),
+                web_favicon_cache: Vec::new(),
                 tool_reminders: Vec::new(),
                 tool_timers: Vec::new(),
                 tool_timer_laps: Vec::new(),
                 tool_pomodoro_runs: Vec::new(),
                 tool_daily_stats: Vec::new(),
+                tool_software_reminder_rules: Vec::new(),
             };
 
             restore_backup_payload(&pool, &payload, RestoreStrategy::Replace)
@@ -964,11 +909,13 @@ mod tests {
                     },
                 ],
                 web_activity_segments: Vec::new(),
+                web_favicon_cache: Vec::new(),
                 tool_reminders: Vec::new(),
                 tool_timers: Vec::new(),
                 tool_timer_laps: Vec::new(),
                 tool_pomodoro_runs: Vec::new(),
                 tool_daily_stats: Vec::new(),
+                tool_software_reminder_rules: Vec::new(),
             };
 
             restore_backup_payload(&pool, &payload, RestoreStrategy::Merge)
@@ -1067,11 +1014,13 @@ mod tests {
                 settings: Vec::new(),
                 icon_cache: Vec::new(),
                 web_activity_segments: Vec::new(),
+                web_favicon_cache: Vec::new(),
                 tool_reminders: Vec::new(),
                 tool_timers: Vec::new(),
                 tool_timer_laps: Vec::new(),
                 tool_pomodoro_runs: Vec::new(),
                 tool_daily_stats: Vec::new(),
+                tool_software_reminder_rules: Vec::new(),
             };
 
             restore_backup_payload(&pool, &payload, RestoreStrategy::Merge)

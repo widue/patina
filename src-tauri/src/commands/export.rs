@@ -41,9 +41,11 @@ fn export_file_name(format: &str, start_date: &str, end_date: &str) -> Option<St
         if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
             return None;
         }
-        if !bytes.iter().enumerate().all(|(index, byte)| {
-            index == 4 || index == 7 || byte.is_ascii_digit()
-        }) {
+        if !bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit())
+        {
             return None;
         }
         Some(value.replace('-', ""))

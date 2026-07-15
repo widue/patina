@@ -64,11 +64,13 @@ fn structured_backup_archive_recompressed_with_deflate_still_decodes() {
         }],
         icon_cache: Vec::new(),
         web_activity_segments: Vec::new(),
+        web_favicon_cache: Vec::new(),
         tool_reminders: Vec::new(),
         tool_timers: Vec::new(),
         tool_timer_laps: Vec::new(),
         tool_pomodoro_runs: Vec::new(),
         tool_daily_stats: Vec::new(),
+        tool_software_reminder_rules: Vec::new(),
     };
 
     let stored_archive = encode_backup_archive(&payload).expect("stored backup archive");

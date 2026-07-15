@@ -28,11 +28,10 @@ pub async fn cmd_export_backup(
 #[tauri::command]
 pub async fn cmd_restore_backup(
     backup_path: String,
-    restore_strategy: Option<RestoreStrategy>,
+    restore_strategy: RestoreStrategy,
     app: AppHandle,
 ) -> Result<(), String> {
-    app::backup::restore_backup_and_refresh(app, backup_path, restore_strategy.unwrap_or_default())
-        .await
+    app::backup::restore_backup_and_refresh(app, backup_path, restore_strategy).await
 }
 
 #[tauri::command]
@@ -90,4 +89,9 @@ pub async fn cmd_download_webdav_backup(
     app: AppHandle,
 ) -> Result<RemoteBackupDownloadResult, String> {
     remote_backup::download_webdav_backup(app, config, id).await
+}
+
+#[tauri::command]
+pub fn cmd_delete_remote_backup_temp(path: String, app: AppHandle) -> Result<(), String> {
+    remote_backup::delete_remote_backup_temp(app, path)
 }

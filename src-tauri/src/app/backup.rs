@@ -1,5 +1,6 @@
 use crate::app::desktop_behavior;
 use crate::data::backup::{self, RestoreStrategy};
+use crate::data::remote_backup;
 use crate::engine::tracking::runtime as tracking_runtime;
 use tauri::{AppHandle, Emitter};
 
@@ -8,12 +9,23 @@ pub(crate) async fn restore_backup_and_refresh(
     backup_path: String,
     strategy: RestoreStrategy,
 ) -> Result<(), String> {
-    backup::restore_backup(backup_path, app.clone(), strategy).await?;
-    desktop_behavior::sync_desktop_behavior_from_storage(app.clone(), false, false).await?;
-    app.emit("app-settings-changed", serde_json::json!({}))
-        .map_err(|error| format!("failed to emit settings refresh event: {error}"))?;
-    tracking_runtime::emit_tracking_data_changed(&app, "backup-restored", now_ms())
-        .map_err(|error| format!("failed to emit restore refresh event: {error}"))?;
+    backup::restore_backup(backup_path.clone(), app.clone(), strategy).await?;
+    if let Err(error) = remote_backup::cleanup_remote_backup_temp_if_owned(&app, &backup_path) {
+        eprintln!("[backup] restore committed but remote temp cleanup failed: {error}");
+    }
+    if let Err(error) =
+        desktop_behavior::sync_desktop_behavior_from_storage(app.clone(), false, false).await
+    {
+        eprintln!("[backup] restore committed but desktop behavior refresh failed: {error}");
+    }
+    if let Err(error) = app.emit("app-settings-changed", serde_json::json!({})) {
+        eprintln!("[backup] restore committed but settings refresh event failed: {error}");
+    }
+    if let Err(error) =
+        tracking_runtime::emit_tracking_data_changed(&app, "backup-restored", now_ms())
+    {
+        eprintln!("[backup] restore committed but tracking refresh event failed: {error}");
+    }
     Ok(())
 }
 

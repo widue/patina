@@ -544,8 +544,7 @@ mod tests {
 
     #[test]
     fn widget_autostart_uses_background_resource_preference_for_main_window() {
-        let speed_first =
-            DesktopBehaviorSettings::default().with_background_optimization(false);
+        let speed_first = DesktopBehaviorSettings::default().with_background_optimization(false);
         let resource_first = speed_first.with_background_optimization(true);
 
         assert_eq!(

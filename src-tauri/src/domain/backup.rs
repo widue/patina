@@ -65,6 +65,13 @@ pub struct BackupWebActivitySegment {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackupWebFaviconCache {
+    pub normalized_domain: String,
+    pub favicon_url: String,
+    pub updated_at: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BackupToolReminder {
     pub id: i64,
     pub label: String,
@@ -126,6 +133,19 @@ pub struct BackupToolDailyStats {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackupToolSoftwareReminderRule {
+    pub id: i64,
+    pub app_name: String,
+    pub exe_name: Option<String>,
+    pub limit_ms: i64,
+    pub message: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub disabled_at: Option<i64>,
+    pub last_fired_date_key: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BackupPayload {
     pub version: u32,
     pub meta: BackupMeta,
@@ -137,6 +157,8 @@ pub struct BackupPayload {
     #[serde(default)]
     pub web_activity_segments: Vec<BackupWebActivitySegment>,
     #[serde(default)]
+    pub web_favicon_cache: Vec<BackupWebFaviconCache>,
+    #[serde(default)]
     pub tool_reminders: Vec<BackupToolReminder>,
     #[serde(default)]
     pub tool_timers: Vec<BackupToolTimer>,
@@ -146,10 +168,13 @@ pub struct BackupPayload {
     pub tool_pomodoro_runs: Vec<BackupToolPomodoroRun>,
     #[serde(default)]
     pub tool_daily_stats: Vec<BackupToolDailyStats>,
+    #[serde(default)]
+    pub tool_software_reminder_rules: Vec<BackupToolSoftwareReminderRule>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 pub struct BackupPreview {
+    pub format_kind: String,
     pub version: u32,
     pub exported_at_ms: u64,
     pub schema_version: u32,
@@ -168,6 +193,7 @@ pub struct BackupPreview {
     pub tool_timer_lap_count: usize,
     pub tool_pomodoro_run_count: usize,
     pub tool_daily_stats_count: usize,
+    pub tool_software_reminder_rule_count: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -231,6 +257,7 @@ impl BackupPayload {
         let restore_safety = self.restore_safety();
 
         BackupPreview {
+            format_kind: "legacy_structured".to_string(),
             version: self.version,
             exported_at_ms: self.meta.exported_at_ms,
             schema_version: self.meta.schema_version,
@@ -249,6 +276,7 @@ impl BackupPayload {
             tool_timer_lap_count: self.tool_timer_laps.len(),
             tool_pomodoro_run_count: self.tool_pomodoro_runs.len(),
             tool_daily_stats_count: self.tool_daily_stats.len(),
+            tool_software_reminder_rule_count: self.tool_software_reminder_rules.len(),
         }
     }
 }
@@ -295,11 +323,13 @@ mod tests {
                 last_updated: Some(30),
             }],
             web_activity_segments: Vec::new(),
+            web_favicon_cache: Vec::new(),
             tool_reminders: Vec::new(),
             tool_timers: Vec::new(),
             tool_timer_laps: Vec::new(),
             tool_pomodoro_runs: Vec::new(),
             tool_daily_stats: Vec::new(),
+            tool_software_reminder_rules: Vec::new(),
         }
     }
 
