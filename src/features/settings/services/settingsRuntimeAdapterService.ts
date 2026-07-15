@@ -191,8 +191,12 @@ export class SettingsRuntimeAdapterService {
     return prepareBackupRestoreWithDeps(initialPath, prepareBackupRestoreDeps);
   }
 
-  static async restoreBackup(path: string, restoreStrategy: BackupRestoreStrategy): Promise<void> {
-    await restoreBackup(path, restoreStrategy);
+  static restoreBackup(
+    path: string,
+    restoreStrategy: BackupRestoreStrategy,
+    hash: string,
+  ): Promise<void> {
+    return restoreBackup(path, restoreStrategy, hash);
   }
 
   static async openReleaseNotes(): Promise<void> {

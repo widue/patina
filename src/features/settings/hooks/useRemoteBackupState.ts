@@ -76,7 +76,11 @@ export interface RemoteBackupState {
 interface UseRemoteBackupStateOptions {
   confirm: ConfirmFn;
   notify: NotifyFn;
-  restoreBackup: (path: string, restoreStrategy: BackupRestoreStrategy) => Promise<void>;
+  restoreBackup: (
+    path: string,
+    restoreStrategy: BackupRestoreStrategy,
+    hash: string,
+  ) => Promise<void>;
   reload: () => void;
 }
 
@@ -331,7 +335,7 @@ export function useRemoteBackupState({
         danger: restoreStrategy === "replace",
       });
       if (!accepted) return;
-      await restoreBackup(download.path, restoreStrategy);
+      await restoreBackup(download.path, restoreStrategy, download.preview.hash);
       await deleteRemoteBackupTemp(download.path);
       downloadedPath = null;
       notify(

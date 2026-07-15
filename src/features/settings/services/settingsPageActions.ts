@@ -43,7 +43,11 @@ type BackupRestoreFlowOptions = {
   prepareBackupRestore: (initialPath?: string) => Promise<BackupRestorePreparation | null>;
   setRestorePath: (path: string) => void;
   confirm: ConfirmAction;
-  restoreBackup: (path: string, restoreStrategy: BackupRestoreStrategy) => Promise<void>;
+  restoreBackup: (
+    path: string,
+    restoreStrategy: BackupRestoreStrategy,
+    hash: string,
+  ) => Promise<void>;
   notify: NotifyAction;
   reload: () => void;
   onExecutionStart?: BusyHook;
@@ -65,7 +69,11 @@ type BackupRestoreCommitFlowOptions = {
   preparation: BackupRestorePreparation;
   restoreStrategy: BackupRestoreStrategy;
   confirm: ConfirmAction;
-  restoreBackup: (path: string, restoreStrategy: BackupRestoreStrategy) => Promise<void>;
+  restoreBackup: (
+    path: string,
+    restoreStrategy: BackupRestoreStrategy,
+    hash: string,
+  ) => Promise<void>;
   notify: NotifyAction;
   reload: () => void;
   onExecutionStart?: BusyHook;
@@ -185,7 +193,11 @@ export async function commitPreparedBackupRestoreFlow(options: BackupRestoreComm
 
   options.onExecutionStart?.();
   try {
-    await options.restoreBackup(options.preparation.path, options.restoreStrategy);
+    await options.restoreBackup(
+      options.preparation.path,
+      options.restoreStrategy,
+      options.preparation.preview.hash,
+    );
     options.notify(
       options.preparation.preview.formatKind === "legacy_structured"
         ? UI_TEXT.toast.legacyBackupRestoreSuccess

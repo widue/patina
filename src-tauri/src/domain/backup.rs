@@ -174,6 +174,7 @@ pub struct BackupPayload {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct BackupPreview {
+    pub hash: String,
     pub format_kind: String,
     pub version: u32,
     pub exported_at_ms: u64,
@@ -257,6 +258,7 @@ impl BackupPayload {
         let restore_safety = self.restore_safety();
 
         BackupPreview {
+            hash: String::new(),
             format_kind: "legacy_structured".to_string(),
             version: self.version,
             exported_at_ms: self.meta.exported_at_ms,

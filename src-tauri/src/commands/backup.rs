@@ -28,10 +28,11 @@ pub async fn cmd_export_backup(
 #[tauri::command]
 pub async fn cmd_restore_backup(
     backup_path: String,
+    hash: String,
     restore_strategy: RestoreStrategy,
     app: AppHandle,
 ) -> Result<(), String> {
-    app::backup::restore_backup_and_refresh(app, backup_path, restore_strategy).await
+    app::backup::restore_backup_and_refresh(app, backup_path, hash, restore_strategy).await
 }
 
 #[tauri::command]

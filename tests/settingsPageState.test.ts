@@ -151,6 +151,7 @@ function buildSettings(overrides: Partial<AppSettings> = {}): AppSettings {
 
 function buildPreview(overrides: Partial<BackupPreview> = {}): BackupPreview {
   return {
+    hash: "a".repeat(64),
     formatKind: "sqlite_snapshot",
     version: 2,
     exportedAtMs: 1_714_000_000_000,
@@ -843,9 +844,9 @@ await runTest("runBackupRestoreFlow restores and reloads after confirmation", as
       events.push("confirm");
       return true;
     },
-    restoreBackup: async (path, strategy) => {
+    restoreBackup: async (path, strategy, hash) => {
       receivedStrategy = strategy;
-      events.push(`restore:${path}`);
+      events.push(`restore:${path}:${hash}`);
     },
     notify: (_message, tone) => {
       events.push(`notify:${tone}`);
@@ -867,7 +868,7 @@ await runTest("runBackupRestoreFlow restores and reloads after confirmation", as
     "path:C:/tmp/restore.db",
     "confirm",
     "start",
-    "restore:C:/tmp/restore.db",
+    `restore:C:/tmp/restore.db:${"a".repeat(64)}`,
     "notify:success",
     "reload",
     "end",

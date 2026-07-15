@@ -7,9 +7,10 @@ use tauri::{AppHandle, Emitter};
 pub(crate) async fn restore_backup_and_refresh(
     app: AppHandle,
     backup_path: String,
+    hash: String,
     strategy: RestoreStrategy,
 ) -> Result<(), String> {
-    backup::restore_backup(backup_path.clone(), app.clone(), strategy).await?;
+    backup::restore_backup(backup_path.clone(), hash, app.clone(), strategy).await?;
     if let Err(error) = remote_backup::cleanup_remote_backup_temp_if_owned(&app, &backup_path) {
         eprintln!("[backup] restore committed but remote temp cleanup failed: {error}");
     }

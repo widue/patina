@@ -17,6 +17,7 @@ mod archive;
 mod archive_tests;
 mod paths;
 mod payload;
+mod prepared_source;
 mod restore_payload;
 mod snapshot;
 
@@ -25,6 +26,7 @@ use archive::encode_backup_archive;
 use archive::read_backup_payload;
 use paths::resolve_backup_path;
 use payload::load_backup_payload_from_pool;
+use prepared_source::prepare_backup_source;
 use restore_payload::restore_backup_payload;
 
 pub use paths::{pick_backup_file, pick_backup_save_file};
@@ -53,6 +55,7 @@ pub async fn export_backup(backup_path: Option<String>, app: AppHandle) -> Resul
 
 pub async fn restore_backup(
     backup_path: String,
+    expected_content_sha256: String,
     app: AppHandle,
     strategy: RestoreStrategy,
 ) -> Result<(), String> {
@@ -61,12 +64,13 @@ pub async fn restore_backup(
         return Err("backup path cannot be empty".to_string());
     }
     let _maintenance = acquire_sqlite_maintenance().await;
+    let prepared = prepare_backup_source(&backup_path, Some(expected_content_sha256.trim()))?;
 
-    if snapshot::is_snapshot_archive(&backup_path)? {
-        return restore_snapshot_backup(&backup_path, &app, strategy).await;
+    if snapshot::is_snapshot_archive(&prepared.path)? {
+        return restore_snapshot_backup(&prepared.path, &app, strategy).await;
     }
 
-    let payload = read_backup_payload(&backup_path)?;
+    let payload = read_backup_payload(&prepared.path)?;
     let restore_safety = payload.restore_safety();
     if !restore_safety.supported {
         return Err(restore_safety.message);
@@ -89,6 +93,10 @@ async fn restore_snapshot_backup(
 
     let candidate_pool = open_single_connection_sqlite_pool(&extracted.db_path, false).await?;
     if let Err(error) = prepare_pool_schema(&candidate_pool, &extracted.db_path).await {
+        candidate_pool.close().await;
+        return Err(error);
+    }
+    if let Err(error) = snapshot::validate_current_schema(&candidate_pool).await {
         candidate_pool.close().await;
         return Err(error);
     }
@@ -124,16 +132,17 @@ pub async fn preview_backup(backup_path: String) -> Result<BackupPreview, String
         return Err("backup path cannot be empty".to_string());
     }
 
-    if snapshot::is_snapshot_archive(&backup_path)? {
-        return Ok(snapshot::extract_snapshot_archive(&backup_path, false)
+    let prepared = prepare_backup_source(&backup_path, None)?;
+    let mut preview = if snapshot::is_snapshot_archive(&prepared.path)? {
+        snapshot::extract_snapshot_archive(&prepared.path, false)
             .await?
             .preview
-            .clone());
-    }
-
-    let payload = read_backup_payload(&backup_path)?;
-
-    Ok(payload.preview())
+            .clone()
+    } else {
+        read_backup_payload(&prepared.path)?.preview()
+    };
+    preview.hash = prepared.content_sha256.clone();
+    Ok(preview)
 }
 
 #[cfg(test)]

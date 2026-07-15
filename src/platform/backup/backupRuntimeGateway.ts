@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 interface RawBackupPreview {
+  hash: string;
   format_kind?: "sqlite_snapshot" | "legacy_structured";
   version: number;
   exported_at_ms: number;
@@ -23,6 +24,7 @@ interface RawBackupPreview {
 }
 
 export interface BackupPreview {
+  hash: string;
   formatKind: "sqlite_snapshot" | "legacy_structured";
   version: number;
   exportedAtMs: number;
@@ -75,6 +77,7 @@ function isRawBackupPreview(value: unknown): value is RawBackupPreview {
 
 function mapRawBackupPreview(raw: RawBackupPreview): BackupPreview {
   return {
+    hash: raw.hash,
     formatKind: raw.format_kind ?? "legacy_structured",
     version: raw.version,
     exportedAtMs: raw.exported_at_ms,
@@ -108,8 +111,12 @@ export async function exportBackup(path?: string): Promise<string> {
   return invoke<string>("cmd_export_backup", { backupPath: path ?? null });
 }
 
-export async function restoreBackup(path: string, restoreStrategy: BackupRestoreStrategy): Promise<void> {
-  await invoke("cmd_restore_backup", { backupPath: path, restoreStrategy });
+export function restoreBackup(
+  path: string,
+  restoreStrategy: BackupRestoreStrategy,
+  hash: string,
+): Promise<void> {
+  return invoke("cmd_restore_backup", { backupPath: path, restoreStrategy, hash });
 }
 
 export async function previewBackup(path: string): Promise<BackupPreview> {

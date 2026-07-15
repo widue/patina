@@ -51,7 +51,7 @@ struct SnapshotRestoreManifest {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 struct SnapshotCounts {
     sessions: usize,
     title_samples: usize,
@@ -101,7 +101,7 @@ fn unique_suffix() -> String {
     )
 }
 
-fn create_private_work_dir(parent: &Path, label: &str) -> Result<PathBuf, String> {
+pub(super) fn create_private_work_dir(parent: &Path, label: &str) -> Result<PathBuf, String> {
     for _ in 0..8 {
         let dir = parent.join(format!(".{label}-{}", unique_suffix()));
         match fs::create_dir(&dir) {
@@ -124,7 +124,7 @@ fn sha256_bytes(bytes: &[u8]) -> String {
     format!("{:x}", hasher.finalize())
 }
 
-fn sha256_file(path: &Path) -> Result<String, String> {
+pub(super) fn sha256_file(path: &Path) -> Result<String, String> {
     let mut file = File::open(path)
         .map_err(|error| format!("failed to open `{}` for hashing: {error}", path.display()))?;
     let mut hasher = Sha256::new();
@@ -282,8 +282,20 @@ async fn read_counts(pool: &Pool<Sqlite>) -> Result<SnapshotCounts, String> {
     })
 }
 
+pub(super) async fn validate_current_schema(pool: &Pool<Sqlite>) -> Result<(), String> {
+    let (head, fingerprint) = migration_metadata(pool).await?;
+    if head != current_migration_head()
+        || expected_migration_fingerprint(head).as_deref() != Some(fingerprint.as_str())
+    {
+        return Err("restored sqlite snapshot did not reach the current schema".to_string());
+    }
+    read_counts(pool).await?;
+    Ok(())
+}
+
 fn preview_from_manifest(manifest: &SnapshotManifest, supported: bool) -> BackupPreview {
     BackupPreview {
+        hash: String::new(),
         format_kind: "sqlite_snapshot".to_string(),
         version: CURRENT_BACKUP_VERSION,
         exported_at_ms: manifest.created_at_ms,
@@ -317,7 +329,18 @@ fn preview_from_manifest(manifest: &SnapshotManifest, supported: bool) -> Backup
     }
 }
 
-async fn inspect_database(
+async fn inspect_database_identity(path: &Path, full: bool) -> Result<(i64, String), String> {
+    let pool = open_snapshot_pool(path, true).await?;
+    let result = async {
+        validate_sqlite(&pool, full).await?;
+        migration_metadata(&pool).await
+    }
+    .await;
+    pool.close().await;
+    result
+}
+
+async fn inspect_current_database(
     path: &Path,
     full: bool,
 ) -> Result<(i64, String, SnapshotCounts), String> {
@@ -331,6 +354,65 @@ async fn inspect_database(
     .await;
     pool.close().await;
     result
+}
+
+async fn verify_extracted_database(
+    path: &Path,
+    manifest: &SnapshotManifest,
+    full: bool,
+) -> Result<bool, String> {
+    let (head, fingerprint) = inspect_database_identity(path, full).await?;
+    if head != manifest.database.migration_head
+        || fingerprint != manifest.database.migration_fingerprint
+    {
+        return Err("snapshot database metadata does not match its manifest".to_string());
+    }
+
+    let supported = head <= current_migration_head()
+        && expected_migration_fingerprint(head).as_deref() == Some(fingerprint.as_str());
+    if head == current_migration_head() {
+        let pool = open_snapshot_pool(path, true).await?;
+        let counts_result = read_counts(&pool).await;
+        pool.close().await;
+        if counts_result? != manifest.counts {
+            return Err("snapshot database metadata does not match its manifest".to_string());
+        }
+    }
+    Ok(supported)
+}
+
+#[cfg(target_os = "windows")]
+fn publish_archive_atomically(replacement: &Path, target: &Path) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows::core::PCWSTR;
+    use windows::Win32::Storage::FileSystem::{
+        MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+    };
+
+    let target_wide = target
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let replacement_wide = replacement
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    unsafe {
+        MoveFileExW(
+            PCWSTR(replacement_wide.as_ptr()),
+            PCWSTR(target_wide.as_ptr()),
+            MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
+        )
+    }
+    .map_err(|error| format!("failed to atomically replace existing backup file: {error}"))
+}
+
+#[cfg(not(target_os = "windows"))]
+fn publish_archive_atomically(replacement: &Path, target: &Path) -> Result<(), String> {
+    fs::rename(replacement, target)
+        .map_err(|error| format!("failed to publish snapshot backup: {error}"))
 }
 
 fn write_zip_entry<W: Write + std::io::Seek>(
@@ -367,7 +449,7 @@ pub(super) async fn write_snapshot_archive(
             .map_err(|error| format!("failed to create consistent sqlite snapshot: {error}"))?;
 
         let (migration_head, migration_fingerprint, counts) =
-            inspect_database(&db_path, true).await?;
+            inspect_current_database(&db_path, true).await?;
         let size_bytes = fs::metadata(&db_path)
             .map_err(|error| format!("failed to read sqlite snapshot metadata: {error}"))?
             .len();
@@ -423,32 +505,13 @@ pub(super) async fn write_snapshot_archive(
 
         let inspected = extract_snapshot_archive(&archive_path, false).await?;
         if !inspected.preview.restore_supported {
-            return Err("generated sqlite snapshot is not restorable by this app version".to_string());
+            return Err(
+                "generated sqlite snapshot is not restorable by this app version".to_string(),
+            );
         }
         let preview = inspected.preview.clone();
         drop(inspected);
-        let previous_path = parent.join(format!(".patina-backup-previous-{}", unique_suffix()));
-        let had_previous = target.exists();
-        if had_previous {
-            fs::rename(target, &previous_path)
-                .map_err(|error| format!("failed to preserve existing backup file: {error}"))?;
-        }
-        if let Err(error) = fs::rename(&archive_path, target) {
-            let rollback_error = if had_previous {
-                fs::rename(&previous_path, target).err()
-            } else {
-                None
-            };
-            return Err(match rollback_error {
-                Some(rollback_error) => format!(
-                    "failed to publish snapshot backup: {error}; failed to restore previous backup: {rollback_error}"
-                ),
-                None => format!("failed to publish snapshot backup: {error}"),
-            });
-        }
-        if had_previous {
-            let _ = fs::remove_file(previous_path);
-        }
+        publish_archive_atomically(&archive_path, target)?;
         Ok(preview)
     }
     .await;
@@ -593,15 +656,7 @@ pub(super) async fn extract_snapshot_archive(
         if digest != manifest.database.sha256 || &digest != checksum_digest {
             return Err("snapshot database checksum mismatch".to_string());
         }
-        let (head, fingerprint, counts) = inspect_database(&db_path, full_check).await?;
-        if head != manifest.database.migration_head
-            || fingerprint != manifest.database.migration_fingerprint
-            || counts != manifest.counts
-        {
-            return Err("snapshot database metadata does not match its manifest".to_string());
-        }
-        let supported = head <= current_migration_head()
-            && expected_migration_fingerprint(head).as_deref() == Some(fingerprint.as_str());
+        let supported = verify_extracted_database(&db_path, &manifest, full_check).await?;
         let preview = preview_from_manifest(&manifest, supported);
         Ok(ExtractedSnapshot {
             work_dir: work_dir.clone(),
@@ -672,6 +727,95 @@ mod tests {
         restored_pool.close().await;
         pool.close().await;
         drop(extracted);
+        fs::remove_dir_all(work_dir).expect("remove test directory");
+    }
+
+    #[tokio::test]
+    async fn older_migration_prefix_is_verified_before_current_table_counts() {
+        let work_dir = create_private_work_dir(&std::env::temp_dir(), "patina-old-snapshot-test")
+            .expect("create test directory");
+        let db_path = work_dir.join("old.db");
+        let pool = crate::data::sqlite_pool::open_single_connection_sqlite_pool(&db_path, true)
+            .await
+            .expect("open source database");
+        crate::data::sqlite_pool::prepare_pool_schema(&pool, &db_path)
+            .await
+            .expect("prepare source schema");
+        let migrations = expected_migration_metadata();
+        let removed_version = migrations.last().expect("current migration").0;
+        let old_head = migrations
+            .iter()
+            .rev()
+            .nth(1)
+            .expect("previous migration")
+            .0;
+        sqlx::query("DROP TABLE web_favicon_cache")
+            .execute(&pool)
+            .await
+            .expect("remove table introduced by latest migration");
+        sqlx::query("DELETE FROM _sqlx_migrations WHERE version = ?")
+            .bind(removed_version)
+            .execute(&pool)
+            .await
+            .expect("rewind migration history");
+        pool.close().await;
+
+        let count_pool = open_snapshot_pool(&db_path, true)
+            .await
+            .expect("open old schema");
+        assert!(read_counts(&count_pool).await.is_err());
+        count_pool.close().await;
+
+        let manifest = SnapshotManifest {
+            format: SNAPSHOT_FORMAT.to_string(),
+            product: "Patina".to_string(),
+            created_at_ms: now_ms(),
+            app_version: "old".to_string(),
+            database: SnapshotDatabaseManifest {
+                path: DATABASE_ENTRY.to_string(),
+                size_bytes: 1,
+                sha256: "0".repeat(64),
+                migration_head: old_head,
+                migration_fingerprint: expected_migration_fingerprint(old_head)
+                    .expect("known migration prefix"),
+            },
+            restore: SnapshotRestoreManifest {
+                strategies: vec!["replace".to_string(), "merge".to_string()],
+            },
+            counts: SnapshotCounts::default(),
+        };
+
+        assert!(verify_extracted_database(&db_path, &manifest, false)
+            .await
+            .expect("old schema prefix should reach migration"));
+
+        let migration_pool =
+            crate::data::sqlite_pool::open_single_connection_sqlite_pool(&db_path, false)
+                .await
+                .expect("open old schema for migration");
+        crate::data::sqlite_pool::prepare_pool_schema(&migration_pool, &db_path)
+            .await
+            .expect("migrate old schema");
+        validate_current_schema(&migration_pool)
+            .await
+            .expect("migrated schema should expose all current tables");
+        migration_pool.close().await;
+        fs::remove_dir_all(work_dir).expect("remove test directory");
+    }
+
+    #[test]
+    fn publishing_over_an_existing_backup_keeps_the_target_path_valid() {
+        let work_dir = create_private_work_dir(&std::env::temp_dir(), "patina-publish-test")
+            .expect("create test directory");
+        let target = work_dir.join("backup.zip");
+        let replacement = work_dir.join("replacement.zip");
+        fs::write(&target, b"old").expect("write old backup");
+        fs::write(&replacement, b"new").expect("write replacement backup");
+
+        publish_archive_atomically(&replacement, &target).expect("replace backup atomically");
+
+        assert_eq!(fs::read(&target).expect("read published backup"), b"new");
+        assert!(!replacement.exists());
         fs::remove_dir_all(work_dir).expect("remove test directory");
     }
 
