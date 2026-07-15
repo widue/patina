@@ -3,6 +3,22 @@ import type { BrowserSmokeContext } from "./scenarioTypes.ts";
 import { evaluate, jsonString, titleDetailsButtonExpression, waitForExpression } from "./browserHarness.ts";
 import { DATE_TEXT, HISTORY_TITLE_DETAIL_COUNT } from "./constants.ts";
 
+function timelineSegmentContainsPointExpression(x: number, y: number) {
+  return `
+    Array.from(document.querySelectorAll(".history-timeline-zoom-dialog-timeline .history-horizontal-timeline-segment"))
+      .some((segment) => {
+        if (!(segment instanceof HTMLElement)) return false;
+        const rect = segment.getBoundingClientRect();
+        return rect.width > 0
+          && rect.height > 0
+          && ${JSON.stringify(x)} >= rect.left
+          && ${JSON.stringify(x)} <= rect.right
+          && ${JSON.stringify(y)} >= rect.top
+          && ${JSON.stringify(y)} <= rect.bottom;
+      })
+  `;
+}
+
 export async function runHistoryScenarios(context: BrowserSmokeContext) {
   const { appUrl, client, sessionId, runTest } = context;
 
@@ -719,14 +735,20 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
     `))) as { x: number; y: number };
     const dragStartX = dragStartPoint.x;
     const dragStartY = dragStartPoint.y;
+    assert.ok(Number.isFinite(dragStartX));
+    assert.ok(Number.isFinite(dragStartY));
     await client!.command("Input.dispatchMouseEvent", {
       type: "mouseMoved",
       x: dragStartX,
       y: dragStartY,
     }, sessionId);
-    await waitForExpression(client!, sessionId, `Boolean(document.querySelector(
-      ".history-horizontal-timeline-tooltip"
-    ))`);
+    await waitForExpression(
+      client!,
+      sessionId,
+      timelineSegmentContainsPointExpression(dragStartX, dragStartY),
+      undefined,
+      "timeline segment at drag start point",
+    );
     await client!.command("Input.dispatchMouseEvent", {
       type: "mousePressed",
       x: dragStartX,
@@ -815,14 +837,20 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
         })()
       `))) as { windowStart: number; x: number; y: number };
       const dragDeltaX = attempt % 2 === 0 ? -80 : 80;
+      assert.ok(Number.isFinite(repeatedDragState.x));
+      assert.ok(Number.isFinite(repeatedDragState.y));
       await client!.command("Input.dispatchMouseEvent", {
         type: "mouseMoved",
         x: repeatedDragState.x,
         y: repeatedDragState.y,
       }, sessionId);
-      await waitForExpression(client!, sessionId, `Boolean(document.querySelector(
-        ".history-horizontal-timeline-tooltip"
-      ))`);
+      await waitForExpression(
+        client!,
+        sessionId,
+        timelineSegmentContainsPointExpression(repeatedDragState.x, repeatedDragState.y),
+        undefined,
+        "timeline segment at repeated drag point",
+      );
       await client!.command("Input.dispatchMouseEvent", {
         type: "mousePressed",
         x: repeatedDragState.x,
