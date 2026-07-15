@@ -1,10 +1,11 @@
 import { startTransition, type MouseEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { BarChart3 } from "lucide-react";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
+import { useRequestedAppIcons } from "../../../shared/hooks/useRequestedAppIcons.ts";
 import type { AppLanguage } from "../../../shared/settings/appSettings.ts";
+import type { WebActivitySegment, WebDomainOverride } from "../../../shared/types/webActivity.ts";
 import {
   buildDataTrendAggregateContext,
-  buildDataTrendViewModelFromAggregate,
   buildDataTrendViewModel,
   getCachedDataHeatmapSessions,
   getCachedEarliestSessionStartTime,
@@ -30,9 +31,16 @@ import { resolveTrendDateFromChartEvent } from "../services/dataChartInteraction
 import type { DataTrendSnapshot } from "../services/dataTrendSnapshot.ts";
 import type { DataTrendRangeSelection } from "../services/dataTrendRange.ts";
 import { useDataTrendSnapshot } from "../hooks/useDataTrendSnapshot.ts";
+import { loadDataIconsForExecutables } from "../services/dataIconService.ts";
 import { scheduleDataWorkAfterFirstPaint } from "../services/dataFirstPaintScheduler.ts";
 import DataTrendPanel from "./DataTrendPanel.tsx";
 import DataHeatmapPanel, { type HeatmapGranularity } from "./DataHeatmapPanel.tsx";
+import {
+  getWebActivitySegmentsInRange,
+  getWebFaviconsForDomains,
+  loadWebDomainOverrides,
+} from "../../../platform/persistence/webActivityRepository.ts";
+import { useIconThemeColors } from "../../../shared/hooks/useIconThemeColors.ts";
 
 interface Props {
   icons: Record<string, string>;
@@ -42,6 +50,7 @@ interface Props {
   mappingVersion?: number;
   onOpenHistoryDate?: (dateKey: string) => void;
   uiLanguage: AppLanguage;
+  webActivityEnabled: boolean;
 }
 
 type DataChartDimension = { width: number; height: number };
@@ -50,6 +59,7 @@ const CACHED_DATA_HEATMAP_REFRESH_DELAY_MS = 320;
 const CACHED_DATA_HEATMAP_REFRESH_IDLE_TIMEOUT_MS = 1_500;
 const DATA_OPEN_PREWARM_DELAY_MS = 500;
 const DATA_OPEN_PREWARM_IDLE_TIMEOUT_MS = 2_000;
+const EMPTY_DATA_ICON_EXE_NAMES: string[] = [];
 const EMPTY_HEATMAP_ROWS: ReturnType<typeof buildActivityHeatmap> = [];
 const dataChartDimensionCache: Partial<Record<DataChartDimensionKey, DataChartDimension>> = {};
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -123,11 +133,13 @@ function useDataChartInitialDimension(
 }
 
 export default function Data({
+  icons,
   refreshKey = 0,
   loadDataTrendSnapshot,
   mappingVersion = 0,
   onOpenHistoryDate,
   uiLanguage,
+  webActivityEnabled,
 }: Props) {
   const today = new Date();
   const currentYear = today.getFullYear();
@@ -150,7 +162,13 @@ export default function Data({
   const [yearSessions, setYearSessions] = useState<AggregateSessionRecord[]>(
     () => initialCachedHeatmapSessions ?? [],
   );
+  const [yearSessionsView, setYearSessionsView] = useState<HeatmapSelection | null>(
+    initialCachedHeatmapSessions ? "recent" : null,
+  );
   const [heatmapLoading, setHeatmapLoading] = useState(!initialCachedHeatmapSessions);
+  const [webSegments, setWebSegments] = useState<WebActivitySegment[]>([]);
+  const [webDomainFavicons, setWebDomainFavicons] = useState<Record<string, string>>({});
+  const [webDomainOverrides, setWebDomainOverrides] = useState<Record<string, WebDomainOverride>>({});
   const overviewTrendChart = useDataChartInitialDimension(
     "overviewTrend",
     getOverviewTrendChartInitialDimension,
@@ -204,6 +222,7 @@ export default function Data({
         startTransition(() => {
           setEarliestStartTime(snapshot.earliestStartTime);
           setYearSessions(snapshot.sessions);
+          setYearSessionsView(selectedHeatmapView);
         });
         hasFetchedHeatmapOnceRef.current = true;
 
@@ -228,6 +247,7 @@ export default function Data({
       if (cachedSessions) {
         startTransition(() => {
           setYearSessions(cachedSessions);
+          setYearSessionsView(selectedHeatmapView);
         });
         hasFetchedHeatmapOnceRef.current = true;
         setHeatmapLoading(false);
@@ -288,15 +308,74 @@ export default function Data({
     uiLanguage,
   ]);
 
-  const trendViewModel = useMemo(() => {
-    if (overviewAggregateContext) {
-      return buildDataTrendViewModelFromAggregate(overviewAggregateContext);
+  useEffect(() => {
+    if (!webActivityEnabled || !overviewAggregateContext) return;
+
+    let cancelled = false;
+    const range = overviewAggregateContext.range;
+
+    const loadWebData = async () => {
+      try {
+        const [segments, overrides] = await Promise.all([
+          getWebActivitySegmentsInRange(range.startMs, range.endMs),
+          loadWebDomainOverrides(),
+        ]);
+        if (cancelled) return;
+
+        setWebSegments((prev) => {
+          if (prev === segments) return prev;
+          return segments;
+        });
+        setWebDomainOverrides((prev) => {
+          if (prev === overrides) return prev;
+          return overrides;
+        });
+
+        const domains = Array.from(new Set(segments.map((s) => s.normalizedDomain)));
+        if (domains.length > 0) {
+          const favicons = await getWebFaviconsForDomains(domains);
+          if (!cancelled) {
+            setWebDomainFavicons((prev) => {
+              const prevKeys = Object.keys(prev).sort().join(",");
+              const nextKeys = Object.keys(favicons).sort().join(",");
+              if (prevKeys === nextKeys && prevKeys.length === 0) return prev;
+              return favicons;
+            });
+          }
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.warn("Failed to load web activity data for data panel:", error);
+        }
+      }
+    };
+
+    void loadWebData();
+    return () => {
+      cancelled = true;
+    };
+  }, [overviewAggregateContext, webActivityEnabled]);
+
+  const webDomainIcons = useMemo(() => {
+    if (!webActivityEnabled) return {};
+    const next: Record<string, string> = { ...webDomainFavicons };
+    for (const segment of webSegments) {
+      if (segment.faviconUrl && !next[segment.normalizedDomain]) {
+        next[segment.normalizedDomain] = segment.faviconUrl;
+      }
     }
+    return next;
+  }, [webActivityEnabled, webDomainFavicons, webSegments]);
+
+  const webDomainIconThemeColors = useIconThemeColors(webDomainIcons);
+
+  const trendViewModel = useMemo(() => {
     if (!overviewTrendSnapshotForViewModel) return null;
     return buildDataTrendViewModel(
       overviewTrendSnapshotForViewModel.sessions,
       overviewTrendSnapshotForViewModel.range,
       overviewTrend.nowMs,
+      webSegments,
     );
   // Data view models read module-level locale/mapping state; these tokens explicitly invalidate that cache.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -304,8 +383,8 @@ export default function Data({
     mappingVersion,
     overviewTrend.nowMs,
     overviewTrendSnapshotForViewModel,
-    overviewAggregateContext,
     uiLanguage,
+    webSegments,
   ]);
   if (trendViewModel) {
     lastTrendViewModelRef.current = {
@@ -321,6 +400,30 @@ export default function Data({
       ? lastTrendViewModelRef.current.viewModel
       : null)
     ?? bootstrapTrendViewModel;
+  const dataIconExeNames = useMemo(() => {
+    if (!overviewAggregateContext) return EMPTY_DATA_ICON_EXE_NAMES;
+    const exeNames = new Set<string>();
+    for (const bucket of overviewAggregateContext.aggregate.appBuckets.values()) {
+      exeNames.add(bucket.exeName);
+    }
+    return Array.from(exeNames);
+  }, [overviewAggregateContext]);
+  const snapshotDataIcons = useMemo(() => ({
+    ...(overviewTrend.snapshot?.icons ?? {}),
+  }), [overviewTrend.snapshot]);
+  const baseDataIcons = useMemo(() => ({
+    ...icons,
+    ...snapshotDataIcons,
+  }), [icons, snapshotDataIcons]);
+  const handleDataIconsError = useCallback((error: unknown) => {
+    console.warn("Failed to refresh data app icons:", error);
+  }, []);
+  const dataIcons = useRequestedAppIcons({
+    baseIcons: baseDataIcons,
+    exeNames: dataIconExeNames,
+    loadIcons: loadDataIconsForExecutables,
+    onError: handleDataIconsError,
+  });
 
   const shouldDeferHeatmapRows = Boolean(
     hasInitialBootstrapSnapshotRef.current
@@ -331,7 +434,8 @@ export default function Data({
     if (shouldDeferHeatmapRows) return null;
     return buildActivityHeatmap(yearSessions, selectedHeatmapView, nowMs);
   }, [nowMs, selectedHeatmapView, shouldDeferHeatmapRows, yearSessions]);
-  if (heatmapRows && !heatmapLoading) {
+  const hasHeatmapRowsForSelectedView = yearSessionsView === selectedHeatmapView;
+  if (heatmapRows && !heatmapLoading && hasHeatmapRowsForSelectedView) {
     lastHeatmapRowsRef.current = {
       selection: selectedHeatmapView,
       rows: heatmapRows,
@@ -340,12 +444,12 @@ export default function Data({
   const bootstrapHeatmapRows = matchingBootstrapSnapshot?.heatmapSelection === selectedHeatmapView
     ? matchingBootstrapSnapshot.heatmapRows
     : null;
-  const freshHeatmapRows = heatmapRows && !heatmapLoading ? heatmapRows : null;
+  const freshHeatmapRows = heatmapRows && !heatmapLoading && hasHeatmapRowsForSelectedView ? heatmapRows : null;
   const lastHeatmapRows = lastHeatmapRowsRef.current?.selection === selectedHeatmapView
     ? lastHeatmapRowsRef.current.rows
     : null;
   const canUseBootstrapHeatmap = Boolean(
-    bootstrapHeatmapRows && (shouldDeferHeatmapRows || heatmapLoading),
+    bootstrapHeatmapRows && (shouldDeferHeatmapRows || heatmapLoading || !hasHeatmapRowsForSelectedView),
   );
   const shouldBuildHeatmapPlaceholderRows = !freshHeatmapRows && !lastHeatmapRows && !canUseBootstrapHeatmap;
   const heatmapPlaceholderRows = useMemo(() => (
@@ -420,7 +524,7 @@ export default function Data({
 
   useEffect(() => {
     if (!trendViewModel || !heatmapRows) return;
-    if (heatmapLoading) return;
+    if (heatmapLoading || yearSessionsView !== selectedHeatmapView) return;
     if (!overviewTrend.snapshot) return;
 
     const snapshot: DataBootstrapSnapshot = {
@@ -445,6 +549,7 @@ export default function Data({
     selectedHeatmapView,
     trendViewModel,
     uiLanguage,
+    yearSessionsView,
   ]);
 
   return (
@@ -460,6 +565,12 @@ export default function Data({
           <DataTrendPanel
             selection={selectedTrendRange}
             viewModel={visibleTrendViewModel}
+            aggregateContext={overviewAggregateContext}
+            dataIcons={dataIcons}
+            webSegments={webSegments}
+            webDomainOverrides={webDomainOverrides}
+            webDomainFavicons={webDomainIcons}
+            webDomainIconThemeColors={webDomainIconThemeColors}
             chartRef={overviewTrendChart.chartRef}
             initialDimension={overviewTrendChart.initialDimension}
             canOpenHistory={canOpenTrendHistory}
