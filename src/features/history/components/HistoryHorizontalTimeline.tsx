@@ -18,22 +18,21 @@ interface Props {
   title?: string | null;
   titleAction?: ReactNode;
   actions?: ReactNode;
-  variant?: "default" | "expanded";
+  variant?: "default" | "expanded" | "lane";
   showHeader?: boolean;
+  showAxis?: boolean;
   showEmptyMessage?: boolean;
   emptyMessage?: string;
+  interactionActive?: boolean;
 }
 
 type TimelineMetricVariable =
-  | "--history-horizontal-timeline-segment-height"
-  | "--history-horizontal-timeline-segment-hover-height"
-  | "--history-horizontal-timeline-segment-active-height"
-  | "--history-horizontal-timeline-segment-active-strong-height";
+  "--history-horizontal-timeline-segment-height";
 type TimelineStyle = CSSProperties
   & Record<"--segment-left" | "--segment-width" | "--segment-color", string>
   & Partial<Record<TimelineMetricVariable, string>>;
 type TrackStyle = CSSProperties & Partial<Record<TimelineMetricVariable, string>>;
-type TooltipStyle = CSSProperties & Record<"--tooltip-left" | "--tooltip-color", string>;
+type TooltipContentStyle = CSSProperties & Record<"--tooltip-color", string>;
 
 function resolveSegmentColor(
   segment: HistoryTimelineSegment,
@@ -90,9 +89,6 @@ function getTimelineMetrics(variant: Props["variant"], viewportWidth: number) {
     return {
       trackHeight: "72px",
       segmentHeight: "54px",
-      segmentHoverHeight: "58px",
-      segmentActiveHeight: "50px",
-      segmentActiveStrongHeight: "60px",
     };
   }
 
@@ -100,9 +96,6 @@ function getTimelineMetrics(variant: Props["variant"], viewportWidth: number) {
     return {
       trackHeight: "60px",
       segmentHeight: "45px",
-      segmentHoverHeight: "48px",
-      segmentActiveHeight: "42px",
-      segmentActiveStrongHeight: "50px",
     };
   }
 
@@ -122,8 +115,10 @@ export default function HistoryHorizontalTimeline({
   actions,
   variant = "default",
   showHeader = true,
+  showAxis = true,
   showEmptyMessage = true,
   emptyMessage,
+  interactionActive = false,
 }: Props) {
   const copy = UI_TEXT.history.horizontalTimeline;
   const headingTitle = title === undefined ? copy.defaultTitle : title;
@@ -144,9 +139,6 @@ export default function HistoryHorizontalTimeline({
     ? {
       height: timelineMetrics.trackHeight,
       "--history-horizontal-timeline-segment-height": timelineMetrics.segmentHeight,
-      "--history-horizontal-timeline-segment-hover-height": timelineMetrics.segmentHoverHeight,
-      "--history-horizontal-timeline-segment-active-height": timelineMetrics.segmentActiveHeight,
-      "--history-horizontal-timeline-segment-active-strong-height": timelineMetrics.segmentActiveStrongHeight,
     }
     : undefined;
   const visibleLegendItems = viewModel.legendItems.slice(0, MAX_LEGEND_ITEMS);
@@ -176,31 +168,6 @@ export default function HistoryHorizontalTimeline({
       ))}
     </span>
   );
-  const [tooltipSegmentId, setTooltipSegmentId] = useState<string | null>(null);
-  const tooltipSegment = tooltipSegmentId
-    ? viewModel.segments.find((segment) => segment.id === tooltipSegmentId)
-    : undefined;
-  const tooltipSegmentColor = tooltipSegment
-    ? resolveSegmentColor(tooltipSegment, mode, iconThemeColors)
-    : undefined;
-  const tooltipSegmentLabel = tooltipSegment
-    ? getSegmentLabel(tooltipSegment, mode)
-    : "";
-  const tooltipCenterRatio = tooltipSegment
-    ? (tooltipSegment.startRatio + tooltipSegment.endRatio) / 2
-    : 0.5;
-  const tooltipStyle: TooltipStyle | undefined = tooltipSegmentColor
-    ? {
-      "--tooltip-left": `${tooltipCenterRatio * 100}%`,
-      "--tooltip-color": tooltipSegmentColor,
-    }
-    : undefined;
-  const tooltipEdgeClass = tooltipCenterRatio < 0.12
-    ? "history-horizontal-timeline-tooltip-start"
-    : tooltipCenterRatio > 0.88
-      ? "history-horizontal-timeline-tooltip-end"
-      : "";
-
   return (
     <section
       className={`history-horizontal-timeline history-horizontal-timeline-${mode} history-horizontal-timeline-${variant}`}
@@ -274,65 +241,62 @@ export default function HistoryHorizontalTimeline({
               ...(timelineMetrics
                 ? {
                   "--history-horizontal-timeline-segment-height": timelineMetrics.segmentHeight,
-                  "--history-horizontal-timeline-segment-hover-height": timelineMetrics.segmentHoverHeight,
-                  "--history-horizontal-timeline-segment-active-height": timelineMetrics.segmentActiveHeight,
-                  "--history-horizontal-timeline-segment-active-strong-height": timelineMetrics.segmentActiveStrongHeight,
                 }
                 : {}),
             };
             const label = getSegmentLabel(segment, mode);
+            const ariaLabel = `${copy.ariaLabel} ${label} ${formatTimelineTime(
+              segment.startTime,
+              viewModel,
+            )} - ${formatTimelineTime(segment.endTime, viewModel)} ${formatDuration(segment.duration)}`;
+            const tooltipContentStyle: TooltipContentStyle = {
+              "--tooltip-color": segmentColor,
+            };
 
             return (
-              <span
+              <QuietTooltip
                 key={segment.id}
-                tabIndex={0}
-                aria-label={`${copy.ariaLabel} ${label} ${formatTimelineTime(
-                  segment.startTime,
-                  viewModel,
-                )} - ${formatTimelineTime(segment.endTime, viewModel)} ${formatDuration(segment.duration)}`}
+                label={(
+                  <div className="history-horizontal-timeline-tooltip-content" style={tooltipContentStyle}>
+                    <div className="history-horizontal-timeline-tooltip-title">
+                      <span className="history-horizontal-timeline-tooltip-dot" aria-hidden="true" />
+                      <span className="history-horizontal-timeline-tooltip-label">{label}</span>
+                    </div>
+                    <div className="history-horizontal-timeline-tooltip-time">
+                      {formatTimelineTime(segment.startTime, viewModel)}
+                      {" - "}
+                      {formatTimelineTime(segment.endTime, viewModel)}
+                      <span aria-hidden="true"> · </span>
+                      {formatDuration(segment.duration)}
+                    </div>
+                  </div>
+                )}
+                placement="top"
+                disabled={interactionActive}
+                hideOnPointerDown={variant !== "expanded"}
                 className="history-horizontal-timeline-segment"
+                tooltipClassName="history-horizontal-timeline-tooltip"
                 style={segmentStyle}
-                onPointerEnter={() => setTooltipSegmentId(segment.id)}
-                onPointerLeave={() => setTooltipSegmentId((current) => (current === segment.id ? null : current))}
-                onFocus={() => setTooltipSegmentId(segment.id)}
-                onBlur={() => setTooltipSegmentId((current) => (current === segment.id ? null : current))}
-              />
+              >
+                <span aria-label={ariaLabel} />
+              </QuietTooltip>
             );
           })}
-          {tooltipSegment && tooltipStyle && (
-            <div
-              className={`history-horizontal-timeline-tooltip ${tooltipEdgeClass}`.trim()}
-              style={tooltipStyle}
-              role="tooltip"
-            >
-              <div className="history-horizontal-timeline-tooltip-title">
-                <span className="history-horizontal-timeline-tooltip-dot" aria-hidden="true" />
-                <span className="history-horizontal-timeline-tooltip-label">
-                  {tooltipSegmentLabel}
-                </span>
-              </div>
-              <div className="history-horizontal-timeline-tooltip-time">
-                {formatTimelineTime(tooltipSegment.startTime, viewModel)}
-                {" - "}
-                {formatTimelineTime(tooltipSegment.endTime, viewModel)}
-                <span aria-hidden="true"> · </span>
-                {formatDuration(tooltipSegment.duration)}
-              </div>
-            </div>
-          )}
           {viewModel.segments.length === 0 && showEmptyMessage && (
             <span className="history-horizontal-timeline-empty">
               {resolvedEmptyMessage}
             </span>
           )}
         </div>
-        <div className="history-horizontal-timeline-axis" aria-hidden="true">
-          {viewModel.axisTicks.map((tick) => (
-            <span key={tick.label} style={{ left: `${tick.ratio * 100}%` }}>
-              {tick.label}
-            </span>
-          ))}
-        </div>
+        {showAxis && (
+          <div className="history-horizontal-timeline-axis" aria-hidden="true">
+            {viewModel.axisTicks.map((tick) => (
+              <span key={tick.label} style={{ left: `${tick.ratio * 100}%` }}>
+                {tick.label}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </section>
   );

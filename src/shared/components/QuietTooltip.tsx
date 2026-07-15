@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 
 export type QuietTooltipPlacement = "top" | "right" | "bottom" | "left";
@@ -10,6 +18,8 @@ interface Props {
   disabled?: boolean;
   className?: string;
   tooltipClassName?: string;
+  style?: CSSProperties;
+  hideOnPointerDown?: boolean;
 }
 
 interface TooltipPosition {
@@ -91,6 +101,8 @@ export default function QuietTooltip({
   disabled = false,
   className,
   tooltipClassName,
+  style,
+  hideOnPointerDown = true,
 }: Props) {
   const anchorRef = useRef<HTMLSpanElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
@@ -167,12 +179,13 @@ export default function QuietTooltip({
       <span
         ref={anchorRef}
         className={`qp-tooltip-anchor ${className ?? ""}`.trim()}
+        style={style}
         onFocus={showTooltip}
         onBlur={hideTooltip}
         onMouseEnter={showTooltipFromPointer}
         onMouseLeave={hideTooltipAfterPointerLeave}
-        onPointerDownCapture={hideTooltipAfterPointerDown}
-        onClickCapture={hideTooltipAfterPointerDown}
+        onPointerDownCapture={hideOnPointerDown ? hideTooltipAfterPointerDown : undefined}
+        onClickCapture={hideOnPointerDown ? hideTooltipAfterPointerDown : undefined}
       >
         {children}
       </span>

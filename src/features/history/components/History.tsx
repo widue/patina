@@ -1,5 +1,5 @@
 ﻿import { useState, useEffect, useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import type { CSSProperties, WheelEvent } from "react";
+import type { CSSProperties } from "react";
 import { Clock, Expand, Minus, Plus, Tags, X, ZoomIn } from "lucide-react";
 import { type HistorySession } from "../../../shared/types/sessions";
 import type { WebActivitySegment } from "../../../shared/types/webActivity.ts";
@@ -29,13 +29,18 @@ import {
 } from "../services/historySnapshotCache";
 import {
   buildHistoryTimelineViewModel,
-  HISTORY_TIMELINE_ZOOM_OPTIONS,
+  getHistoryTimelineZoomDurationMs,
+  MAX_HISTORY_TIMELINE_VIEWPORT_DURATION_MS,
   normalizeHistoryTimelineViewport,
   normalizeHistoryTimelineViewportAroundFocus,
   snapHistoryTimelineFocusToNearestHalfHour,
   type HistoryTimelineDisplayMode,
-  type HistoryTimelineZoomHours,
+  type HistoryTimelineViewport,
 } from "../services/historyTimelineViewModel.ts";
+import {
+  useHistoryTimelineViewportInteraction,
+  type HistoryTimelineViewportChangeReason,
+} from "../hooks/useHistoryTimelineViewportInteraction.ts";
 import {
   readHistoryDayDistributionMode,
   readHistoryTimelineMode,
@@ -74,6 +79,7 @@ import {
 import HistoryHourlyActivityPanel from "./HistoryHourlyActivityPanel.tsx";
 import HistoryDateNavigator from "./HistoryDateNavigator.tsx";
 import HistoryTimelineDialogDateControls from "./HistoryTimelineDialogDateControls.tsx";
+import HistoryTimelineZoomDialog from "./HistoryTimelineZoomDialog.tsx";
 
 interface Props {
   icons: Record<string, string>;
@@ -119,8 +125,6 @@ const formatHistoryDateCacheKey = (date: Date) => {
   return formatLocalDateKey(startOfDay(date));
 };
 type TimelineDialogMode = "app" | "web";
-type TimelineZoomOptionValue = `${HistoryTimelineZoomHours}`;
-
 function cleanTimelineDetailTitle(sample: TimelineDetailTitle, appName: string): TimelineDetailTitle {
   if (sample.isUntitled) {
     return sample;
@@ -268,12 +272,13 @@ export default function History({
   const [timelineDialogMode, setTimelineDialogMode] = useState<TimelineDialogMode>("app");
   const [timelineDialogSyncedHeight, setTimelineDialogSyncedHeight] = useState<number | null>(null);
   const [timelineZoomDialogOpen, setTimelineZoomDialogOpen] = useState(false);
-  const [timelineZoomHours, setTimelineZoomHours] = useState<HistoryTimelineZoomHours>(
-    readHistoryTimelineZoomHours,
-  );
-  const [timelineViewportStartMs, setTimelineViewportStartMs] = useState(
-    () => startOfDay(initialDate).getTime(),
-  );
+  const [timelineViewport, setTimelineViewport] = useState<HistoryTimelineViewport>(() => (
+    normalizeHistoryTimelineViewport({
+      selectedDate: initialDate,
+      requestedDurationMs: getHistoryTimelineZoomDurationMs(readHistoryTimelineZoomHours()),
+      requestedStartMs: startOfDay(initialDate).getTime(),
+    })
+  ));
   const [historyTimelineMode, setHistoryTimelineMode] = useState<HistoryTimelineDisplayMode>(
     readHistoryTimelineMode,
   );
@@ -282,6 +287,7 @@ export default function History({
   );
   const [timelineDetailsPopover, setTimelineDetailsPopover] = useState<HistoryTimelineDetailsPopoverState | null>(null);
   const timelineDialogBodyRef = useRef<HTMLDivElement | null>(null);
+  const timelineViewportInteractionRef = useRef<HTMLDivElement | null>(null);
   const timelineDetailsPopoverRef = useRef<HTMLDivElement | null>(null);
   const timelineDetailsTriggerRef = useRef<HTMLElement | null>(null);
   const timelineViewportWasPannedRef = useRef(false);
@@ -289,8 +295,11 @@ export default function History({
   const historyCopy = UI_TEXT.history;
   const resetTimelineViewportForDate = useCallback((date: Date) => {
     timelineViewportWasPannedRef.current = false;
-    setTimelineZoomHours(readHistoryTimelineZoomHours());
-    setTimelineViewportStartMs(startOfDay(date).getTime());
+    setTimelineViewport(normalizeHistoryTimelineViewport({
+      selectedDate: date,
+      requestedDurationMs: getHistoryTimelineZoomDurationMs(readHistoryTimelineZoomHours()),
+      requestedStartMs: startOfDay(date).getTime(),
+    }));
   }, []);
 
   useEffect(() => {
@@ -642,11 +651,6 @@ export default function History({
       endMs: startMs + 24 * 60 * 60 * 1000,
     };
   }, [selectedDate]);
-  const timelineViewport = useMemo(() => normalizeHistoryTimelineViewport({
-    selectedDate,
-    zoomHours: timelineZoomHours,
-    requestedStartMs: timelineViewportStartMs,
-  }), [selectedDate, timelineViewportStartMs, timelineZoomHours]);
   const timelineZoomTimelineView = useMemo(
     () => buildHistoryTimelineViewModel({
       sessions: showQuietPlaceholder ? [] : compiledSessions,
@@ -670,14 +674,7 @@ export default function History({
     formatTimelineWindowBoundary(timelineViewport.startMs, selectedDayRange.endMs),
     formatTimelineWindowBoundary(timelineViewport.endMs, selectedDayRange.endMs),
   );
-  const timelineZoomValue = String(timelineZoomHours) as TimelineZoomOptionValue;
-  const timelineZoomOptions = useMemo<QuietSegmentedFilterOption<TimelineZoomOptionValue>[]>(
-    () => HISTORY_TIMELINE_ZOOM_OPTIONS.map((hours) => ({
-      value: String(hours) as TimelineZoomOptionValue,
-      label: `${hours}h`,
-    })),
-    [],
-  );
+  const timelineZoomHours = timelineViewport.durationMs / (60 * 60_000);
   const appDistributionItems = useMemo<HistoryDayDistributionItem[]>(
     () => appSummary.map((app) => {
       const mapped = AppClassification.mapApp(app.exeName, { appName: app.appName });
@@ -887,18 +884,19 @@ export default function History({
       requestedTimeMs: sameTimeOfSelectedDay.getTime(),
     });
   }, [nowMs, selectedDate]);
-  const handleTimelineZoomChange = (nextValue: TimelineZoomOptionValue) => {
-    const nextZoomHours = Number(nextValue) as HistoryTimelineZoomHours;
-    if (nextZoomHours === timelineZoomHours) return;
+  const handleTimelineZoomChange = (requestedHours: number) => {
+    const nextZoomHours = Math.min(24, Math.max(1, requestedHours));
+    const nextDurationMs = getHistoryTimelineZoomDurationMs(nextZoomHours);
+    if (Math.abs(nextDurationMs - timelineViewport.durationMs) < 1) return;
 
     const currentCenterMs = timelineViewport.startMs
-      + (timelineViewport.endMs - timelineViewport.startMs) / 2;
+      + timelineViewport.durationMs / 2;
     const focusTimeMs = timelineViewportWasPannedRef.current
       ? currentCenterMs
       : getInitialTimelineZoomFocusMs();
     const nextViewport = normalizeHistoryTimelineViewportAroundFocus({
       selectedDate,
-      zoomHours: nextZoomHours,
+      durationMs: nextDurationMs,
       focusTimeMs,
     });
 
@@ -906,31 +904,34 @@ export default function History({
       timelineViewportWasPannedRef.current = false;
     }
     rememberHistoryTimelineZoomHours(nextZoomHours);
-    setTimelineZoomHours(nextZoomHours);
-    setTimelineViewportStartMs(nextViewport.startMs);
+    setTimelineViewport(nextViewport);
   };
-  const handleTimelineViewportWheel = (event: WheelEvent<HTMLDivElement>) => {
-    if (timelineZoomHours === 24) return;
-
-    const dominantDelta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
-      ? event.deltaX
-      : event.deltaY;
-    if (Math.abs(dominantDelta) < 1) return;
-
-    const direction = dominantDelta > 0 ? 1 : -1;
-    const viewportDurationMs = Math.max(1, timelineViewport.endMs - timelineViewport.startMs);
-    const stepMs = Math.max(5 * 60_000, viewportDurationMs / 6);
-    const nextViewport = normalizeHistoryTimelineViewport({
-      selectedDate,
-      zoomHours: timelineZoomHours,
-      requestedStartMs: timelineViewport.startMs + direction * stepMs,
-    });
-
-    if (nextViewport.startMs === timelineViewport.startMs) return;
-
-    timelineViewportWasPannedRef.current = true;
-    setTimelineViewportStartMs(nextViewport.startMs);
-  };
+  const handleTimelineViewportChange = useCallback((
+    nextViewport: HistoryTimelineViewport,
+    reason: HistoryTimelineViewportChangeReason,
+  ) => {
+    if (reason === "pan") {
+      timelineViewportWasPannedRef.current = true;
+    } else {
+      const nextZoomHours = nextViewport.durationMs / (60 * 60_000);
+      rememberHistoryTimelineZoomHours(nextZoomHours);
+      if (nextViewport.durationMs >= MAX_HISTORY_TIMELINE_VIEWPORT_DURATION_MS) {
+        timelineViewportWasPannedRef.current = false;
+      }
+    }
+    setTimelineViewport(nextViewport);
+  }, []);
+  const {
+    isDragging: timelineViewportIsDragging,
+    cancelInteraction: cancelTimelineViewportInteraction,
+    interactionProps: timelineViewportInteractionProps,
+  } = useHistoryTimelineViewportInteraction({
+    selectedDate,
+    viewport: timelineViewport,
+    enabled: timelineZoomDialogOpen,
+    interactionRef: timelineViewportInteractionRef,
+    onViewportChange: handleTimelineViewportChange,
+  });
   const toggleHistoryTimelineMode = () => {
     setHistoryTimelineMode((mode) => {
       const nextMode = mode === "category" ? "app" : "category";
@@ -960,14 +961,14 @@ export default function History({
     const nextZoomHours = readHistoryTimelineZoomHours();
     const nextViewport = normalizeHistoryTimelineViewportAroundFocus({
       selectedDate,
-      zoomHours: nextZoomHours,
+      durationMs: getHistoryTimelineZoomDurationMs(nextZoomHours),
       focusTimeMs: getInitialTimelineZoomFocusMs(),
     });
-    setTimelineZoomHours(nextZoomHours);
-    setTimelineViewportStartMs(nextViewport.startMs);
+    setTimelineViewport(nextViewport);
     setTimelineZoomDialogOpen(true);
   };
   const closeTimelineZoomDialog = () => {
+    cancelTimelineViewportInteraction();
     setTimelineZoomDialogOpen(false);
   };
   useEffect(() => {
@@ -1059,23 +1060,6 @@ export default function History({
       >
         <Plus size={11} />
       </button>
-    </div>
-  );
-  const renderTimelineWindowControls = (className = "") => (
-    <div className={`history-timeline-window-controls ${className}`.trim()}>
-      <span className="history-timeline-window-label">
-        {timelineWindowLabel}
-      </span>
-    </div>
-  );
-  const renderTimelineZoomScaleControls = (className = "") => (
-    <div className={`history-timeline-zoom-scale-controls ${className}`.trim()} role="group" aria-label={historyCopy.timelineZoom}>
-      <QuietSegmentedFilter
-        value={timelineZoomValue}
-        options={timelineZoomOptions}
-        onChange={handleTimelineZoomChange}
-        className="history-timeline-zoom-switch"
-      />
     </div>
   );
   const effectiveTimelineDialogMode = webActivityEnabled ? timelineDialogMode : "app";
@@ -1234,45 +1218,24 @@ export default function History({
         </div>
       </QuietDialog>
 
-      <QuietDialog
+      <HistoryTimelineZoomDialog
         open={timelineZoomDialogOpen}
-        title={historyCopy.timelineZoom}
-        surfaceClassName="history-timeline-zoom-dialog-surface"
         onClose={closeTimelineZoomDialog}
-      >
-        <button
-          type="button"
-          className="qp-dialog-close-button history-timeline-dialog-close"
-          aria-label={UI_TEXT.common.close}
-          onClick={closeTimelineZoomDialog}
-        >
-          <X size={16} aria-hidden />
-        </button>
-        <div className="history-timeline-zoom-dialog-body">
-          <div className="history-timeline-zoom-dialog-toolbar">
-            {renderTimelineZoomScaleControls("history-timeline-zoom-dialog-scale")}
-            {renderTimelineWindowControls("history-timeline-zoom-dialog-window")}
-            <div className="history-timeline-zoom-dialog-mode">
-              {renderTimelineModeAction("history-timeline-zoom-dialog-mode-toggle")}
-            </div>
-          </div>
-          <div
-            className="history-timeline-zoom-dialog-timeline"
-            onWheel={handleTimelineViewportWheel}
-          >
-            <HistoryHorizontalTimeline
-              viewModel={timelineZoomTimelineView}
-              mode={historyTimelineMode}
-              iconThemeColors={iconThemeColors}
-              title={null}
-              variant="expanded"
-              showHeader={false}
-              showEmptyMessage={!showQuietPlaceholder}
-              emptyMessage={historyCopy.emptyTimelineWindow}
-            />
-          </div>
-        </div>
-      </QuietDialog>
+        zoomHours={timelineZoomHours}
+        onZoomHoursChange={handleTimelineZoomChange}
+        windowLabel={timelineWindowLabel}
+        modeAction={renderTimelineModeAction("history-timeline-zoom-dialog-mode-toggle")}
+        interactionRef={timelineViewportInteractionRef}
+        interactionProps={timelineViewportInteractionProps}
+        interactionLabel={historyCopy.timelineInteractionHint}
+        isDragging={timelineViewportIsDragging}
+        viewModel={timelineZoomTimelineView}
+        mode={historyTimelineMode}
+        iconThemeColors={iconThemeColors}
+        appIcons={historyIcons}
+        showEmptyMessage={!showQuietPlaceholder}
+        emptyMessage={historyCopy.emptyTimelineWindow}
+      />
     </div>
   );
 }
