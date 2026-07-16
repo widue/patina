@@ -1,4 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
@@ -122,6 +127,7 @@ export default function QuietDateRangePicker({
   onDraftLabelChange,
   resolveSelection,
 }: Props) {
+  const popoverRef = useRef<HTMLElement | null>(null);
   const [draft, setDraft] = useState<QuietDateRangeDraft>({
     mode,
     firstDateKey: null,
@@ -135,6 +141,11 @@ export default function QuietDateRangePicker({
   const canGoNextMonth = calendarMonth.getFullYear() < today.getFullYear()
     || calendarMonth.getMonth() < today.getMonth();
 
+  const closeAndRestoreFocus = () => {
+    onClose();
+    requestAnimationFrame(() => anchor.focus());
+  };
+
   useEffect(() => {
     const updatePosition = () => setPosition(getPopoverPosition(anchor));
     const handlePointerDown = (event: PointerEvent) => {
@@ -142,13 +153,17 @@ export default function QuietDateRangePicker({
       if (
         target instanceof Node
         && !anchor.parentElement?.contains(target)
-        && !document.querySelector(".qp-range-picker")?.contains(target)
+        && !popoverRef.current?.contains(target)
       ) {
         onClose();
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        requestAnimationFrame(() => anchor.focus());
+      }
     };
     window.addEventListener("resize", updatePosition);
     window.addEventListener("scroll", updatePosition, true);
@@ -174,6 +189,7 @@ export default function QuietDateRangePicker({
 
   return createPortal((
     <section
+      ref={popoverRef}
       className={`qp-range-picker ${className ?? ""}`.trim()}
       style={{ left: position.left, top: position.top, width: position.width }}
       role="dialog"
@@ -245,13 +261,22 @@ export default function QuietDateRangePicker({
       ) : null}
 
       <footer className={`qp-range-picker-footer ${footerClassName ?? ""}`.trim()}>
-        <button type="button" className="qp-button-secondary qp-range-picker-action" onClick={onClose}>{labels.cancel}</button>
+        <button
+          type="button"
+          className="qp-button-secondary qp-range-picker-action"
+          onClick={closeAndRestoreFocus}
+        >
+          {labels.cancel}
+        </button>
         <button
           type="button"
           className="qp-button-primary qp-range-picker-action"
           disabled={!draft.range}
           onClick={() => {
-            if (draft.range) onApply(draft.range.selection);
+            if (draft.range) {
+              onApply(draft.range.selection);
+              requestAnimationFrame(() => anchor.focus());
+            }
           }}
         >
           {labels.apply}

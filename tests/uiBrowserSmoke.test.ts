@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import type { ChildProcess } from "node:child_process";
-import { rmSync } from "node:fs";
 import { createServer } from "vite";
 import {
   CdpConnection,
-  assertIsolatedTempPath,
   getBrowserWebSocketUrl,
   launchBrowser,
+  removeIsolatedBrowserDataDir,
   stopBrowser,
 } from "./uiBrowserSmoke/browserHarness.ts";
 import { tauriBrowserSmokeStubPlugin } from "./uiBrowserSmoke/tauriStubs.ts";
@@ -141,13 +140,7 @@ try {
   }
   if (browserUserDataDir) {
     try {
-      assertIsolatedTempPath(browserUserDataDir, "time-tracker-browser-smoke-");
-      rmSync(browserUserDataDir, {
-        recursive: true,
-        force: true,
-        maxRetries: 5,
-        retryDelay: 200,
-      });
+      await removeIsolatedBrowserDataDir(browserUserDataDir);
     } catch (error) {
       cleanupErrors.push(error);
     }

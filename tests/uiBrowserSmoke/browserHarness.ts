@@ -24,6 +24,29 @@ export function assertIsolatedTempPath(path: string, expectedPrefix: string) {
   );
 }
 
+export async function removeIsolatedBrowserDataDir(path: string) {
+  assertIsolatedTempPath(path, "time-tracker-browser-smoke-");
+  await waitFor(
+    "browser user data cleanup",
+    () => {
+      try {
+        rmSync(path, { recursive: true, force: true });
+        return true;
+      } catch (error) {
+        const errorCode =
+          typeof error === "object" && error !== null && "code" in error
+            ? String(error.code)
+            : "";
+        if (errorCode === "EBUSY" || errorCode === "ENOTEMPTY" || errorCode === "EPERM") {
+          return existsSync(path) ? null : true;
+        }
+        throw error;
+      }
+    },
+    5_000,
+  );
+}
+
 function resolveBrowserPath() {
   const explicitPath = process.env.TIME_TRACKER_BROWSER_PATH;
   if (explicitPath) {
@@ -130,8 +153,7 @@ export async function launchBrowser() {
       cleanupErrors.push(cleanupError);
     }
     try {
-      assertIsolatedTempPath(userDataDir, "time-tracker-browser-smoke-");
-      rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+      await removeIsolatedBrowserDataDir(userDataDir);
     } catch (cleanupError) {
       cleanupErrors.push(cleanupError);
     }

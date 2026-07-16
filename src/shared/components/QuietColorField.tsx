@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 import { createPortal } from "react-dom";
 import { Pipette } from "lucide-react";
 import QuietTooltip from "./QuietTooltip";
@@ -86,6 +96,7 @@ export default function QuietColorField({
   const hsl = useMemo(() => hexToHsl(normalizedColor), [normalizedColor]);
   const rgb = useMemo(() => hexToRgb(normalizedColor), [normalizedColor]);
   const [hexDraft, setHexDraft] = useState(normalizedColor);
+  const formatPanelId = useId();
 
   useEffect(() => {
     setHexDraft(normalizedColor);
@@ -241,6 +252,21 @@ export default function QuietColorField({
     onChange(hslToHex(next));
   };
 
+  const handleFormatKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    currentFormat: ColorDisplayFormat,
+  ) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const currentIndex = FORMAT_LIST.indexOf(currentFormat);
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    const nextFormat = FORMAT_LIST[(currentIndex + direction + FORMAT_LIST.length) % FORMAT_LIST.length];
+    onFormatChange(nextFormat);
+    requestAnimationFrame(() => {
+      document.getElementById(`${formatPanelId}-tab-${nextFormat}`)?.focus();
+    });
+  };
+
   const pickByEyedropper = async () => {
     const EyeDropperCtor = (
       window as Window & {
@@ -335,9 +361,15 @@ export default function QuietColorField({
             {FORMAT_LIST.map((item) => (
               <button
                 key={item}
+                id={`${formatPanelId}-tab-${item}`}
                 type="button"
+                role="tab"
+                aria-selected={format === item}
+                aria-controls={formatPanelId}
+                tabIndex={format === item ? 0 : -1}
                 className={`qp-color-format-segment ${format === item ? "qp-color-format-segment-active" : ""}`}
                 onClick={() => onFormatChange(item)}
+                onKeyDown={(event) => handleFormatKeyDown(event, item)}
               >
                 {item.toUpperCase()}
               </button>
@@ -345,9 +377,15 @@ export default function QuietColorField({
           </div>
 
           {format === "hex" && (
-            <div className="qp-color-input-row">
+            <div
+              id={formatPanelId}
+              role="tabpanel"
+              aria-labelledby={`${formatPanelId}-tab-hex`}
+              className="qp-color-input-row"
+            >
               <span className="qp-color-row-label">HEX</span>
               <input
+                aria-label={UI_TEXT.accessibility.color.hexValue}
                 value={hexDraft}
                 onChange={(event) => onHexDraftChange(event.target.value)}
                 onBlur={onHexDraftBlur}
@@ -357,10 +395,16 @@ export default function QuietColorField({
           )}
 
           {format === "rgb" && (
-            <div className="qp-color-triplet-row">
+            <div
+              id={formatPanelId}
+              role="tabpanel"
+              aria-labelledby={`${formatPanelId}-tab-rgb`}
+              className="qp-color-triplet-row"
+            >
               <span className="qp-color-row-label">RGB</span>
               <div className="qp-color-triplet-fields">
                 <input
+                  aria-label={UI_TEXT.accessibility.color.redChannel}
                   type="number"
                   min={0}
                   max={255}
@@ -369,6 +413,7 @@ export default function QuietColorField({
                   className="qp-input qp-color-number-input"
                 />
                 <input
+                  aria-label={UI_TEXT.accessibility.color.greenChannel}
                   type="number"
                   min={0}
                   max={255}
@@ -377,6 +422,7 @@ export default function QuietColorField({
                   className="qp-input qp-color-number-input"
                 />
                 <input
+                  aria-label={UI_TEXT.accessibility.color.blueChannel}
                   type="number"
                   min={0}
                   max={255}
@@ -389,10 +435,16 @@ export default function QuietColorField({
           )}
 
           {format === "hsl" && (
-            <div className="qp-color-triplet-row">
+            <div
+              id={formatPanelId}
+              role="tabpanel"
+              aria-labelledby={`${formatPanelId}-tab-hsl`}
+              className="qp-color-triplet-row"
+            >
               <span className="qp-color-row-label">HSL</span>
               <div className="qp-color-triplet-fields">
                 <input
+                  aria-label={UI_TEXT.accessibility.color.hueChannel}
                   type="number"
                   min={0}
                   max={360}
@@ -401,6 +453,7 @@ export default function QuietColorField({
                   className="qp-input qp-color-number-input"
                 />
                 <input
+                  aria-label={UI_TEXT.accessibility.color.saturationChannel}
                   type="number"
                   min={0}
                   max={100}
@@ -409,6 +462,7 @@ export default function QuietColorField({
                   className="qp-input qp-color-number-input"
                 />
                 <input
+                  aria-label={UI_TEXT.accessibility.color.lightnessChannel}
                   type="number"
                   min={0}
                   max={100}

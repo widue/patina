@@ -24,6 +24,15 @@ const FOCUSABLE_SELECTOR = [
   "[tabindex]:not([tabindex='-1'])",
 ].join(",");
 
+const openDialogStack: symbol[] = [];
+
+function removeDialogFromStack(dialogToken: symbol) {
+  const index = openDialogStack.lastIndexOf(dialogToken);
+  if (index >= 0) {
+    openDialogStack.splice(index, 1);
+  }
+}
+
 function getFocusableElements(container: HTMLElement) {
   return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((element) => {
     const style = window.getComputedStyle(element);
@@ -48,6 +57,7 @@ export default function QuietDialog({
   initialFocus = "first",
 }: QuietDialogProps) {
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const dialogTokenRef = useRef(Symbol("quiet-dialog"));
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -56,6 +66,9 @@ export default function QuietDialog({
     const previouslyFocused = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
+    const dialogToken = dialogTokenRef.current;
+    removeDialogFromStack(dialogToken);
+    openDialogStack.push(dialogToken);
     const frame = window.requestAnimationFrame(() => {
       const surface = surfaceRef.current;
       if (!surface) return;
@@ -65,6 +78,7 @@ export default function QuietDialog({
     });
 
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (openDialogStack[openDialogStack.length - 1] !== dialogToken) return;
       if (event.key === "Escape") {
         event.preventDefault();
         onCloseRef.current();
@@ -93,9 +107,11 @@ export default function QuietDialog({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => {
+      const wasTopmost = openDialogStack[openDialogStack.length - 1] === dialogToken;
+      removeDialogFromStack(dialogToken);
       window.cancelAnimationFrame(frame);
       window.removeEventListener("keydown", handleKeyDown);
-      if (previouslyFocused?.isConnected) {
+      if (wasTopmost && previouslyFocused?.isConnected) {
         previouslyFocused.focus();
       }
     };

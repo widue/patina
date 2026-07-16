@@ -7,6 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { Clock3 } from "lucide-react";
@@ -132,6 +133,45 @@ export default function QuietTimePicker({
     closeTimePicker(true);
   };
 
+  const focusTimeOption = (part: "hour" | "minute", value: number) => {
+    requestAnimationFrame(() => {
+      popoverRef.current
+        ?.querySelector<HTMLElement>(`[data-time-picker-part="${part}"][data-time-picker-value="${value}"]`)
+        ?.focus();
+    });
+  };
+
+  const handleOptionKeyDown = (
+    event: ReactKeyboardEvent<HTMLButtonElement>,
+    part: "hour" | "minute",
+    value: number,
+  ) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeTimePicker(true);
+      return;
+    }
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+
+    event.preventDefault();
+    const values = part === "hour" ? HOURS : MINUTES;
+    const currentIndex = values.indexOf(value);
+    const nextIndex = event.key === "Home"
+      ? 0
+      : event.key === "End"
+        ? values.length - 1
+        : event.key === "ArrowDown"
+          ? (currentIndex + 1) % values.length
+          : (currentIndex - 1 + values.length) % values.length;
+    const nextValue = values[nextIndex];
+    if (part === "hour") {
+      onChange(formatTimeValue(nextValue, selectedTime.minute));
+    } else {
+      onChange(formatTimeValue(selectedTime.hour, nextValue));
+    }
+    focusTimeOption(part, nextValue);
+  };
+
   useEffect(() => {
     if (!open) return undefined;
 
@@ -174,6 +214,9 @@ export default function QuietTimePicker({
       if (minuteOption && minuteList) {
         minuteList.scrollTop = minuteOption.offsetTop - (minuteList.clientHeight - minuteOption.offsetHeight) / 2;
       }
+      if (!popoverRef.current?.contains(document.activeElement)) {
+        hourOption?.focus();
+      }
     });
   }, [open, selectedTime.hour, selectedTime.minute]);
 
@@ -206,7 +249,11 @@ export default function QuietTimePicker({
                   type="button"
                   role="option"
                   aria-selected={selected}
+                  tabIndex={selected ? 0 : -1}
                   data-selected-time-part={selected ? "hour" : undefined}
+                  data-time-picker-part="hour"
+                  data-time-picker-value={hour}
+                  onKeyDown={(event) => handleOptionKeyDown(event, "hour", hour)}
                   onClick={() => selectHour(hour)}
                   className={`qp-time-picker-option ${selected ? "qp-time-picker-option-selected" : ""}`.trim()}
                 >
@@ -227,7 +274,11 @@ export default function QuietTimePicker({
                   type="button"
                   role="option"
                   aria-selected={selected}
+                  tabIndex={selected ? 0 : -1}
                   data-selected-time-part={selected ? "minute" : undefined}
+                  data-time-picker-part="minute"
+                  data-time-picker-value={minute}
+                  onKeyDown={(event) => handleOptionKeyDown(event, "minute", minute)}
                   onClick={() => selectMinute(minute)}
                   className={`qp-time-picker-option ${selected ? "qp-time-picker-option-selected" : ""}`.trim()}
                 >

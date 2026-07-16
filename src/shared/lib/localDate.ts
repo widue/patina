@@ -46,6 +46,24 @@ export function addLocalMonths(date: Date, delta: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + delta, 1);
 }
 
+export function moveLocalDateByCalendarKey(date: Date, key: string): Date | null {
+  const mondayFirstDay = (date.getDay() + 6) % 7;
+  const dayOffset = key === "ArrowRight"
+    ? 1
+    : key === "ArrowLeft"
+      ? -1
+      : key === "ArrowDown"
+        ? 7
+        : key === "ArrowUp"
+          ? -7
+          : key === "Home"
+            ? -mondayFirstDay
+            : key === "End"
+              ? 6 - mondayFirstDay
+              : null;
+  return dayOffset === null ? null : startOfLocalDay(addLocalDays(date, dayOffset));
+}
+
 export function isSameLocalDay(left: Date, right: Date): boolean {
   return left.getFullYear() === right.getFullYear()
     && left.getMonth() === right.getMonth()

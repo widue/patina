@@ -155,8 +155,10 @@ export default function QuietSelect<T extends string | number>({
   useEffect(() => {
     if (!open) return undefined;
     const handleDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (event.key === "Escape") {
-        closeMenu();
+        event.preventDefault();
+        closeMenu(true);
       }
     };
     document.addEventListener("keydown", handleDocumentKeyDown);
@@ -267,6 +269,7 @@ export default function QuietSelect<T extends string | number>({
             id={`${listboxId}-option-${index}`}
             role="option"
             aria-selected={selected}
+            aria-disabled={option.disabled || undefined}
           >
             <button
               type="button"

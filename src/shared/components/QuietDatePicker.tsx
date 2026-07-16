@@ -3,9 +3,11 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
@@ -15,6 +17,7 @@ import {
   buildMondayFirstCalendarGrid,
   formatLocalDateKey,
   isSameLocalDay,
+  moveLocalDateByCalendarKey,
   parseLocalDateKey,
   startOfLocalDay,
   startOfLocalMonth,
@@ -69,6 +72,7 @@ export default function QuietDatePicker({
   const maxDateValue = useMemo(() => maxDate ? parseLocalDateKey(maxDate) : null, [maxDate]);
   const [open, setOpen] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(() => startOfLocalMonth(selectedDate));
+  const [focusedDate, setFocusedDate] = useState(selectedDate);
   const [position, setPosition] = useState<CalendarPosition | null>(null);
   const today = startOfLocalDay(new Date());
   const calendarDays = useMemo(() => buildMondayFirstCalendarGrid(calendarMonth), [calendarMonth]);
@@ -106,6 +110,36 @@ export default function QuietDatePicker({
     setPosition(null);
   };
 
+  const clampDateToBounds = useCallback((date: Date) => {
+    const normalizedDate = startOfLocalDay(date);
+    if (minDateValue && normalizedDate < minDateValue) return minDateValue;
+    if (maxDateValue && normalizedDate > maxDateValue) return maxDateValue;
+    return normalizedDate;
+  }, [maxDateValue, minDateValue]);
+
+  const focusCalendarDate = (date: Date) => {
+    const dateKey = formatLocalDateKey(date);
+    requestAnimationFrame(() => {
+      popoverRef.current
+        ?.querySelector<HTMLElement>(`[data-date-picker-key="${dateKey}"]`)
+        ?.focus();
+    });
+  };
+
+  const moveCalendarFocus = (date: Date) => {
+    const nextDate = clampDateToBounds(date);
+    setFocusedDate(nextDate);
+    setCalendarMonth(startOfLocalMonth(nextDate));
+    focusCalendarDate(nextDate);
+  };
+
+  const handleDayKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, date: Date) => {
+    const nextDate = moveLocalDateByCalendarKey(date, event.key);
+    if (!nextDate) return;
+    event.preventDefault();
+    moveCalendarFocus(nextDate);
+  };
+
   const toggleCalendar = () => {
     if (disabled) return;
     if (open) {
@@ -113,6 +147,7 @@ export default function QuietDatePicker({
       return;
     }
     setCalendarMonth(startOfLocalMonth(selectedDate));
+    setFocusedDate(selectedDate);
     updatePosition();
     setOpen(true);
   };
@@ -158,6 +193,19 @@ export default function QuietDatePicker({
     setCalendarMonth(startOfLocalMonth(selectedDate));
   }, [selectedDate, open]);
 
+  useLayoutEffect(() => {
+    if (!open || !position) return;
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement
+      && popoverRef.current?.contains(activeElement)
+      && !activeElement.classList.contains("qp-calendar-day")
+    ) {
+      return;
+    }
+    focusCalendarDate(focusedDate);
+  }, [focusedDate, open, position]);
+
   const popoverStyle: CSSProperties | undefined = position
     ? {
       left: `${position.left}px`,
@@ -177,7 +225,11 @@ export default function QuietDatePicker({
       <header className="qp-calendar-header">
         <button
           type="button"
-          onClick={() => setCalendarMonth((month) => addLocalMonths(month, -1))}
+          onClick={() => {
+            const nextMonth = addLocalMonths(calendarMonth, -1);
+            setCalendarMonth(nextMonth);
+            setFocusedDate(clampDateToBounds(nextMonth));
+          }}
           className="qp-calendar-nav"
           aria-label={UI_TEXT.accessibility.date.previousMonth}
         >
@@ -188,7 +240,11 @@ export default function QuietDatePicker({
         </div>
         <button
           type="button"
-          onClick={() => setCalendarMonth((month) => addLocalMonths(month, 1))}
+          onClick={() => {
+            const nextMonth = addLocalMonths(calendarMonth, 1);
+            setCalendarMonth(nextMonth);
+            setFocusedDate(clampDateToBounds(nextMonth));
+          }}
           className="qp-calendar-nav"
           aria-label={UI_TEXT.accessibility.date.nextMonth}
         >
@@ -204,6 +260,7 @@ export default function QuietDatePicker({
         {calendarDays.map((date) => {
           const outsideMonth = date.getMonth() !== calendarMonth.getMonth();
           const selected = isSameLocalDay(date, selectedDate);
+          const focused = isSameLocalDay(date, focusedDate);
           const isToday = isSameLocalDay(date, today);
           const disabledDay = Boolean(
             (minDateValue && date < minDateValue)
@@ -216,6 +273,11 @@ export default function QuietDatePicker({
               disabled={disabledDay}
               aria-pressed={selected}
               aria-current={isToday ? "date" : undefined}
+              aria-label={formatDateDisplay(formatLocalDateKey(date))}
+              tabIndex={focused ? 0 : -1}
+              data-date-picker-key={formatLocalDateKey(date)}
+              onFocus={() => setFocusedDate(date)}
+              onKeyDown={(event) => handleDayKeyDown(event, date)}
               onClick={() => selectDate(date)}
               className={`qp-calendar-day ${outsideMonth ? "qp-calendar-day-muted" : ""} ${
                 selected ? "qp-calendar-day-selected" : ""

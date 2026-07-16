@@ -1,10 +1,13 @@
 import {
   useCallback,
+  cloneElement,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
+  type ReactElement,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -12,7 +15,7 @@ import { createPortal } from "react-dom";
 export type QuietTooltipPlacement = "top" | "right" | "bottom" | "left";
 
 interface Props {
-  children: ReactNode;
+  children: ReactElement<{ "aria-describedby"?: string }>;
   label?: ReactNode | null;
   placement?: QuietTooltipPlacement;
   disabled?: boolean;
@@ -109,7 +112,14 @@ export default function QuietTooltip({
   const suppressFocusTooltipRef = useRef(false);
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<TooltipPosition | null>(null);
+  const tooltipId = useId();
   const canShow = Boolean(label) && !disabled;
+  const childAriaDescribedBy = children.props["aria-describedby"];
+  const describedChild = cloneElement(children, {
+    "aria-describedby": canShow
+      ? [childAriaDescribedBy, tooltipId].filter(Boolean).join(" ")
+      : childAriaDescribedBy,
+  });
 
   const hideTooltip = useCallback(() => {
     setVisible(false);
@@ -187,12 +197,13 @@ export default function QuietTooltip({
         onPointerDownCapture={hideOnPointerDown ? hideTooltipAfterPointerDown : undefined}
         onClickCapture={hideOnPointerDown ? hideTooltipAfterPointerDown : undefined}
       >
-        {children}
+        {describedChild}
       </span>
 
       {visible && canShow && typeof document !== "undefined" && createPortal(
         <div
           ref={tooltipRef}
+          id={tooltipId}
           role="tooltip"
           className={`qp-tooltip ${tooltipClassName ?? ""}`.trim()}
           style={{

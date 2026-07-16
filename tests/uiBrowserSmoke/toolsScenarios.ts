@@ -131,6 +131,86 @@ export async function runToolsScenarios(context: BrowserSmokeContext) {
     assert.equal(
       await evaluate(client!, sessionId, `
         (() => {
+          const trigger = document.querySelector('.qp-date-picker-trigger');
+          if (!trigger) return false;
+          trigger.focus();
+          trigger.click();
+          return true;
+        })()
+      `),
+      true,
+      "missing date picker trigger",
+    );
+    await waitForExpression(client!, sessionId, `document.activeElement?.classList.contains('qp-calendar-day')`);
+    const initialFocusedDate = await evaluate(client!, sessionId, `document.activeElement?.getAttribute('data-date-picker-key')`);
+    await evaluate(client!, sessionId, `
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    `);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.activeElement?.classList.contains('qp-calendar-day') && document.activeElement?.getAttribute('data-date-picker-key') !== ${jsonString(String(initialFocusedDate))}`,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `document.querySelectorAll('.qp-calendar-day[tabindex="0"]').length`),
+      1,
+      "date picker should expose one roving tab stop",
+    );
+    await evaluate(client!, sessionId, `
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    `);
+    await waitForExpression(client!, sessionId, `!document.querySelector('.qp-calendar-popover')`);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.activeElement?.classList.contains('qp-date-picker-trigger')`,
+      undefined,
+      "date picker trigger focus restoration",
+    );
+
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const trigger = document.querySelector('.qp-time-picker-trigger');
+          if (!trigger) return false;
+          trigger.focus();
+          trigger.click();
+          return true;
+        })()
+      `),
+      true,
+      "missing time picker trigger",
+    );
+    await waitForExpression(client!, sessionId, `document.activeElement?.getAttribute('data-time-picker-part') === 'hour'`);
+    const initialFocusedHour = await evaluate(client!, sessionId, `document.activeElement?.getAttribute('data-time-picker-value')`);
+    await evaluate(client!, sessionId, `
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true }));
+    `);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.activeElement?.getAttribute('data-time-picker-part') === 'hour' && document.activeElement?.getAttribute('data-time-picker-value') !== ${jsonString(String(initialFocusedHour))}`,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `document.querySelectorAll('.qp-time-picker-option[tabindex="0"]').length`),
+      2,
+      "time picker should expose one roving tab stop per listbox",
+    );
+    await evaluate(client!, sessionId, `
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    `);
+    await waitForExpression(client!, sessionId, `!document.querySelector('.qp-time-picker-popover')`);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.activeElement?.classList.contains('qp-time-picker-trigger')`,
+      undefined,
+      "time picker trigger focus restoration",
+    );
+
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
           const software = Array.from(document.querySelectorAll('button'))
             .find((node) => node.textContent?.trim() === ${jsonString(TOOLS_TEXT.reminderModeSoftware)});
           if (!software) return false;

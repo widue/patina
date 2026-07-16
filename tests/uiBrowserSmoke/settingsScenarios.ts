@@ -352,6 +352,7 @@ export async function runSettingsScenarios(context: BrowserSmokeContext) {
             .find((node) => node.textContent?.trim() === "导出");
           if (!trigger) return false;
           trigger.scrollIntoView({ block: "center" });
+          trigger.focus();
           trigger.click();
           return true;
         })()
@@ -418,6 +419,7 @@ export async function runSettingsScenarios(context: BrowserSmokeContext) {
         (() => {
           const trigger = Array.from(document.querySelectorAll("button"))
             .find((node) => node.textContent?.trim() === "配置字段");
+          trigger?.focus();
           trigger?.click();
           return Boolean(trigger);
         })()
@@ -434,6 +436,29 @@ export async function runSettingsScenarios(context: BrowserSmokeContext) {
     assert.equal(
       await evaluate(client!, sessionId, `Boolean(document.querySelector('.qp-dialog-header [aria-label="恢复当前格式默认字段"]'))`),
       true,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const trigger = document.querySelector('.qp-dialog-header [aria-label="恢复当前格式默认字段"]');
+          if (!trigger) return false;
+          trigger.focus();
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(client!, sessionId, `document.querySelector('.qp-tooltip[role="tooltip"]')?.textContent === "恢复当前格式默认字段"`);
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const trigger = document.querySelector('.qp-dialog-header [aria-label="恢复当前格式默认字段"]');
+          const tooltip = document.querySelector('.qp-tooltip[role="tooltip"]');
+          return Boolean(tooltip?.id && trigger?.getAttribute('aria-describedby')?.split(' ').includes(tooltip.id));
+        })()
+      `),
+      true,
+      "tooltip should be connected to its focusable trigger",
     );
     assert.equal(
       await evaluate(client!, sessionId, `Boolean(document.querySelector('.qp-dialog-header .settings-data-export-field-header-count'))`),
@@ -501,7 +526,21 @@ export async function runSettingsScenarios(context: BrowserSmokeContext) {
     }, sessionId);
     await evaluate(client!, sessionId, `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitForExpression(client!, sessionId, "document.querySelectorAll('[role=\"dialog\"]').length === 1");
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.activeElement?.textContent?.trim() === "配置字段"`,
+      undefined,
+      "nested dialog focus restoration",
+    );
     await evaluate(client!, sessionId, `document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))`);
     await waitForExpression(client!, sessionId, "!document.querySelector('[role=\"dialog\"]')");
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.activeElement?.textContent?.trim() === "导出"`,
+      undefined,
+      "outer dialog focus restoration",
+    );
   });
 }
