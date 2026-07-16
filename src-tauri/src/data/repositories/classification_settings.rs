@@ -1,3 +1,4 @@
+use crate::data::sqlite_error::SqliteOperationError;
 use sqlx::{Pool, Sqlite};
 
 pub const APP_OVERRIDE_KEY_PREFIX: &str = "__app_override::";
@@ -20,15 +21,14 @@ pub struct ClassificationSettingMutation {
 pub async fn commit_classification_setting_mutations(
     pool: &Pool<Sqlite>,
     mutations: &[ClassificationSettingMutation],
-) -> Result<(), String> {
+) -> Result<(), SqliteOperationError> {
     if mutations.is_empty() {
         return Ok(());
     }
 
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|error| format!("failed to start classification settings transaction: {error}"))?;
+    let mut tx = pool.begin().await.map_err(|error| {
+        SqliteOperationError::from_sqlx("start classification settings transaction", error)
+    })?;
 
     for mutation in mutations {
         validate_classification_setting_mutation(mutation)?;
@@ -41,18 +41,22 @@ pub async fn commit_classification_setting_mutations(
             .bind(value)
             .execute(&mut *tx)
             .await
-            .map_err(|error| format!("failed to save classification setting: {error}"))?;
+            .map_err(|error| {
+                SqliteOperationError::from_sqlx("save classification setting", error)
+            })?;
         } else {
             sqlx::query("DELETE FROM settings WHERE key = ?")
                 .bind(&mutation.key)
                 .execute(&mut *tx)
                 .await
-                .map_err(|error| format!("failed to delete classification setting: {error}"))?;
+                .map_err(|error| {
+                    SqliteOperationError::from_sqlx("delete classification setting", error)
+                })?;
         }
     }
 
     tx.commit().await.map_err(|error| {
-        format!("failed to commit classification settings transaction: {error}")
+        SqliteOperationError::from_sqlx("commit classification settings transaction", error)
     })?;
 
     Ok(())
@@ -60,19 +64,19 @@ pub async fn commit_classification_setting_mutations(
 
 fn validate_classification_setting_mutation(
     mutation: &ClassificationSettingMutation,
-) -> Result<(), String> {
+) -> Result<(), SqliteOperationError> {
     if !is_allowed_classification_setting_key(&mutation.key) {
-        return Err(format!(
-            "invalid classification setting key `{}`",
-            mutation.key
+        return Err(SqliteOperationError::invalid_input(
+            "validate classification setting",
+            format!("invalid key `{}`", mutation.key),
         ));
     }
 
     if let Some(value) = &mutation.value {
         if value.len() > MAX_SETTING_VALUE_LEN {
-            return Err(format!(
-                "classification setting value is too large for key `{}`",
-                mutation.key
+            return Err(SqliteOperationError::invalid_input(
+                "validate classification setting",
+                format!("value is too large for key `{}`", mutation.key),
             ));
         }
 
@@ -80,9 +84,9 @@ fn validate_classification_setting_mutation(
             || mutation.key.starts_with(WEB_DOMAIN_OVERRIDE_KEY_PREFIX)
         {
             serde_json::from_str::<serde_json::Value>(value).map_err(|error| {
-                format!(
-                    "invalid classification override value for key `{}`: {error}",
-                    mutation.key
+                SqliteOperationError::invalid_input(
+                    "validate classification setting",
+                    format!("invalid override value for key `{}`: {error}", mutation.key),
                 )
             })?;
         }

@@ -1,21 +1,9 @@
 use crate::domain::backup::{BackupWebActivitySegment, BackupWebFaviconCache};
 use crate::domain::web_activity::{
-    parse_domain_override_capture_title, parse_domain_override_enabled, SanitizedWebActivityInput,
+    parse_domain_override_capture_title, parse_domain_override_enabled, WebActivitySegmentInput,
     WEB_ACTIVITY_SOURCE_BROWSER_EXTENSION, WEB_DOMAIN_OVERRIDE_KEY_PREFIX,
 };
 use sqlx::{Pool, Row, Sqlite, Transaction};
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct WebActivitySegmentInput {
-    pub browser_client_id: String,
-    pub browser_kind: String,
-    pub browser_exe_name: String,
-    pub domain: String,
-    pub normalized_domain: String,
-    pub url: Option<String>,
-    pub title: Option<String>,
-    pub favicon_url: Option<String>,
-}
 
 #[derive(Clone, Debug)]
 struct ActiveWebActivitySegment {
@@ -27,21 +15,6 @@ struct ActiveWebActivitySegment {
     url: Option<String>,
     title: Option<String>,
     start_time: i64,
-}
-
-impl WebActivitySegmentInput {
-    pub fn from_sanitized(input: SanitizedWebActivityInput, browser_exe_name: String) -> Self {
-        Self {
-            browser_client_id: input.browser_client_id,
-            browser_kind: input.browser_kind,
-            browser_exe_name,
-            domain: input.domain,
-            normalized_domain: input.normalized_domain,
-            url: input.url,
-            title: input.title,
-            favicon_url: input.favicon_url,
-        }
-    }
 }
 
 pub async fn load_domain_recording_enabled(

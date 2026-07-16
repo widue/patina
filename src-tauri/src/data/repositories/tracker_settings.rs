@@ -2,7 +2,6 @@ use crate::domain::settings::parse_boolean_setting;
 use sqlx::{Pool, Row, Sqlite};
 
 pub const TRACKER_LAST_HEARTBEAT_KEY: &str = "__tracker_last_heartbeat_ms";
-pub const TRACKER_LAST_SUCCESSFUL_SAMPLE_KEY: &str = "__tracker_last_successful_sample_ms";
 pub const TRACKER_LAST_STARTUP_SELF_HEAL_AT_KEY: &str = "__tracker_last_startup_self_heal_at_ms";
 pub const TRACKER_LAST_STARTUP_SELF_HEAL_SUMMARY_KEY: &str =
     "__tracker_last_startup_self_heal_summary";

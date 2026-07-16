@@ -1,3 +1,4 @@
+use crate::data::sqlite_error::SqliteOperationError;
 use crate::domain::settings::{
     DesktopBehaviorSettings, RemoteStatusBridgeSettings, WebActivityBridgeSettings,
     WebActivitySettings,
@@ -76,15 +77,14 @@ pub async fn load_desktop_behavior_settings(
 pub async fn commit_app_setting_mutations(
     pool: &Pool<Sqlite>,
     mutations: &[AppSettingMutation],
-) -> Result<(), String> {
+) -> Result<(), SqliteOperationError> {
     if mutations.is_empty() {
         return Ok(());
     }
 
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|error| format!("failed to start app settings transaction: {error}"))?;
+    let mut tx = pool.begin().await.map_err(|error| {
+        SqliteOperationError::from_sqlx("start app settings transaction", error)
+    })?;
 
     for mutation in mutations {
         validate_app_setting_mutation(mutation)?;
@@ -96,25 +96,30 @@ pub async fn commit_app_setting_mutations(
         .bind(&mutation.value)
         .execute(&mut *tx)
         .await
-        .map_err(|error| format!("failed to save app setting: {error}"))?;
+        .map_err(|error| SqliteOperationError::from_sqlx("save app setting", error))?;
     }
 
-    tx.commit()
-        .await
-        .map_err(|error| format!("failed to commit app settings transaction: {error}"))?;
+    tx.commit().await.map_err(|error| {
+        SqliteOperationError::from_sqlx("commit app settings transaction", error)
+    })?;
 
     Ok(())
 }
 
-fn validate_app_setting_mutation(mutation: &AppSettingMutation) -> Result<(), String> {
+fn validate_app_setting_mutation(
+    mutation: &AppSettingMutation,
+) -> Result<(), SqliteOperationError> {
     if !is_allowed_app_setting_key(&mutation.key) {
-        return Err(format!("invalid app setting key `{}`", mutation.key));
+        return Err(SqliteOperationError::invalid_input(
+            "validate app setting",
+            format!("invalid key `{}`", mutation.key),
+        ));
     }
 
     if mutation.value.len() > MAX_APP_SETTING_VALUE_LEN {
-        return Err(format!(
-            "app setting value is too large for key `{}`",
-            mutation.key
+        return Err(SqliteOperationError::invalid_input(
+            "validate app setting",
+            format!("value is too large for key `{}`", mutation.key),
         ));
     }
 

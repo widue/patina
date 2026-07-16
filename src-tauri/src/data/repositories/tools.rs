@@ -1,5 +1,6 @@
 use crate::domain::tools::{
-    PomodoroPhase, PomodoroStatus, ReminderStatus, TimerMode, TimerStatus, ToolPomodoroRun,
+    CompletedPomodoroNotification, CompletedTimerNotification, PomodoroPhase, PomodoroStatus,
+    ReminderStatus, SoftwareReminderNotification, TimerMode, TimerStatus, ToolPomodoroRun,
     ToolReminder, ToolRuntimeSettings, ToolSoftwareReminderRule, ToolTimer, ToolTimerLap,
 };
 use sqlx::{Pool, Sqlite, Transaction};
@@ -21,29 +22,6 @@ use read::{
     fetch_pomodoro_by_id, fetch_reminder_by_id, fetch_software_reminder_rule_by_id,
     fetch_software_usage_ms_today_tx, fetch_timer_by_id, map_reminder_row, map_timer_lap_row,
 };
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CompletedTimerNotification {
-    pub timer_id: i64,
-    pub label: Option<String>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CompletedPomodoroNotification {
-    pub run_id: i64,
-    pub completed_phase: PomodoroPhase,
-    pub next_phase: PomodoroPhase,
-    pub completed_focus_count: i64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SoftwareReminderNotification {
-    pub rule_id: i64,
-    pub app_name: String,
-    pub limit_ms: i64,
-    pub usage_ms: i64,
-    pub message: String,
-}
 
 pub async fn load_tool_runtime_settings(
     _pool: &Pool<Sqlite>,

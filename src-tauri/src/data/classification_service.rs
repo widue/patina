@@ -1,9 +1,8 @@
 use crate::data::repositories::classification_settings::{
     commit_classification_setting_mutations, ClassificationSettingMutation,
 };
-use crate::data::sqlite_pool::{
-    is_recoverable_sqlite_error, reopen_sqlite_pool, wait_for_sqlite_pool,
-};
+use crate::data::sqlite_error::SqliteOperationError;
+use crate::data::sqlite_pool::{reopen_sqlite_pool, wait_for_sqlite_pool};
 use std::collections::HashMap;
 use tauri::{AppHandle, Runtime};
 
@@ -42,12 +41,16 @@ pub struct RecordingPolicyApplyOutcome {
 pub async fn commit_classification_setting_mutations_with_recovery<R: Runtime>(
     app: &AppHandle<R>,
     mutations: &[ClassificationSettingMutation],
-) -> Result<ClassificationCommitOutcome, String> {
-    let pool = wait_for_sqlite_pool(app).await?;
+) -> Result<ClassificationCommitOutcome, SqliteOperationError> {
+    let pool = wait_for_sqlite_pool(app).await.map_err(|error| {
+        SqliteOperationError::operation_failed("load classification settings pool", error)
+    })?;
     match commit_classification_setting_mutations(&pool, mutations).await {
         Ok(()) => Ok(build_commit_outcome(mutations)),
-        Err(error) if is_recoverable_sqlite_error(&error) => {
-            let reopened_pool = reopen_sqlite_pool(app).await?;
+        Err(error) if error.retryable() => {
+            let reopened_pool = reopen_sqlite_pool(app).await.map_err(|error| {
+                SqliteOperationError::operation_failed("reopen classification settings pool", error)
+            })?;
             commit_classification_setting_mutations(&reopened_pool, mutations).await?;
             Ok(build_commit_outcome(mutations))
         }
@@ -264,7 +267,7 @@ mod tests {
                 .unwrap();
             web_activity::upsert_active_segment(
                 &pool,
-                &web_activity::WebActivitySegmentInput {
+                &crate::domain::web_activity::WebActivitySegmentInput {
                     browser_client_id: "client".into(),
                     browser_kind: "chrome".into(),
                     browser_exe_name: "chrome.exe".into(),
@@ -328,7 +331,7 @@ mod tests {
                 .unwrap();
             web_activity::upsert_active_segment(
                 &pool,
-                &web_activity::WebActivitySegmentInput {
+                &crate::domain::web_activity::WebActivitySegmentInput {
                     browser_client_id: "client".into(),
                     browser_kind: "chrome".into(),
                     browser_exe_name: "chrome.exe".into(),

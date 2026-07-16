@@ -1,24 +1,5 @@
 use crate::domain::backup::BackupIconCache;
 use sqlx::{Pool, Row, Sqlite, Transaction};
-use std::collections::HashMap;
-
-pub async fn fetch_icon_map(pool: &Pool<Sqlite>) -> Result<HashMap<String, String>, String> {
-    let rows = sqlx::query("SELECT exe_name, icon_base64 FROM icon_cache")
-        .fetch_all(pool)
-        .await
-        .map_err(|error| format!("failed to read icon cache map: {error}"))?;
-
-    let mut map = HashMap::new();
-    for row in rows {
-        let exe_name: String = row.get("exe_name");
-        let icon_base64: String = row.get("icon_base64");
-        if !exe_name.trim().is_empty() {
-            map.insert(exe_name, icon_base64);
-        }
-    }
-
-    Ok(map)
-}
 
 pub async fn fetch_icon_for_exe(
     pool: &Pool<Sqlite>,

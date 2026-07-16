@@ -1,6 +1,5 @@
 use crate::data::repositories::tracker_settings;
 use crate::domain::settings::parse_boolean_setting;
-use chrono::Local;
 use sqlx::{Pool, Sqlite};
 
 const UPDATE_LAST_AUTO_CHECK_DAY_KEY: &str = "__update_last_auto_check_day";
@@ -40,10 +39,6 @@ pub async fn take_post_install_reopen_main_window(
     }
 
     Ok(should_reopen)
-}
-
-pub fn current_local_day() -> String {
-    Local::now().format("%Y-%m-%d").to_string()
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+use crate::data::sqlite_error::SqliteOperationError;
 use crate::data::sqlite_pool::run_recoverable_sqlite_write;
 use sqlx::{Pool, Sqlite};
 use tauri::{AppHandle, Runtime};
@@ -20,14 +21,20 @@ pub struct RemoteBackupSettingsPatch {
 pub async fn save_remote_backup_settings<R: Runtime>(
     app: &AppHandle<R>,
     patch: RemoteBackupSettingsPatch,
-) -> Result<(), String> {
+) -> Result<(), SqliteOperationError> {
     let url = patch.url.trim().to_string();
     let username = patch.username.trim().to_string();
     if url.is_empty() {
-        return Err("WebDAV URL cannot be empty".to_string());
+        return Err(SqliteOperationError::invalid_input(
+            "save remote backup settings",
+            "URL cannot be empty",
+        ));
     }
     if username.is_empty() {
-        return Err("WebDAV username cannot be empty".to_string());
+        return Err(SqliteOperationError::invalid_input(
+            "save remote backup settings",
+            "username cannot be empty",
+        ));
     }
 
     let remote_dir = normalize_remote_dir(patch.remote_dir.as_deref());
@@ -58,7 +65,7 @@ pub async fn save_remote_backup_settings<R: Runtime>(
 pub async fn save_remote_backup_remote_dir<R: Runtime>(
     app: &AppHandle<R>,
     remote_dir: String,
-) -> Result<(), String> {
+) -> Result<(), SqliteOperationError> {
     let remote_dir = normalize_remote_dir(Some(&remote_dir));
     upsert_single_setting(app, WEBDAV_BACKUP_REMOTE_DIR_KEY, remote_dir).await
 }
@@ -66,9 +73,12 @@ pub async fn save_remote_backup_remote_dir<R: Runtime>(
 pub async fn save_remote_backup_last_backup_at<R: Runtime>(
     app: &AppHandle<R>,
     timestamp_ms: i64,
-) -> Result<(), String> {
+) -> Result<(), SqliteOperationError> {
     if timestamp_ms <= 0 {
-        return Err("remote backup timestamp must be positive".to_string());
+        return Err(SqliteOperationError::invalid_input(
+            "save remote backup timestamp",
+            "timestamp must be positive",
+        ));
     }
     upsert_single_setting(
         app,
@@ -78,7 +88,9 @@ pub async fn save_remote_backup_last_backup_at<R: Runtime>(
     .await
 }
 
-pub async fn clear_remote_backup_settings<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+pub async fn clear_remote_backup_settings<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<(), SqliteOperationError> {
     run_recoverable_sqlite_write(
         app,
         "failed to clear remote backup settings",
@@ -101,16 +113,19 @@ pub async fn clear_remote_backup_settings<R: Runtime>(app: &AppHandle<R>) -> Res
 pub async fn save_data_bootstrap_snapshot_payload<R: Runtime>(
     app: &AppHandle<R>,
     payload: String,
-) -> Result<(), String> {
+) -> Result<(), SqliteOperationError> {
     if payload.len() > MAX_SETTINGS_PAYLOAD_LEN {
-        return Err("data bootstrap snapshot payload is too large".to_string());
+        return Err(SqliteOperationError::invalid_input(
+            "save data bootstrap snapshot",
+            "payload is too large",
+        ));
     }
     upsert_single_setting(app, DATA_BOOTSTRAP_SNAPSHOT_KEY, payload).await
 }
 
 pub async fn clear_data_bootstrap_snapshot_payload<R: Runtime>(
     app: &AppHandle<R>,
-) -> Result<(), String> {
+) -> Result<(), SqliteOperationError> {
     run_recoverable_sqlite_write(
         app,
         "failed to clear data bootstrap snapshot",
@@ -129,9 +144,12 @@ async fn upsert_single_setting<R: Runtime>(
     app: &AppHandle<R>,
     key: &'static str,
     value: String,
-) -> Result<(), String> {
+) -> Result<(), SqliteOperationError> {
     if value.len() > MAX_SETTINGS_PAYLOAD_LEN {
-        return Err(format!("setting value is too large for key `{key}`"));
+        return Err(SqliteOperationError::invalid_input(
+            "save setting payload",
+            format!("value is too large for key `{key}`"),
+        ));
     }
 
     run_recoverable_sqlite_write(app, "failed to save setting payload", move |pool| {
@@ -181,18 +199,17 @@ impl SettingMutation {
 async fn commit_settings_in_pool(
     pool: &Pool<Sqlite>,
     mutations: &[SettingMutation],
-) -> Result<(), String> {
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|error| format!("failed to start settings payload transaction: {error}"))?;
+) -> Result<(), SqliteOperationError> {
+    let mut tx = pool.begin().await.map_err(|error| {
+        SqliteOperationError::from_sqlx("start settings payload transaction", error)
+    })?;
 
     for mutation in mutations {
         if let Some(value) = &mutation.value {
             if value.len() > MAX_SETTINGS_PAYLOAD_LEN {
-                return Err(format!(
-                    "setting value is too large for key `{}`",
-                    mutation.key
+                return Err(SqliteOperationError::invalid_input(
+                    "save setting payload",
+                    format!("value is too large for key `{}`", mutation.key),
                 ));
             }
 
@@ -204,19 +221,21 @@ async fn commit_settings_in_pool(
             .bind(value)
             .execute(&mut *tx)
             .await
-            .map_err(|error| format!("failed to save setting `{}`: {error}", mutation.key))?;
+            .map_err(|error| SqliteOperationError::from_sqlx("save setting payload", error))?;
         } else {
             sqlx::query("DELETE FROM settings WHERE key = ?")
                 .bind(mutation.key)
                 .execute(&mut *tx)
                 .await
-                .map_err(|error| format!("failed to delete setting `{}`: {error}", mutation.key))?;
+                .map_err(|error| {
+                    SqliteOperationError::from_sqlx("delete setting payload", error)
+                })?;
         }
     }
 
-    tx.commit()
-        .await
-        .map_err(|error| format!("failed to commit settings payload transaction: {error}"))
+    tx.commit().await.map_err(|error| {
+        SqliteOperationError::from_sqlx("commit settings payload transaction", error)
+    })
 }
 
 #[cfg(test)]

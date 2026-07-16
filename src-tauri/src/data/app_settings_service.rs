@@ -1,10 +1,8 @@
-use crate::data::repositories::app_settings::{
-    self, commit_app_setting_mutations, AppSettingMutation,
-};
+pub use crate::data::repositories::app_settings::AppSettingMutation;
+use crate::data::repositories::app_settings::{self, commit_app_setting_mutations};
 use crate::data::repositories::update_state;
-use crate::data::sqlite_pool::{
-    is_recoverable_sqlite_error, reopen_sqlite_pool, wait_for_sqlite_pool,
-};
+use crate::data::sqlite_error::SqliteOperationError;
+use crate::data::sqlite_pool::{reopen_sqlite_pool, wait_for_sqlite_pool};
 use crate::domain::settings::{
     DesktopBehaviorSettings, WebActivityBridgeSettings, WebActivitySettings,
 };
@@ -18,12 +16,16 @@ pub struct DesktopBehaviorStartupState {
 pub async fn commit_app_setting_mutations_with_recovery<R: Runtime>(
     app: &AppHandle<R>,
     mutations: &[AppSettingMutation],
-) -> Result<(), String> {
-    let pool = wait_for_sqlite_pool(app).await?;
+) -> Result<(), SqliteOperationError> {
+    let pool = wait_for_sqlite_pool(app)
+        .await
+        .map_err(|error| SqliteOperationError::operation_failed("load app settings pool", error))?;
     match commit_app_setting_mutations(&pool, mutations).await {
         Ok(()) => Ok(()),
-        Err(error) if is_recoverable_sqlite_error(&error) => {
-            let reopened_pool = reopen_sqlite_pool(app).await?;
+        Err(error) if error.retryable() => {
+            let reopened_pool = reopen_sqlite_pool(app).await.map_err(|error| {
+                SqliteOperationError::operation_failed("reopen app settings pool", error)
+            })?;
             commit_app_setting_mutations(&reopened_pool, mutations).await
         }
         Err(error) => Err(error),
