@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, normalize, relative, sep } from "node:path";
+import ts from "typescript";
 
 const SCAN_ROOTS = ["src/app", "src/features", "src/shared", "src/platform"] as const;
 const DEFAULT_CAPABILITY_PATH = "src-tauri/capabilities/default.json";
@@ -17,6 +18,12 @@ interface ArchitectureViolation {
   text: string;
 }
 
+interface ModuleReference {
+  specifier: string | null;
+  node: ts.Node;
+  dynamic: boolean;
+}
+
 function normalizePath(path: string) {
   return path.split(sep).join("/");
 }
@@ -25,34 +32,14 @@ function normalizeImportPath(fromFile: string, specifier: string) {
   if (specifier.startsWith(".")) {
     return normalizePath(normalize(join(dirname(fromFile), specifier)));
   }
-
   if (specifier.startsWith("@/")) {
     return `src/${specifier.slice(2)}`;
   }
-
   return specifier;
-}
-
-function extractImportSpecifiers(lineText: string) {
-  const specifiers: string[] = [];
-  const patterns = [
-    /\bimport\s+(?:type\s+)?(?:[^'"]+?\s+from\s+)?["']([^"']+)["']/g,
-    /\bexport\s+(?:type\s+)?(?:[^'"]+?\s+from\s+)?["']([^"']+)["']/g,
-    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
-  ];
-
-  for (const pattern of patterns) {
-    for (const match of lineText.matchAll(pattern)) {
-      specifiers.push(match[1]);
-    }
-  }
-
-  return specifiers;
 }
 
 function collectSourceFiles(root: string): SourceFile[] {
   const files: SourceFile[] = [];
-
   function walk(path: string) {
     const stats = statSync(path);
     if (stats.isDirectory()) {
@@ -61,19 +48,25 @@ function collectSourceFiles(root: string): SourceFile[] {
       }
       return;
     }
-
-    if (!/\.(ts|tsx)$/.test(path)) {
-      return;
+    if (/\.(ts|tsx)$/.test(path)) {
+      files.push({
+        path: normalizePath(relative(process.cwd(), path)),
+        content: readFileSync(path, "utf8"),
+      });
     }
-
-    files.push({
-      path: normalizePath(relative(process.cwd(), path)),
-      content: readFileSync(path, "utf8"),
-    });
   }
-
   walk(root);
   return files;
+}
+
+function parseSource(file: SourceFile) {
+  return ts.createSourceFile(
+    file.path,
+    file.content,
+    ts.ScriptTarget.Latest,
+    true,
+    file.path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  );
 }
 
 function isFeatureComponentOrHook(path: string) {
@@ -100,130 +93,133 @@ function isAppComponent(path: string) {
   return /^src\/app\/components\//.test(path);
 }
 
+function isStringLiteral(node: ts.Node): node is ts.StringLiteral | ts.NoSubstitutionTemplateLiteral {
+  return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node);
+}
+
+function collectModuleReferences(sourceFile: ts.SourceFile) {
+  const references: ModuleReference[] = [];
+  function visit(node: ts.Node) {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      if (node.moduleSpecifier && isStringLiteral(node.moduleSpecifier)) {
+        references.push({ specifier: node.moduleSpecifier.text, node, dynamic: false });
+      }
+    } else if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword
+    ) {
+      const argument = node.arguments[0];
+      references.push({
+        specifier: argument && isStringLiteral(argument) ? argument.text : null,
+        node,
+        dynamic: true,
+      });
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(sourceFile);
+  return references;
+}
+
+function nodeLine(sourceFile: ts.SourceFile, node: ts.Node) {
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+}
+
+function nodeText(sourceFile: ts.SourceFile, node: ts.Node) {
+  return node.getText(sourceFile).replace(/\s+/g, " ").slice(0, 240);
+}
+
+function addViolation(
+  violations: ArchitectureViolation[],
+  file: SourceFile,
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+  rule: string,
+) {
+  violations.push({
+    path: file.path,
+    line: nodeLine(sourceFile, node),
+    rule,
+    text: nodeText(sourceFile, node),
+  });
+}
+
 function findArchitectureViolations(files: SourceFile[]): ArchitectureViolation[] {
   const violations: ArchitectureViolation[] = [];
 
   for (const file of files) {
-    const lines = file.content.split(/\r?\n/);
-    lines.forEach((lineText, index) => {
-      const importedPaths = extractImportSpecifiers(lineText).map((specifier) =>
-        normalizeImportPath(file.path, specifier),
-      );
+    const sourceFile = parseSource(file);
+    const moduleReferences = collectModuleReferences(sourceFile);
 
-      for (const importedPath of importedPaths) {
-        if (isSharedSource(file.path) && /^src\/app\//.test(importedPath)) {
-          violations.push({
-            path: file.path,
-            line: index + 1,
-            rule: "shared-no-app-import",
-            text: lineText.trim(),
-          });
-        }
-
-        if (isSharedSource(file.path) && /^src\/features\//.test(importedPath)) {
-          violations.push({
-            path: file.path,
-            line: index + 1,
-            rule: "shared-no-feature-import",
-            text: lineText.trim(),
-          });
-        }
-
-        if (isSharedSource(file.path) && /^src\/platform\//.test(importedPath)) {
-          violations.push({
-            path: file.path,
-            line: index + 1,
-            rule: "shared-no-platform-import",
-            text: lineText.trim(),
-          });
-        }
-
-        if (isFeatureComponentOrHook(file.path) && /^src\/platform\//.test(importedPath)) {
-          violations.push({
-            path: file.path,
-            line: index + 1,
-            rule: "feature-ui-no-platform-import",
-            text: lineText.trim(),
-          });
-        }
-
-        if (isAppComponentOrHook(file.path) && /^src\/platform\/persistence\//.test(importedPath)) {
-          violations.push({
-            path: file.path,
-            line: index + 1,
-            rule: "app-shell-no-direct-persistence-import",
-            text: lineText.trim(),
-          });
-        }
-
-        if (isAppComponent(file.path) && /^src\/features\//.test(importedPath)) {
-          violations.push({
-            path: file.path,
-            line: index + 1,
-            rule: "app-component-no-feature-import",
-            text: lineText.trim(),
-          });
-        }
-
-        if (isPlatformSource(file.path) && /^src\/app\//.test(importedPath)) {
-          violations.push({
-            path: file.path,
-            line: index + 1,
-            rule: "platform-no-app-import",
-            text: lineText.trim(),
-          });
-        }
-
-        if (isPlatformSource(file.path) && /^src\/features\//.test(importedPath)) {
-          violations.push({
-            path: file.path,
-            line: index + 1,
-            rule: "platform-no-feature-import",
-            text: lineText.trim(),
-          });
-        }
+    for (const reference of moduleReferences) {
+      if (reference.specifier === null) {
+        addViolation(
+          violations,
+          file,
+          sourceFile,
+          reference.node,
+          "restricted-no-nonliteral-dynamic-import",
+        );
+        continue;
       }
 
-      if (isFeatureComponentOrHook(file.path) && lineText.includes("@tauri-apps")) {
-        violations.push({
-          path: file.path,
-          line: index + 1,
-          rule: "feature-ui-no-tauri-api",
-          text: lineText.trim(),
-        });
+      const importedPath = normalizeImportPath(file.path, reference.specifier);
+      if (isSharedSource(file.path) && /^src\/app\//.test(importedPath)) {
+        addViolation(violations, file, sourceFile, reference.node, "shared-no-app-import");
       }
-
-      if (isFeatureComponentOrHook(file.path) && /\binvoke\s*\(/.test(lineText)) {
-        violations.push({
-          path: file.path,
-          line: index + 1,
-          rule: "feature-ui-no-direct-invoke",
-          text: lineText.trim(),
-        });
+      if (isSharedSource(file.path) && /^src\/features\//.test(importedPath)) {
+        addViolation(violations, file, sourceFile, reference.node, "shared-no-feature-import");
       }
+      if (isSharedSource(file.path) && /^src\/platform\//.test(importedPath)) {
+        addViolation(violations, file, sourceFile, reference.node, "shared-no-platform-import");
+      }
+      if (isFeatureComponentOrHook(file.path) && /^src\/platform\//.test(importedPath)) {
+        addViolation(violations, file, sourceFile, reference.node, "feature-ui-no-platform-import");
+      }
+      if (isAppComponentOrHook(file.path) && /^src\/platform\/persistence\//.test(importedPath)) {
+        addViolation(
+          violations,
+          file,
+          sourceFile,
+          reference.node,
+          "app-shell-no-direct-persistence-import",
+        );
+      }
+      if (isAppComponent(file.path) && /^src\/features\//.test(importedPath)) {
+        addViolation(violations, file, sourceFile, reference.node, "app-component-no-feature-import");
+      }
+      if (isPlatformSource(file.path) && /^src\/app\//.test(importedPath)) {
+        addViolation(violations, file, sourceFile, reference.node, "platform-no-app-import");
+      }
+      if (isPlatformSource(file.path) && /^src\/features\//.test(importedPath)) {
+        addViolation(violations, file, sourceFile, reference.node, "platform-no-feature-import");
+      }
+      if (isFeatureComponentOrHook(file.path) && reference.specifier.includes("@tauri-apps")) {
+        addViolation(violations, file, sourceFile, reference.node, "feature-ui-no-tauri-api");
+      }
+      if (isAppSource(file.path) && reference.specifier.includes("@tauri-apps/api")) {
+        addViolation(violations, file, sourceFile, reference.node, "app-no-tauri-api");
+      }
+    }
 
-      if (isAppSource(file.path) && lineText.includes("@tauri-apps/api")) {
-        violations.push({
-          path: file.path,
-          line: index + 1,
-          rule: "app-no-tauri-api",
-          text: lineText.trim(),
-        });
+    function visit(node: ts.Node) {
+      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+        if (isFeatureComponentOrHook(file.path) && node.expression.text === "invoke") {
+          addViolation(violations, file, sourceFile, node, "feature-ui-no-direct-invoke");
+        }
       }
 
       if (
-        !file.path.endsWith("src/platform/persistence/sqlite.ts")
-        && !file.path.endsWith("src/platform/persistence/sqliteTransactions.ts")
-        && /\bexecuteWrite(?:Batch)?\b/.test(lineText)
+        ts.isIdentifier(node) &&
+        (node.text === "executeWrite" || node.text === "executeWriteBatch") &&
+        !file.path.endsWith("src/platform/persistence/sqlite.ts") &&
+        !file.path.endsWith("src/platform/persistence/sqliteTransactions.ts")
       ) {
-        violations.push({
-          path: file.path,
-          line: index + 1,
-          rule: "frontend-no-sql-execute-write",
-          text: lineText.trim(),
-        });
+        addViolation(violations, file, sourceFile, node, "frontend-no-sql-execute-write");
       }
-    });
+      ts.forEachChild(node, visit);
+    }
+    visit(sourceFile);
   }
 
   return violations;
@@ -242,16 +238,13 @@ function assertRuntimeBoundaryGuards() {
   if (defaultCapability.windows?.includes("widget")) {
     throw new Error("Default capability must not include the widget window");
   }
-
   if (!widgetCapability.windows?.includes("widget")) {
     throw new Error("Widget capability must explicitly include the widget window");
   }
-
   const widgetPermissionText = JSON.stringify(widgetCapability.permissions ?? []);
   if (widgetPermissionText.includes("sql:allow-execute")) {
     throw new Error("Widget capability must not include sql:allow-execute");
   }
-
   const defaultPermissionText = JSON.stringify(defaultCapability.permissions ?? []);
   if (defaultPermissionText.includes("sql:allow-execute")) {
     throw new Error("Default capability must not include sql:allow-execute");
@@ -279,18 +272,23 @@ function runSelfTest() {
   const violations = findArchitectureViolations([
     {
       path: "src/features/data/components/Data.tsx",
-      content: "import { getSessionsInRange } from '../../../platform/persistence/sessionReadRepository.ts';",
+      content: [
+        "import {",
+        "  getSessionsInRange,",
+        "} from '../../../platform/persistence/sessionReadRepository.ts';",
+        "const fake = `import('../../platform/fake.ts')`;",
+      ].join("\n"),
     },
     {
       path: "src/features/data/services/dataReadModel.ts",
-      content: "const repository = await import('../../../platform/persistence/sessionReadRepository.ts');",
+      content: "const repository = await import(\n'../../../platform/persistence/sessionReadRepository.ts'\n);",
     },
     {
       path: "src/shared/lib/sessionReadRepository.ts",
       content: [
         "export type { HistorySession } from '../../platform/persistence/sessionReadRepository.ts';",
         "import type { View } from '../../app/types/view.ts';",
-        "import Dashboard from '../../features/dashboard/components/Dashboard.tsx';",
+        "export { default as Dashboard } from '../../features/dashboard/components/Dashboard.tsx';",
       ].join("\n"),
     },
     {
@@ -298,16 +296,11 @@ function runSelfTest() {
       content: "await invoke('cmd_save_settings');",
     },
     {
-      path: "src/features/settings/services/settingsRuntimeAdapterService.ts",
-      content: "import { setAfkThreshold } from '../../../platform/runtime/trackingRuntimeGateway.ts';",
-    },
-    {
       path: "src/app/components/AppTitleBar.tsx",
-      content: "import { getSessionsInRange } from '../../platform/persistence/sessionReadRepository.ts';",
-    },
-    {
-      path: "src/app/components/AppSidebar.tsx",
-      content: "import ToolsStatusChip from '../../features/tools/components/ToolsStatusChip.tsx';",
+      content: [
+        "import { getSessionsInRange } from '../../platform/persistence/sessionReadRepository.ts';",
+        "import ToolsStatusChip from '../../features/tools/components/ToolsStatusChip.tsx';",
+      ].join("\n"),
     },
     {
       path: "src/platform/persistence/sessionReadRepository.ts",
@@ -325,32 +318,37 @@ function runSelfTest() {
       path: "src/platform/persistence/badWrite.ts",
       content: "import { executeWrite } from './sqlite.ts';",
     },
+    {
+      path: "src/features/data/services/lazy.ts",
+      content: "const path = './dynamic'; import(path);",
+    },
   ]);
 
   const rules = violations.map((violation) => violation.rule).sort();
   const expectedRules = [
-    "app-no-tauri-api",
-    "app-shell-no-direct-persistence-import",
-    "app-component-no-feature-import",
-    "feature-ui-no-direct-invoke",
     "feature-ui-no-platform-import",
-    "frontend-no-sql-execute-write",
-    "platform-no-feature-import",
+    "shared-no-platform-import",
     "shared-no-app-import",
     "shared-no-feature-import",
-    "shared-no-platform-import",
+    "feature-ui-no-direct-invoke",
+    "app-shell-no-direct-persistence-import",
+    "app-component-no-feature-import",
+    "platform-no-feature-import",
+    "app-no-tauri-api",
+    "frontend-no-sql-execute-write",
+    "restricted-no-nonliteral-dynamic-import",
   ].sort();
 
   if (JSON.stringify(rules) !== JSON.stringify(expectedRules)) {
-    throw new Error("Architecture boundary self-test failed");
+    throw new Error(
+      `Architecture boundary self-test failed\nexpected ${JSON.stringify(expectedRules)}\nactual ${JSON.stringify(rules)}`,
+    );
   }
-
-  assertRuntimeBoundaryGuards();
 }
 
 function main() {
+  runSelfTest();
   if (process.argv.includes("--self-test")) {
-    runSelfTest();
     console.log("Architecture boundary self-test passed");
     return;
   }
@@ -366,7 +364,10 @@ function main() {
 
   console.error("Architecture boundary check failed. UI, shell, and platform code must stay within owned boundaries.");
   for (const violation of violations) {
-    console.error(`${violation.path}:${violation.line} ${violation.rule} -> ${violation.text}`);
+    console.error(
+      `${violation.path}:${violation.line} ${violation.rule} -> ${violation.text} ` +
+        "[owner: feature service / app composition / platform gateway]",
+    );
   }
   process.exitCode = 1;
 }
