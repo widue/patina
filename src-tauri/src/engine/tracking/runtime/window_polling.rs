@@ -353,6 +353,25 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
 
+    // Blocking sleeps below are the simulated foreground probes: they must
+    // outlive the configured timeout to exercise fallback behavior. Test
+    // coordination itself waits on observable probe state rather than sleeps.
+    async fn wait_for_probe_state(
+        state: &ForegroundProbeState,
+        predicate: impl Fn(&ForegroundProbeInner) -> bool,
+    ) {
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                if predicate(&lock_inner(state)) {
+                    return;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("timed out waiting for foreground probe state");
+    }
+
     fn make_window(exe_name: &str) -> tracker::WindowInfo {
         tracker::WindowInfo {
             hwnd: "0x100".into(),
@@ -438,7 +457,7 @@ mod tests {
                 .await
             });
 
-            tokio::time::sleep(Duration::from_millis(5)).await;
+            wait_for_probe_state(&state, |inner| inner.active_generation.is_some()).await;
             for _ in 0..10 {
                 let outcome = poll_active_window_with_state(
                     state.clone(),
@@ -514,7 +533,10 @@ mod tests {
                 .await
             });
 
-            tokio::time::sleep(Duration::from_millis(30)).await;
+            wait_for_probe_state(&state, |inner| {
+                inner.fallback_started_at_ms == Some(1_000) && inner.active_generation.is_some()
+            })
+            .await;
             let recovery_calls = calls.clone();
             let recovered = poll_active_window_with_state(
                 state.clone(),
@@ -575,8 +597,6 @@ mod tests {
                 third.probe_status,
                 TrackingRuntimeProbeStatus::RecoveryAttemptedFallback
             );
-            tokio::time::sleep(Duration::from_millis(25)).await;
-
             let hard_degraded =
                 poll_active_window_with_state(state, Duration::from_millis(10), 44_000, || {
                     make_window("ShouldNotRun.exe")

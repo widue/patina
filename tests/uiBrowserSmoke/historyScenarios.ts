@@ -788,7 +788,6 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
       button: "left",
       clickCount: 1,
     }, sessionId);
-    await new Promise((resolve) => setTimeout(resolve, 350));
     await client!.command("Input.dispatchMouseEvent", {
       type: "mouseMoved",
       x: dragStartX + 100,
@@ -858,7 +857,6 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
         button: "left",
         clickCount: 1,
       }, sessionId);
-      await new Promise((resolve) => setTimeout(resolve, 350));
       await client!.command("Input.dispatchMouseEvent", {
         type: "mouseMoved",
         x: repeatedDragState.x + dragDeltaX,

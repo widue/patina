@@ -163,10 +163,14 @@ await runTest("command wrapper preserves success and normalizes rejection", asyn
 await runTest("createSerializedJobRunner keeps writes strictly ordered", async () => {
   const runSerializedJob = createSerializedJobRunner();
   const events: string[] = [];
+  let releaseSlowJob!: () => void;
+  const slowJobGate = new Promise<void>((resolve) => {
+    releaseSlowJob = resolve;
+  });
 
   const slowJob = runSerializedJob(async () => {
     events.push("slow:start");
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await slowJobGate;
     events.push("slow:end");
   });
 
@@ -175,6 +179,9 @@ await runTest("createSerializedJobRunner keeps writes strictly ordered", async (
     events.push("fast:end");
   });
 
+  await Promise.resolve();
+  assert.deepEqual(events, ["slow:start"]);
+  releaseSlowJob();
   await Promise.all([slowJob, fastJob]);
 
   assert.deepEqual(events, [

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import type { BrowserSmokeContext } from "./scenarioTypes.ts";
-import { delay, evaluate, jsonString, waitForExpression } from "./browserHarness.ts";
+import { evaluate, jsonString, waitForAnimationFrames, waitForExpression } from "./browserHarness.ts";
 import { SETTINGS_MARKER } from "./constants.ts";
 
 export async function runSettingsScenarios(context: BrowserSmokeContext) {
@@ -223,7 +223,7 @@ export async function runSettingsScenarios(context: BrowserSmokeContext) {
           input.focus();
           setter?.call(input, "12346");
           input.dispatchEvent(new InputEvent("input", { bubbles: true, data: "12346", inputType: "insertText" }));
-          await new Promise((resolve) => setTimeout(resolve, 50));
+          await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
           input.blur();
           return true;
         })()
@@ -251,7 +251,7 @@ export async function runSettingsScenarios(context: BrowserSmokeContext) {
       deviceScaleFactor: 1,
       mobile: true,
     }, sessionId);
-    await delay(100);
+    await waitForAnimationFrames(client!, sessionId);
     assert.equal(
       await evaluate(client!, sessionId, "document.documentElement.scrollWidth <= window.innerWidth + 1"),
       true,
@@ -315,7 +315,7 @@ export async function runSettingsScenarios(context: BrowserSmokeContext) {
       deviceScaleFactor: 1,
       mobile: true,
     }, sessionId);
-    await delay(100);
+    await waitForAnimationFrames(client!, sessionId);
     assert.equal(
       await evaluate(client!, sessionId, "document.documentElement.scrollWidth <= window.innerWidth + 1"),
       true,
@@ -387,7 +387,7 @@ export async function runSettingsScenarios(context: BrowserSmokeContext) {
       deviceScaleFactor: 1,
       mobile: true,
     }, sessionId);
-    await delay(100);
+    await waitForAnimationFrames(client!, sessionId);
     assert.equal(
       await evaluate(client!, sessionId, "document.documentElement.scrollWidth <= window.innerWidth + 1"),
       true,

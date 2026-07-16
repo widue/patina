@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import type { BrowserSmokeContext } from "./scenarioTypes.ts";
-import { delay, evaluate, jsonString, waitForExpression } from "./browserHarness.ts";
+import { delay, evaluate, jsonString, waitForAnimationFrames, waitForExpression } from "./browserHarness.ts";
 import { APP_LOADING_VIEW, EXPECTED_NAV_LABELS, HISTORY_LOADING_VIEW, LONG_BACKGROUND_DELAY_MS } from "./constants.ts";
 
 export async function runNavigationScenarios(context: BrowserSmokeContext) {
   const { client, sessionId, runTest } = context;
 
   await runTest("warm primary navigation avoids app loading after startup warmup", async () => {
+    // This is the behavior under test: the time-budgeted startup warmup should
+    // have completed before navigation. Other synchronization uses conditions.
     await delay(4_000);
 
     for (const label of EXPECTED_NAV_LABELS.slice(1)) {
@@ -19,7 +21,11 @@ export async function runNavigationScenarios(context: BrowserSmokeContext) {
         })()
       `);
       assert.equal(clicked, true, `missing navigation entry ${label}`);
-      await delay(50);
+      await waitForExpression(
+        client!,
+        sessionId,
+        `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify(label))} + ']')?.className.includes("qp-nav-item-active")`,
+      );
       assert.equal(
         await evaluate(client!, sessionId, `document.body.innerText.includes(${jsonString(APP_LOADING_VIEW)})`),
         false,
@@ -38,7 +44,11 @@ export async function runNavigationScenarios(context: BrowserSmokeContext) {
       })()
     `);
     assert.equal(clicked, true);
-    await delay(50);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("数据"))} + ']')?.className.includes("qp-nav-item-active")`,
+    );
     assert.equal(
       await evaluate(
         client!,
@@ -71,7 +81,11 @@ export async function runNavigationScenarios(context: BrowserSmokeContext) {
       })()
     `);
     assert.equal(clicked, true);
-    await delay(50);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("历史"))} + ']')?.className.includes("qp-nav-item-active")`,
+    );
     assert.equal(
       await evaluate(
         client!,
@@ -108,9 +122,9 @@ export async function runNavigationScenarios(context: BrowserSmokeContext) {
       `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("数据"))} + ']')?.className.includes("qp-nav-item-active")`,
     );
     await evaluate(client!, sessionId, `globalThis.__TIME_TRACKER_SET_FOREGROUND_STATE?.({ visible: false, focused: false });`);
-    await delay(80);
+    await waitForAnimationFrames(client!, sessionId);
     await evaluate(client!, sessionId, `globalThis.__TIME_TRACKER_SET_FOREGROUND_STATE?.({ visible: true, focused: false });`);
-    await delay(80);
+    await waitForAnimationFrames(client!, sessionId);
     assert.equal(
       await evaluate(
         client!,
@@ -141,7 +155,7 @@ export async function runNavigationScenarios(context: BrowserSmokeContext) {
         `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify(label))} + ']')?.className.includes("qp-nav-item-active")`,
       );
       await evaluate(client!, sessionId, `globalThis.__TIME_TRACKER_SET_FOREGROUND_STATE?.({ visible: false, focused: false });`);
-      await delay(80);
+      await waitForAnimationFrames(client!, sessionId);
       await evaluate(client!, sessionId, `
         (() => {
           const originalNow = Date.now;

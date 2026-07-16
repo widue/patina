@@ -143,17 +143,27 @@ pub(crate) fn ensure_main_window_with_initial_visibility<R: Runtime>(
 fn main_window_url() -> WebviewUrl {
     #[cfg(debug_assertions)]
     {
-        WebviewUrl::External(
-            "http://127.0.0.1:1420"
-                .parse()
-                .expect("valid dev server URL"),
-        )
+        let e2e_frontend_url = (std::env::var("PATINA_E2E").as_deref() == Ok("1")).then(|| {
+            std::env::var("PATINA_E2E_FRONTEND_URL")
+                .expect("PATINA_E2E_FRONTEND_URL is required when PATINA_E2E=1")
+        });
+        debug_main_window_url(e2e_frontend_url.as_deref())
     }
 
     #[cfg(not(debug_assertions))]
     {
         WebviewUrl::App("index.html".into())
     }
+}
+
+#[cfg(debug_assertions)]
+fn debug_main_window_url(e2e_frontend_url: Option<&str>) -> WebviewUrl {
+    WebviewUrl::External(
+        e2e_frontend_url
+            .unwrap_or("http://127.0.0.1:1420")
+            .parse()
+            .expect("valid dev server URL"),
+    )
 }
 
 fn schedule_main_window_destroy_after_background<R: Runtime + 'static>(
@@ -200,6 +210,8 @@ fn schedule_main_window_destroy_after_background<R: Runtime + 'static>(
 
 #[cfg(test)]
 mod tests {
+    #[cfg(debug_assertions)]
+    use super::debug_main_window_url;
     use super::main_window_url;
     use tauri::WebviewUrl;
 
@@ -212,5 +224,16 @@ mod tests {
 
         #[cfg(not(debug_assertions))]
         assert!(matches!(url, WebviewUrl::App(_)));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn debug_main_window_url_accepts_isolated_e2e_frontend() {
+        let url = debug_main_window_url(Some("http://127.0.0.1:43123"));
+
+        match url {
+            WebviewUrl::External(url) => assert_eq!(url.as_str(), "http://127.0.0.1:43123/"),
+            _ => panic!("expected external E2E frontend URL"),
+        }
     }
 }

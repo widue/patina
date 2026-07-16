@@ -4,11 +4,6 @@ import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 import ts from "typescript";
 
-// Some deliberately broken async mutants create detached rejections. The
-// assertion still kills the mutant; keep that expected fallout from aborting
-// evaluation of the remaining mutation set.
-process.on("unhandledRejection", () => undefined);
-
 const TEMP_ROOT = resolve(".tmp/critical-mutations");
 const SQLITE_SOURCE = "src/platform/persistence/sqliteTransactions.ts";
 const ERROR_SOURCE = "src/platform/persistence/commandError.ts";
@@ -122,10 +117,20 @@ async function verifySqlite(module: Record<string, unknown>) {
 
   const run = createRunner();
   const order: string[] = [];
-  await withTimeout(Promise.all([
-    run(async () => { order.push("slow:start"); await new Promise((resolve) => setTimeout(resolve, 20)); order.push("slow:end"); }),
-    run(async () => { order.push("fast"); }),
-  ]));
+  let releaseSlowJob!: () => void;
+  const slowJobGate = new Promise<void>((resolve) => {
+    releaseSlowJob = resolve;
+  });
+  const slowJob = run(async () => {
+    order.push("slow:start");
+    await slowJobGate;
+    order.push("slow:end");
+  });
+  const fastJob = run(async () => { order.push("fast"); });
+  await Promise.resolve();
+  assert.deepEqual(order, ["slow:start"]);
+  releaseSlowJob();
+  await withTimeout(Promise.all([slowJob, fastJob]));
   assert.deepEqual(order, ["slow:start", "slow:end", "fast"]);
 }
 
@@ -167,23 +172,41 @@ async function verify(module: Record<string, unknown>, source: Mutant["source"])
   else await verifyError(module);
 }
 
-rmSync(TEMP_ROOT, { recursive: true, force: true });
-mkdirSync(TEMP_ROOT, { recursive: true });
-
-await verify(await importMutant(SQLITE_SOURCE), SQLITE_SOURCE);
-await verify(await importMutant(ERROR_SOURCE), ERROR_SOURCE);
-
-let killed = 0;
-for (const mutant of MUTANTS) {
+async function verifyMutant(mutant: Mutant) {
+  const detachedRejections: unknown[] = [];
+  const captureDetachedRejection = (reason: unknown) => detachedRejections.push(reason);
+  process.on("unhandledRejection", captureDetachedRejection);
   try {
     await verify(await importMutant(mutant.source, mutant), mutant.source);
-    console.error(`SURVIVED ${mutant.name}`);
-  } catch {
-    killed += 1;
-    console.log(`KILLED ${mutant.name}`);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    if (detachedRejections.length > 0) {
+      throw new Error(`mutant created ${detachedRejections.length} detached rejection(s)`);
+    }
+  } finally {
+    process.off("unhandledRejection", captureDetachedRejection);
   }
 }
 
-const score = (killed / MUTANTS.length) * 100;
-console.log(`Critical mutation score: ${killed}/${MUTANTS.length} (${score.toFixed(1)}%)`);
-if (score < 80) process.exitCode = 1;
+rmSync(TEMP_ROOT, { recursive: true, force: true });
+mkdirSync(TEMP_ROOT, { recursive: true });
+try {
+  await verify(await importMutant(SQLITE_SOURCE), SQLITE_SOURCE);
+  await verify(await importMutant(ERROR_SOURCE), ERROR_SOURCE);
+
+  let killed = 0;
+  for (const mutant of MUTANTS) {
+    try {
+      await verifyMutant(mutant);
+      console.error(`SURVIVED ${mutant.name}`);
+    } catch {
+      killed += 1;
+      console.log(`KILLED ${mutant.name}`);
+    }
+  }
+
+  const score = (killed / MUTANTS.length) * 100;
+  console.log(`Critical mutation score: ${killed}/${MUTANTS.length} (${score.toFixed(1)}%)`);
+  if (score < 80) process.exitCode = 1;
+} finally {
+  rmSync(TEMP_ROOT, { recursive: true, force: true });
+}

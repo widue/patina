@@ -1,16 +1,23 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:net";
-import { CdpConnection, delay, waitFor } from "./uiBrowserSmoke/browserHarness.ts";
+import { createServer as createNetServer } from "node:net";
+import { createServer as createViteServer, type ViteDevServer } from "vite";
+import {
+  CdpConnection,
+  assertIsolatedTempPath,
+  waitFor,
+} from "./uiBrowserSmoke/browserHarness.ts";
 
-const STARTUP_TIMEOUT_MS = 180_000;
-
+// Keep a wide cold-build allowance while leaving at least five minutes for cleanup
+// and CI diagnostics inside the independent 10-minute runtime-smoke job.
+const STARTUP_TIMEOUT_MS = 300_000;
+const RUNTIME_TARGET_DIR = join(process.cwd(), "src-tauri", "target", "runtime-smoke");
 async function reservePort() {
   return new Promise<number>((resolve, reject) => {
-    const server = createServer();
+    const server = createNetServer();
     server.once("error", reject);
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
@@ -23,7 +30,9 @@ async function reservePort() {
 
 async function findMainTarget(port: number) {
   try {
-    const response = await fetch(`http://127.0.0.1:${port}/json/list`);
+    const response = await fetch(`http://127.0.0.1:${port}/json/list`, {
+      signal: AbortSignal.timeout(1_000),
+    });
     if (!response.ok) return null;
     const targets = await response.json() as Array<{
       type?: string;
@@ -31,7 +40,8 @@ async function findMainTarget(port: number) {
       webSocketDebuggerUrl?: string;
     }>;
     return targets.find((target) => target.type === "page"
-      && target.url?.startsWith("http://127.0.0.1:1420")
+      && target.url
+      && target.url !== "about:blank"
       && target.webSocketDebuggerUrl) ?? null;
   } catch {
     return null;
@@ -91,49 +101,64 @@ function verifyDatabase(dbPath: string) {
   assert.equal(result.status, 0, `database verification failed: ${result.stderr || result.stdout}`);
 }
 
-const root = mkdtempSync(join(tmpdir(), "patina-tauri-e2e-"));
+const frontendPort = await reservePort();
 const devtoolsPort = await reservePort();
+const root = mkdtempSync(join(tmpdir(), "patina-tauri-e2e-"));
+assertIsolatedTempPath(root, "patina-tauri-e2e-");
+const frontendUrl = `http://127.0.0.1:${frontendPort}`;
 const logs: string[] = [];
 let appProcess: ChildProcess | null = null;
-let viteProcess: ChildProcess | null = null;
+let viteServer: ViteDevServer | null = null;
 let client: CdpConnection | null = null;
+let primaryError: unknown = null;
+const cleanupErrors: unknown[] = [];
+let databaseMutationCompleted = false;
 
 try {
-  const build = spawnSync("cargo", [
-    "build",
-    "--manifest-path",
-    join(process.cwd(), "src-tauri", "Cargo.toml"),
-    "--locked",
-  ], { cwd: process.cwd(), encoding: "utf8" });
-  assert.equal(build.status, 0, `Tauri debug build failed: ${build.stderr || build.stdout}`);
-
-  viteProcess = spawn(process.execPath, [
-    join(process.cwd(), "node_modules", "vite", "bin", "vite.js"),
-    "--host",
-    "127.0.0.1",
-    "--port",
-    "1420",
-    "--strictPort",
-  ], {
-    cwd: process.cwd(),
-    stdio: ["ignore", "pipe", "pipe"],
+  viteServer = await createViteServer({
+    configFile: "vite.config.ts",
+    logLevel: "error",
+    server: {
+      host: "127.0.0.1",
+      port: frontendPort,
+      strictPort: true,
+      hmr: false,
+    },
   });
-  viteProcess.stdout?.on("data", (chunk) => logs.push(String(chunk)));
-  viteProcess.stderr?.on("data", (chunk) => logs.push(String(chunk)));
+  await viteServer.listen();
   await waitFor("Vite dev server", async () => {
     try {
-      return (await fetch("http://127.0.0.1:1420")).ok;
+      return (await fetch(frontendUrl, { signal: AbortSignal.timeout(1_000) })).ok;
     } catch {
       return null;
     }
   }, 30_000);
 
-  appProcess = spawn(join(process.cwd(), "src-tauri", "target", "debug", "patina.exe"), [], {
+  const tauriConfigOverride = {
+    identifier: "com.ceceliaee.patina.runtime-smoke",
+    build: {
+      beforeDevCommand: "",
+      devUrl: frontendUrl,
+    },
+  };
+  const tauriConfigOverrideJson = JSON.stringify(tauriConfigOverride);
+  const tauriConfigOverridePath = join(root, "tauri.runtime-smoke.conf.json");
+  writeFileSync(tauriConfigOverridePath, tauriConfigOverrideJson, "utf8");
+  appProcess = spawn(process.execPath, [
+    join(process.cwd(), "node_modules", "@tauri-apps", "cli", "tauri.js"),
+    "dev",
+    "--no-watch",
+    "--config",
+    tauriConfigOverridePath,
+  ], {
     cwd: process.cwd(),
     env: {
       ...process.env,
       PATINA_E2E: "1",
       PATINA_E2E_DATA_ROOT: root,
+      PATINA_E2E_FRONTEND_URL: frontendUrl,
+      CARGO_TARGET_DIR: RUNTIME_TARGET_DIR,
+      TAURI_CONFIG: tauriConfigOverrideJson,
       WEBVIEW2_USER_DATA_FOLDER: join(root, "webview-user-data"),
       WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${devtoolsPort}`,
     },
@@ -146,6 +171,10 @@ try {
     "Patina main WebView CDP target",
     () => findMainTarget(devtoolsPort),
     STARTUP_TIMEOUT_MS,
+  );
+  assert.ok(
+    target.url?.startsWith(frontendUrl),
+    `Tauri runtime loaded unexpected frontend URL: ${target.url ?? "missing URL"}`,
   );
   client = await CdpConnection.connect(target.webSocketDebuggerUrl!);
   await client.command("Runtime.enable");
@@ -188,6 +217,7 @@ try {
     values: ["refresh_interval_secs"],
   })`);
   assert.deepEqual(rows, [{ value: "77" }]);
+  databaseMutationCompleted = true;
 
   const deniedWrite = await evaluate(client, `
     window.__TAURI_INTERNALS__.invoke("plugin:sql|execute", {
@@ -209,28 +239,67 @@ try {
   console.log("PASS real Tauri runtime command/event/SQLite/capability smoke");
 } catch (error) {
   console.error(logs.join(""));
-  throw error;
+  primaryError = error;
 } finally {
-  client?.close();
-  const appPid = appProcess ? stopProcessTree(appProcess) : null;
-  const vitePid = viteProcess ? stopProcessTree(viteProcess) : null;
-  for (const [label, pid] of [["Tauri app", appPid], ["Vite server", vitePid]] as const) {
-    if (!pid) continue;
-    await waitFor(`${label} process exit`, () => isProcessRunning(pid) ? null : true, 10_000);
+  try {
+    client?.close();
+  } catch (error) {
+    cleanupErrors.push(error);
   }
-  await delay(250);
-  const dbPath = join(root, "data", "patina.db");
-  if (existsSync(dbPath)) verifyDatabase(dbPath);
-  await waitFor("isolated runtime directory cleanup", () => {
+  let appPid: number | null = null;
+  try {
+    appPid = appProcess ? stopProcessTree(appProcess) : null;
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  for (const [label, pid] of [["Tauri app", appPid]] as const) {
+    if (!pid) continue;
     try {
-      rmSync(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 250 });
-      return !existsSync(root);
+      await waitFor(`${label} process exit`, () => isProcessRunning(pid) ? null : true, 10_000);
     } catch (error) {
-      const code = typeof error === "object" && error !== null && "code" in error
-        ? String(error.code)
-        : "";
-      if (code === "EPERM" || code === "EBUSY" || code === "ENOTEMPTY") return null;
-      throw error;
+      cleanupErrors.push(error);
     }
-  }, 20_000);
+  }
+  try {
+    const httpServer = viteServer?.httpServer ?? null;
+    await viteServer?.close();
+    if (httpServer?.listening) {
+      await new Promise<void>((resolve, reject) => {
+        httpServer.close((error) => error ? reject(error) : resolve());
+      });
+    }
+    if (httpServer?.listening) {
+      throw new Error(`Vite HTTP server still listening on ${frontendPort} after close`);
+    }
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  const dbPath = join(root, "data", "patina.db");
+  try {
+    if (databaseMutationCompleted && existsSync(dbPath)) verifyDatabase(dbPath);
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+  try {
+    await waitFor("isolated runtime directory cleanup", () => {
+      try {
+        assertIsolatedTempPath(root, "patina-tauri-e2e-");
+        rmSync(root, { recursive: true, force: true, maxRetries: 4, retryDelay: 250 });
+        return !existsSync(root);
+      } catch (error) {
+        const code = typeof error === "object" && error !== null && "code" in error
+          ? String(error.code)
+          : "";
+        if (code === "EPERM" || code === "EBUSY" || code === "ENOTEMPTY") return null;
+        throw error;
+      }
+    }, 20_000);
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+}
+
+const failures = [...(primaryError ? [primaryError] : []), ...cleanupErrors];
+if (failures.length > 0) {
+  throw new AggregateError(failures, "Tauri runtime smoke failed");
 }

@@ -1,14 +1,27 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 import { DEFAULT_TIMEOUT_MS } from "./constants.ts";
 
 function commandPath(command: string) {
   const locator = process.platform === "win32" ? "where.exe" : "which";
   const result = spawnSync(locator, [command], { encoding: "utf8" });
   return result.status === 0 ? result.stdout.split(/\r?\n/).find(Boolean) ?? null : null;
+}
+
+export function assertIsolatedTempPath(path: string, expectedPrefix: string) {
+  const resolvedTempRoot = resolve(tmpdir());
+  const resolvedPath = resolve(path);
+  const relativePath = relative(resolvedTempRoot, resolvedPath);
+  assert.ok(
+    relativePath
+      && !relativePath.startsWith("..")
+      && !isAbsolute(relativePath)
+      && basename(resolvedPath).startsWith(expectedPrefix),
+    `refusing to clean unexpected test path: ${resolvedPath}`,
+  );
 }
 
 function resolveBrowserPath() {
@@ -50,15 +63,17 @@ export async function waitFor<T>(
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
   const start = Date.now();
+  let lastObservation: T | null = null;
   while (Date.now() - start < timeoutMs) {
     const value = await producer();
+    lastObservation = value;
     if (value) {
       return value;
     }
     await delay(100);
   }
 
-  throw new Error(`Timed out waiting for ${label}`);
+  throw new Error(`Timed out waiting for ${label}; last observation: ${String(lastObservation)}`);
 }
 
 function readDevToolsPort(userDataDir: string) {
@@ -86,6 +101,7 @@ function readDevToolsPort(userDataDir: string) {
 export async function launchBrowser() {
   const browserPath = resolveBrowserPath();
   const userDataDir = mkdtempSync(join(tmpdir(), "time-tracker-browser-smoke-"));
+  assertIsolatedTempPath(userDataDir, "time-tracker-browser-smoke-");
   const browser = spawn(browserPath, [
     "--headless=new",
     "--disable-gpu",
@@ -99,29 +115,65 @@ export async function launchBrowser() {
     stdio: "ignore",
   });
 
-  const port = await waitFor("browser devtools port", () => readDevToolsPort(userDataDir));
-
-  return {
-    browser,
-    port,
-    userDataDir,
-  };
+  try {
+    const port = await waitFor("browser devtools port", () => readDevToolsPort(userDataDir));
+    return {
+      browser,
+      port,
+      userDataDir,
+    };
+  } catch (error) {
+    const cleanupErrors: unknown[] = [];
+    try {
+      await stopBrowser(browser);
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+    try {
+      assertIsolatedTempPath(userDataDir, "time-tracker-browser-smoke-");
+      rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    } catch (cleanupError) {
+      cleanupErrors.push(cleanupError);
+    }
+    throw new AggregateError([error, ...cleanupErrors], "Browser launch failed");
+  }
 }
 
 export async function stopBrowser(browser: ChildProcess) {
-  if (browser.exitCode === null && !browser.killed) {
-    browser.kill();
+  if (browser.exitCode !== null) return;
+
+  const pid = browser.pid;
+  if (process.platform === "win32" && browser.pid) {
+    const result = spawnSync("taskkill.exe", ["/PID", String(browser.pid), "/T", "/F"], {
+      encoding: "utf8",
+    });
+    if ((result.error || result.status !== 0) && isProcessRunning(browser.pid)) {
+      throw new Error(`failed to stop browser process tree ${browser.pid}: ${result.stderr || result.stdout}`);
+    }
+  } else {
+    browser.kill("SIGTERM");
   }
 
-  await Promise.race([
-    new Promise((resolve) => browser.once("exit", resolve)),
-    delay(1_000),
-  ]);
+  await waitFor(
+    "browser process exit",
+    () => browser.exitCode !== null || (pid && !isProcessRunning(pid)) ? true : null,
+    5_000,
+  );
+}
+
+function isProcessRunning(pid: number) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 type PendingCommand = {
   resolve: (value: Record<string, unknown>) => void;
   reject: (error: Error) => void;
+  timeout: ReturnType<typeof setTimeout>;
 };
 
 export class CdpConnection {
@@ -134,8 +186,18 @@ export class CdpConnection {
   constructor(ws: WebSocket) {
     this.ws = ws;
     this.ready = new Promise((resolve, reject) => {
-      ws.addEventListener("open", () => resolve(), { once: true });
-      ws.addEventListener("error", () => reject(new Error("CDP WebSocket failed to open")), {
+      const timeout = setTimeout(
+        () => reject(new Error(`Timed out after ${DEFAULT_TIMEOUT_MS}ms opening CDP WebSocket`)),
+        DEFAULT_TIMEOUT_MS,
+      );
+      ws.addEventListener("open", () => {
+        clearTimeout(timeout);
+        resolve();
+      }, { once: true });
+      ws.addEventListener("error", () => {
+        clearTimeout(timeout);
+        reject(new Error("CDP WebSocket failed to open"));
+      }, {
         once: true,
       });
     });
@@ -147,6 +209,7 @@ export class CdpConnection {
       if (id !== null && this.pending.has(id)) {
         const pending = this.pending.get(id)!;
         this.pending.delete(id);
+        clearTimeout(pending.timeout);
 
         if (message.error) {
           pending.reject(new Error(JSON.stringify(message.error)));
@@ -160,6 +223,16 @@ export class CdpConnection {
         listener(message);
       }
     });
+
+    const rejectPending = (message: string) => {
+      for (const [id, pending] of this.pending) {
+        clearTimeout(pending.timeout);
+        pending.reject(new Error(`${message}; pending CDP command id=${id}`));
+      }
+      this.pending.clear();
+    };
+    ws.addEventListener("error", () => rejectPending("CDP WebSocket error"));
+    ws.addEventListener("close", () => rejectPending("CDP WebSocket closed"));
   }
 
   static async connect(url: string) {
@@ -173,7 +246,12 @@ export class CdpConnection {
     return () => this.listeners.delete(listener);
   }
 
-  async command(method: string, params: Record<string, unknown> = {}, sessionId?: string) {
+  async command(
+    method: string,
+    params: Record<string, unknown> = {},
+    sessionId?: string,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+  ) {
     await this.ready;
     const id = this.nextId;
     this.nextId += 1;
@@ -188,9 +266,20 @@ export class CdpConnection {
     }
 
     const result = new Promise<Record<string, unknown>>((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      const timeout = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new Error(`Timed out after ${timeoutMs}ms waiting for CDP command ${method} (id=${id})`));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timeout });
     });
-    this.ws.send(JSON.stringify(payload));
+    try {
+      this.ws.send(JSON.stringify(payload));
+    } catch (error) {
+      const pending = this.pending.get(id);
+      if (pending) clearTimeout(pending.timeout);
+      this.pending.delete(id);
+      throw error;
+    }
     return result;
   }
 
@@ -200,7 +289,9 @@ export class CdpConnection {
 }
 
 export async function getBrowserWebSocketUrl(port: number) {
-  const response = await fetch(`http://127.0.0.1:${port}/json/version`);
+  const response = await fetch(`http://127.0.0.1:${port}/json/version`, {
+    signal: AbortSignal.timeout(DEFAULT_TIMEOUT_MS),
+  });
   const version = await response.json() as { webSocketDebuggerUrl?: string };
   assert.ok(version.webSocketDebuggerUrl, "missing browser CDP WebSocket URL");
   return version.webSocketDebuggerUrl;
@@ -236,6 +327,21 @@ export async function waitForExpression(
     const value = await evaluate(client, sessionId, expression);
     return value ? value : null;
   }, timeoutMs);
+}
+
+export async function waitForAnimationFrames(
+  client: CdpConnection,
+  sessionId: string,
+  frameCount = 2,
+) {
+  await evaluate(client, sessionId, `
+    (async () => {
+      for (let frame = 0; frame < ${frameCount}; frame += 1) {
+        await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+      }
+      return true;
+    })()
+  `);
 }
 
 export function jsonString(value: string) {

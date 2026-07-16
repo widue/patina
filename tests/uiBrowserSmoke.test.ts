@@ -4,6 +4,7 @@ import { rmSync } from "node:fs";
 import { createServer } from "vite";
 import {
   CdpConnection,
+  assertIsolatedTempPath,
   getBrowserWebSocketUrl,
   launchBrowser,
   stopBrowser,
@@ -32,6 +33,8 @@ let browserProcess: ChildProcess | null = null;
 let browserUserDataDir: string | null = null;
 let client: CdpConnection | null = null;
 const consoleErrors: string[] = [];
+let primaryError: unknown = null;
+const cleanupErrors: unknown[] = [];
 
 const server = await createServer({
   configFile: "vite.config.ts",
@@ -121,13 +124,24 @@ try {
   await runLocaleScenarios(smokeContext);
 
   assert.deepEqual(consoleErrors, []);
+} catch (error) {
+  primaryError = error;
 } finally {
-  client?.close();
+  try {
+    client?.close();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   if (browserProcess) {
-    await stopBrowser(browserProcess);
+    try {
+      await stopBrowser(browserProcess);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
   }
   if (browserUserDataDir) {
     try {
+      assertIsolatedTempPath(browserUserDataDir, "time-tracker-browser-smoke-");
       rmSync(browserUserDataDir, {
         recursive: true,
         force: true,
@@ -135,10 +149,19 @@ try {
         retryDelay: 200,
       });
     } catch (error) {
-      console.warn("Failed to remove browser smoke temp profile:", error);
+      cleanupErrors.push(error);
     }
   }
-  await server.close();
+  try {
+    await server.close();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+}
+
+const failures = [...(primaryError ? [primaryError] : []), ...cleanupErrors];
+if (failures.length > 0) {
+  throw new AggregateError(failures, "Browser UI smoke failed");
 }
 
 console.log(`Passed ${passed} browser UI smoke tests`);
