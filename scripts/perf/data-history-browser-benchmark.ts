@@ -99,6 +99,47 @@ async function clickNavActiveDurationMs(
   return duration as number;
 }
 
+async function clickNavReadyDurationMs(
+  client: CdpConnection,
+  sessionId: string,
+  label: string,
+  readySelector: string,
+) {
+  const duration = await evaluate(client, sessionId, `
+    new Promise((resolve, reject) => {
+      const node = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify(label))} + ']');
+      if (!node) {
+        reject(new Error("missing navigation entry"));
+        return;
+      }
+
+      const startedAt = performance.now();
+      node.click();
+
+      const finishAfterPaint = () => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => resolve(performance.now() - startedAt));
+        });
+      };
+      const checkReady = () => {
+        if (document.querySelector(${jsonString(readySelector)})?.checkVisibility()) {
+          finishAfterPaint();
+          return;
+        }
+        if (performance.now() - startedAt > 45000) {
+          reject(new Error("timed out waiting for ready view"));
+          return;
+        }
+        requestAnimationFrame(checkReady);
+      };
+
+      checkReady();
+    })
+  `);
+  assert.equal(typeof duration, "number");
+  return duration as number;
+}
+
 async function measurePreparedBrowserDuration(
   name: string,
   iterations: number,
@@ -139,7 +180,8 @@ async function openHistory(client: CdpConnection, sessionId: string) {
     client,
     sessionId,
     HISTORY_LABEL,
-    `Boolean(document.querySelector(".history-horizontal-timeline") && document.querySelector(".history-app-distribution-card"))`,
+    `Boolean(document.querySelector(".history-horizontal-timeline")?.checkVisibility()
+      && document.querySelector(".history-app-distribution-card")?.checkVisibility())`,
   );
   assert.equal(await evaluate(client, sessionId, `document.body.innerText.includes(${jsonString(APP_LOADING_VIEW)})`), false);
   assert.equal(await evaluate(client, sessionId, `document.body.innerText.includes(${jsonString(HISTORY_LOADING_VIEW)})`), false);
@@ -277,7 +319,26 @@ try {
   await waitForExpression(client, sessionId, navActiveExpression(DASHBOARD_LABEL), 45_000);
   await waitForPaint(client, sessionId);
 
+  const coldHistoryFirstPaintDurationMs = await clickNavReadyDurationMs(
+    client,
+    sessionId,
+    HISTORY_LABEL,
+    ".history-horizontal-timeline",
+  );
+  await waitForExpression(
+    client,
+    sessionId,
+    "Boolean(document.querySelector('.history-horizontal-timeline-segment')?.checkVisibility())",
+    45_000,
+  );
+  await openDashboard(client, sessionId);
+
   const measurements = [
+    createBenchmarkMeasurement(
+      "browser-dashboard-to-history-first-paint-cold",
+      [coldHistoryFirstPaintDurationMs],
+      350,
+    ),
     await measurePreparedBrowserDuration("browser-dashboard-to-data-active", 8, 160, async () => {
       await openDashboard(client!, sessionId);
     }, async () => {
@@ -285,24 +346,38 @@ try {
       assert.equal(await evaluate(client!, sessionId, `document.body.innerText.includes(${jsonString(APP_LOADING_VIEW)})`), false);
       return duration;
     }),
-    await measureAsyncBenchmark("browser-dashboard-to-data", 8, 900, async () => {
+    await measureAsyncBenchmark("browser-dashboard-to-data", 8, 500, async () => {
       await openDashboard(client!, sessionId);
       await openData(client!, sessionId);
     }),
-    await measureAsyncBenchmark("browser-data-7d-to-365d", 8, 3_000, async () => {
+    await measureAsyncBenchmark("browser-data-7d-to-365d", 8, 1_000, async () => {
       await openData(client!, sessionId);
       await setOverviewRangeToYear(client!, sessionId);
       await waitForExpression(client!, sessionId, `Boolean(document.querySelector(".data-overview-grid"))`, 45_000);
     }),
-    await measureAsyncBenchmark("browser-data-365d-to-7d", 8, 3_000, async () => {
+    await measureAsyncBenchmark("browser-data-365d-to-7d", 8, 1_000, async () => {
       await openData(client!, sessionId);
       await setOverviewRangeToYear(client!, sessionId);
       await setOverviewRangeToSevenDays(client!, sessionId);
     }),
-    await measureAsyncBenchmark("browser-dashboard-to-history", 8, 900, async () => {
+    await measureAsyncBenchmark("browser-dashboard-to-history", 8, 350, async () => {
       await openDashboard(client!, sessionId);
       await openHistory(client!, sessionId);
     }),
+    await measurePreparedBrowserDuration(
+      "browser-dashboard-to-history-first-paint-hot",
+      8,
+      160,
+      async () => {
+        await openDashboard(client!, sessionId);
+      },
+      () => clickNavReadyDurationMs(
+        client!,
+        sessionId,
+        HISTORY_LABEL,
+        ".history-horizontal-timeline",
+      ),
+    ),
   ];
 
   printBenchmarkReport({

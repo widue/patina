@@ -15,7 +15,7 @@ function runTest(name: string, fn: () => void) {
 }
 
 function readRustFieldArray(name: string): string[] {
-  const source = readFileSync("src-tauri/src/engine/export/common.rs", "utf8");
+  const source = readFileSync("src-tauri/src/data/export/common.rs", "utf8");
   const pattern = new RegExp(`pub const ${name}: &\\[&str\\] = &\\[([\\s\\S]*?)\\];`);
   const match = pattern.exec(source);
   assert.ok(match, `missing Rust field array ${name}`);

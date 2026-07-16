@@ -535,7 +535,7 @@ function testWorkflowRunsTrustedBaseGate() {
   assert.match(workflow, /ref:\s*\$\{\{ github\.event\.pull_request\.base\.sha \}\}/);
   assert.match(workflow, /Fetch pull request head without checking it out/);
   assert.match(workflow, /node --experimental-strip-types scripts\/check-pr-intake\.ts/);
-  assert.match(workflow, /node-version: 22/);
+  assert.match(workflow, /node-version-file: \.node-version/);
   assert.match(workflow, /permissions:\s*\r?\n\s+contents: read/);
   assert.match(workflow, /cancel-in-progress: true/);
   assert.doesNotMatch(workflow, /\b(?:labeled|unlabeled)\b/);

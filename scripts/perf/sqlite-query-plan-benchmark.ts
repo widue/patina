@@ -48,6 +48,7 @@ const result = spawnSync("cargo", [
   "test",
   "--manifest-path",
   "src-tauri/Cargo.toml",
+  "--locked",
   "session_range_query_plan_report",
   "--",
   "--ignored",

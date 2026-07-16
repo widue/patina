@@ -2,9 +2,13 @@ import assert from "node:assert/strict";
 import {
   createSerializedJobRunner,
   executeWriteBatchWithExecutor,
-  isRecoverableSqliteWriteError,
   type SqlWriteOperation,
 } from "../src/platform/persistence/sqliteTransactions.ts";
+import {
+  isRetryableCommandError,
+  invokeWithCommandErrorUsing,
+  parseCommandError,
+} from "../src/platform/persistence/commandError.ts";
 import {
   buildAppSettingMutations,
   buildRawAppSettingsPatch,
@@ -115,10 +119,45 @@ await runTest("app setting mutations serialize values for backend transaction co
   ]);
 });
 
-await runTest("SQLite transient write errors are recoverable", () => {
-  assert.equal(isRecoverableSqliteWriteError("database is locked"), true);
-  assert.equal(isRecoverableSqliteWriteError(new Error("SQLITE_BUSY: database is busy")), true);
-  assert.equal(isRecoverableSqliteWriteError("UNIQUE constraint failed: settings.key"), false);
+await runTest("command retryability uses structured fields rather than message text", () => {
+  const busy = { code: "SQLITE_BUSY", message: "write unavailable", retryable: true };
+  assert.deepEqual(parseCommandError(busy), busy);
+  assert.equal(isRetryableCommandError(busy), true);
+  assert.equal(
+    isRetryableCommandError({
+      code: "SQLITE_OPERATION_FAILED",
+      message: "database is locked",
+      retryable: false,
+    }),
+    false,
+  );
+  assert.deepEqual(parseCommandError({ message: "partial" }), {
+    code: "UNKNOWN_COMMAND_ERROR",
+    message: "The operation could not be completed.",
+    retryable: false,
+  });
+  assert.deepEqual(parseCommandError(new Error("native failure")), {
+    code: "UNKNOWN_COMMAND_ERROR",
+    message: "native failure",
+    retryable: false,
+  });
+});
+
+await runTest("command wrapper preserves success and normalizes rejection", async () => {
+  const invokeSuccess = async <T>(_command: string, _args?: Record<string, unknown>) => 42 as T;
+  assert.equal(await invokeWithCommandErrorUsing(invokeSuccess, "cmd_ok"), 42);
+
+  const structured = { code: "SQLITE_BUSY", message: "try later", retryable: true };
+  const invokeFailure = async <T>(_command: string, _args?: Record<string, unknown>) => {
+    throw structured;
+  };
+  await assert.rejects(
+    invokeWithCommandErrorUsing(invokeFailure, "cmd_fail"),
+    (error) => {
+      assert.deepEqual(error, structured);
+      return true;
+    },
+  );
 });
 
 await runTest("createSerializedJobRunner keeps writes strictly ordered", async () => {

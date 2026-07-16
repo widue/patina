@@ -7,16 +7,16 @@ const INDEX_HTML_PATH = "dist/index.html";
 const COPY_DOMAINS_DIR = "src/shared/copy/domains";
 const KI_B = 1024;
 
-const INITIAL_JS_AND_CSS_GZIP_BUDGET_KI_B = 350;
-const LAZY_JS_GZIP_BUDGET_KI_B = 85;
-const TOTAL_JS_AND_CSS_GZIP_BUDGET_KI_B = 425;
+const INITIAL_JS_AND_CSS_GZIP_BUDGET_KI_B = 310;
+const LAZY_JS_GZIP_BUDGET_KI_B = 82;
+const TOTAL_JS_AND_CSS_GZIP_BUDGET_KI_B = 390;
 
 const INITIAL_CHUNK_BUDGETS = [
-  { label: "index", pattern: /^index-.*\.js$/, gzipKiB: 80 },
-  { label: "charts", pattern: /^charts-.*\.js$/, gzipKiB: 125 },
-  { label: "react-vendor", pattern: /^react-vendor-.*\.js$/, gzipKiB: 70 },
-  { label: "icons", pattern: /^icons-.*\.js$/, gzipKiB: 10 },
-  { label: "tauri", pattern: /^tauri-.*\.js$/, gzipKiB: 8 },
+  { label: "index", pattern: /^index-.*\.js$/, gzipKiB: 65 },
+  { label: "charts", pattern: /^charts-.*\.js$/, gzipKiB: 118 },
+  { label: "react-vendor", pattern: /^react-vendor-.*\.js$/, gzipKiB: 60 },
+  { label: "icons", pattern: /^icons-.*\.js$/, gzipKiB: 8 },
+  { label: "tauri", pattern: /^tauri-.*\.js$/, gzipKiB: 6 },
 ] as const;
 
 const LAZY_PAGE_CHUNK_BUDGETS = [
@@ -28,9 +28,11 @@ const LAZY_PAGE_CHUNK_BUDGETS = [
   { label: "About", pattern: /^About-.*\.js$/, gzipKiB: 18 },
 ] as const;
 
-const LAZY_SUPPORT_CHUNKS_GZIP_BUDGET_KI_B = 6;
+// Vite 8/Rolldown creates more granular shared chunks. The support allowance is
+// slightly wider while every aggregate and initial-chunk budget is materially tighter.
+const LAZY_SUPPORT_CHUNKS_GZIP_BUDGET_KI_B = 6.25;
 const SETTINGS_COPY_GZIP_BUDGET_KI_B = 12;
-const COPY_DOMAINS_GZIP_REVIEW_KI_B = 28;
+const COPY_DOMAINS_GZIP_BUDGET_KI_B = 30;
 const NON_SETTINGS_COPY_GZIP_REVIEW_KI_B = 4;
 
 type AssetMeasurement = {
@@ -150,7 +152,6 @@ function main() {
   const lazySupportAssets = lazyJsAssets.filter((item) => !matchesAnyBudget(item.file, LAZY_PAGE_CHUNK_BUDGETS));
 
   const violations: string[] = [];
-  const notes: string[] = [];
   const copyDomains = measureCopyDomains();
 
   const initialJsCssGzipBytes = sumGzipBytes(initialJsAssets) + sumGzipBytes(initialCssAssets);
@@ -193,16 +194,16 @@ function main() {
       );
     }
 
-    if (copyDomainsGzipBytes > COPY_DOMAINS_GZIP_REVIEW_KI_B * KI_B) {
-      notes.push(
-        `copy domains source gzip ${formatKiB(copyDomainsGzipBytes)} KiB exceeds ${COPY_DOMAINS_GZIP_REVIEW_KI_B} KiB review threshold`,
+    if (copyDomainsGzipBytes > COPY_DOMAINS_GZIP_BUDGET_KI_B * KI_B) {
+      violations.push(
+        `copy domains source gzip ${formatKiB(copyDomainsGzipBytes)} KiB exceeds ${COPY_DOMAINS_GZIP_BUDGET_KI_B} KiB`,
       );
     }
 
     for (const item of copyDomains) {
       if (item.file !== "settingsCopy.ts" && item.gzipBytes > NON_SETTINGS_COPY_GZIP_REVIEW_KI_B * KI_B) {
-        notes.push(
-          `${item.file} source gzip ${formatKiB(item.gzipBytes)} KiB exceeds ${NON_SETTINGS_COPY_GZIP_REVIEW_KI_B} KiB review threshold`,
+        violations.push(
+          `${item.file} source gzip ${formatKiB(item.gzipBytes)} KiB exceeds ${NON_SETTINGS_COPY_GZIP_REVIEW_KI_B} KiB`,
         );
       }
     }
@@ -248,12 +249,6 @@ function main() {
     }
   }
 
-  if (notes.length > 0) {
-    console.log("Bundle budget review notes:");
-    for (const note of notes) {
-      console.log(`- ${note}`);
-    }
-  }
 }
 
 main();

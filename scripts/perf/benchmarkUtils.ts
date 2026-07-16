@@ -10,6 +10,8 @@ export interface BenchmarkMeasurement {
   p95Ms: number;
   maxMs: number;
   budgetAverageMs: number;
+  budgetP95Ms: number;
+  budgetMaxMs: number;
   withinBudget: boolean;
 }
 
@@ -28,6 +30,11 @@ export function createBenchmarkMeasurement(
   const elapsedMs = durations.reduce((sum, duration) => sum + duration, 0);
   const averageMs = durations.length > 0 ? elapsedMs / durations.length : 0;
   const distribution = summarizeDurations(durations);
+  const p95Multiplier = durations.length < 50 ? 2 : 1.5;
+  const budgetP95Ms = Math.max(budgetAverageMs * p95Multiplier, budgetAverageMs + 5);
+  // Max captures one-off GC/scheduler stalls and is intentionally wider than
+  // p95, while still turning pathological spikes into a hard failure.
+  const budgetMaxMs = budgetAverageMs * 4;
 
   return {
     name,
@@ -36,7 +43,11 @@ export function createBenchmarkMeasurement(
     averageMs,
     ...distribution,
     budgetAverageMs,
-    withinBudget: averageMs <= budgetAverageMs,
+    budgetP95Ms,
+    budgetMaxMs,
+    withinBudget: averageMs <= budgetAverageMs
+      && distribution.p95Ms <= budgetP95Ms
+      && distribution.maxMs <= budgetMaxMs,
   };
 }
 
