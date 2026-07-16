@@ -607,6 +607,8 @@ Rust 侧允许为了稳定演进保留少量入口协调或兼容封装，但规
 - 页面组件不再自然碰基础设施
 - 平台适配不再散落在多个层级
 - `commands/*` 与 `lib.rs` 没有重新变厚
+- `engine/*` 通过显式数据端口隔离持久化，并只调用 `platform/*` 暴露的窄平台能力；原始 Windows API 实现不得进入 engine，跨 owner 的数据实现与生命周期由 `app/*` 组合
+- `platform/*` 只报告外部环境事实或实现显式端口，不反向调用应用层
 - `shared/*` 没有新增明显的过渡职责
 - `domain/tracking.rs` 这类领域聚合出口保持薄，稳定语义继续拆入明确 owner 的 `domain/tracking/*` 子模块
 - 前端与 Rust 的高吸力层边界有轻量自动化门禁覆盖，而不是只依赖人工记忆
@@ -638,9 +640,15 @@ Rust 侧允许为了稳定演进保留少量入口协调或兼容封装，但规
 
 - `npm run check:types`
 - `npm run check:architecture`
+- `npm run check:architecture:self-test`
 - `npm run check:naming`
+- `npm run check:ipc-contracts`
+- `npm run check:ipc-contracts:self-test`
 - `npm run check:hotspots`
 - `npm run check:rust-boundaries`
+- `npm run check:rust-boundaries:self-test`
+
+前端边界门禁必须解析静态 import、动态 import、重导出和直接 IPC 调用；Rust 边界门禁必须剥离测试模块后检查生产依赖。两者的例外只能是精确、可审计且带自测的局部例外，不接受目录级通配豁免。真实 runtime、IPC 注册或 capability 变更还应运行 `npm run test:tauri-runtime-smoke`，验证静态一致性之外的真实 WebView2/Tauri 行为。
 
 如果某次结构性改动无法通过这些最小验证之一，应优先解释风险或补验证，而不是直接跳过。
 

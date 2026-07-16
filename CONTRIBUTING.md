@@ -380,8 +380,10 @@ For frontend, UI, settings, read-model, or general code changes:
 npm run check
 ```
 
-This includes naming and architecture checks, focused frontend tests, UI smoke
-tests, a real-browser smoke test, a production build, and bundle-budget checks.
+This includes type-aware linting, naming/architecture/IPC checks and their
+self-tests, core-risk coverage and mutation gates, focused frontend tests, UI
+smoke tests, a real-browser smoke test, a production build, and hard bundle
+budgets.
 
 ### 6.2 Rust And Architecture Validation
 
@@ -395,9 +397,14 @@ npm run check:full
 This includes the frontend validation chain and:
 
 - Rust boundary checks;
-- `cargo check`;
+- `cargo check --locked`;
 - Rust tests;
-- `cargo clippy -- -D warnings`.
+- `cargo clippy --locked -- -D warnings`;
+- npm and Rust dependency vulnerability gates.
+
+For IPC registration, capability, plugin SQL, or real desktop-runtime changes,
+also run `npm run test:tauri-runtime-smoke` on Windows. For performance-sensitive
+read-model, SQLite-query, or navigation work, also run `npm run perf:stable`.
 
 ### 6.3 Release Validation
 
@@ -1067,8 +1074,9 @@ UI 改动必须遵守 Quiet Pro 基线：
 npm run check
 ```
 
-它包含命名和架构检查、前端专项测试、UI smoke 测试、真实浏览器 smoke 测试、
-生产构建和 bundle 预算检查。
+它包含类型感知 lint、命名/架构/IPC 检查及其自测、核心风险域覆盖率与
+变异门禁、前端专项测试、UI smoke 测试、真实浏览器 smoke 测试、生产构建
+和硬性 bundle 预算。
 
 #### 6.2 Rust 与架构验证
 
@@ -1082,9 +1090,14 @@ npm run check:full
 它包含前端验证链，以及：
 
 - Rust 边界检查；
-- `cargo check`；
+- `cargo check --locked`；
 - Rust 测试；
-- `cargo clippy -- -D warnings`。
+- `cargo clippy --locked -- -D warnings`；
+- npm 与 Rust 依赖漏洞门禁。
+
+如果改动 IPC 注册、capability、plugin SQL 或真实桌面 runtime，还应在 Windows
+运行 `npm run test:tauri-runtime-smoke`。如果改动性能敏感的 read model、SQLite
+查询或导航路径，还应运行 `npm run perf:stable`。
 
 #### 6.3 发布验证
 

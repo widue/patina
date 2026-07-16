@@ -50,13 +50,21 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .node-version
 
       - name: Install dependencies
         run: npm ci
 
       - name: Run frontend quality gate
         run: npm run check
+
+      - name: Upload core risk coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: core-risk-coverage
+          path: artifacts/coverage
+          if-no-files-found: error
 
   rust:
     name: Rust quality gate
@@ -88,13 +96,61 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .node-version
 
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Rust from rust-toolchain.toml
+        run: rustup toolchain install --no-self-update
 
       - name: Install dependencies
         run: npm ci
 
       - name: Run Rust quality gate
         run: npm run check:rust
+
+      - name: Install RustSec audit tool
+        run: cargo install cargo-audit --version 0.22.2 --locked
+
+      - name: Audit npm and Rust dependencies
+        run: npm run check:dependencies
+
+  tauri-runtime:
+    name: Tauri runtime smoke
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request') ||
+      (github.event_name == 'workflow_dispatch' && inputs.pr_number != '')
+    runs-on: windows-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout push revision
+        if: github.event_name == 'push'
+        uses: actions/checkout@v4
+
+      - name: Checkout pull request revision
+        if: github.event_name == 'workflow_run'
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ github.event.workflow_run.pull_requests[0].number }}/head
+
+      - name: Checkout manually selected pull request revision
+        if: github.event_name == 'workflow_dispatch' && inputs.pr_number != ''
+        uses: actions/checkout@v4
+        with:
+          ref: refs/pull/${{ inputs.pr_number }}/head
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Setup Rust from rust-toolchain.toml
+        run: rustup toolchain install --no-self-update
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run isolated runtime smoke
+        run: npm run test:tauri-runtime-smoke

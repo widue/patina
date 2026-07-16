@@ -154,6 +154,8 @@
 - 需要新增 `shared/*` 才能落地，但又说不清这项能力为什么是稳定共享能力
 - 需要让页面、壳层或 feature 直接访问 SQLite、runtime 或平台细节
 - 需要让 `app/*`、`commands/*`、`lib.rs` 承接新的厚逻辑
+- 需要新增跨层端口、改变端口所有权，或让 `app/*` 新增跨 owner 组合关系
+- 需要把职责从 engine/domain 迁到 data/platform，或反向迁移
 - 需要把逻辑塞回已退出的根层 `src/lib/`、`src/types/`，或制造等价的新临时桶
 - 需要新增兼容壳，但说不清真实 owner 与未来退出条件
 - 修复看起来像 bug，但本质上已经是职责错放或边界缺失
@@ -195,6 +197,8 @@
 如果涉及架构边界、Rust 核心路径或发布前复核，应运行：
 
 - `npm run check:full`
+
+如果涉及 IPC 注册、capability、plugin SQL 或真实桌面 runtime，还应在 Windows 运行 `npm run test:tauri-runtime-smoke`；如果涉及性能敏感的 read model、SQLite 查询或导航路径，还应运行 `npm run perf:stable`。新增跨层端口或 composition 关系时，必须同时通过前端/Rust 边界检查器及其 self-test，不能用临时 allowlist 代替 owner 判断。
 
 如果涉及版本号、changelog、updater artifact 或发布脚本，还应补充当前发布校验脚本。
 

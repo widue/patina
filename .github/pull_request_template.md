@@ -74,6 +74,8 @@ Focused tests must match the changed risk area; unrelated tests do not satisfy t
 
 - [ ] `npm run check`
 - [ ] `npm run check:full` for Rust, tracking, SQLite, runtime, or architecture-boundary changes
+- [ ] `npm run test:tauri-runtime-smoke` for IPC registration, capability, plugin SQL, or desktop-runtime changes
+- [ ] `npm run perf:stable` for performance-sensitive read-model, SQLite-query, or navigation changes
 - [ ] `npm run release:check` for release, changelog, updater, version, tag, or packaging changes
 - [ ] Added or updated focused tests for the changed behavior
 
