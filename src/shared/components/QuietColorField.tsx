@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Pipette } from "lucide-react";
 import QuietTooltip from "./QuietTooltip";
@@ -91,7 +91,7 @@ export default function QuietColorField({
     setHexDraft(normalizedColor);
   }, [normalizedColor]);
 
-  const resolvePopoverPosition = (measuredHeight?: number, measuredWidth?: number): PopoverPosition | null => {
+  const resolvePopoverPosition = useCallback((measuredHeight?: number, measuredWidth?: number): PopoverPosition | null => {
     const trigger = triggerRef.current;
     if (!trigger) return null;
     const rect = trigger.getBoundingClientRect();
@@ -122,9 +122,9 @@ export default function QuietColorField({
       left,
       placement: shouldFlip ? "top" : "bottom",
     };
-  };
+  }, []);
 
-  const updatePopoverPosition = (measuredHeight?: number, measuredWidth?: number) => {
+  const updatePopoverPosition = useCallback((measuredHeight?: number, measuredWidth?: number) => {
     const nextPosition = resolvePopoverPosition(measuredHeight, measuredWidth);
     if (!nextPosition) return;
     setPosition((current) => {
@@ -137,7 +137,7 @@ export default function QuietColorField({
       }
       return nextPosition;
     });
-  };
+  }, [resolvePopoverPosition]);
 
   useLayoutEffect(() => {
     if (!open) return undefined;
@@ -146,7 +146,7 @@ export default function QuietColorField({
       popoverRef.current?.offsetWidth,
     );
     return undefined;
-  }, [open, format]);
+  }, [format, open, updatePopoverPosition]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -162,7 +162,7 @@ export default function QuietColorField({
       window.removeEventListener("resize", handleViewport);
       window.removeEventListener("scroll", handleViewport, true);
     };
-  }, [open]);
+  }, [open, updatePopoverPosition]);
 
   useEffect(() => {
     if (!open) return undefined;

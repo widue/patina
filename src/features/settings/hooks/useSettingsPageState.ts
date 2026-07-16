@@ -451,7 +451,7 @@ export function useSettingsPageState({
     } finally {
       setIsStorageBusy(false);
     }
-  }, [isStorageBusy, notify, refreshStorageSnapshot]);
+  }, [isStorageBusy, notify]);
 
   const handleChooseDataDirectory = useCallback(async () => {
     if (isStorageBusy) return;
@@ -480,7 +480,7 @@ export function useSettingsPageState({
     } finally {
       setIsStorageBusy(false);
     }
-  }, [confirm, isStorageBusy, notify, refreshStorageSnapshot]);
+  }, [confirm, isStorageBusy, notify]);
 
   const handleChooseCacheDirectory = useCallback(async () => {
     if (isStorageBusy) return;
@@ -509,7 +509,7 @@ export function useSettingsPageState({
     } finally {
       setIsStorageBusy(false);
     }
-  }, [confirm, isStorageBusy, notify, refreshStorageSnapshot]);
+  }, [confirm, isStorageBusy, notify]);
 
   const handleRestoreDefaultDataDirectory = useCallback(async () => {
     if (isStorageBusy || !storageSnapshot?.paths.isCustomDataRoot) return;
@@ -535,7 +535,7 @@ export function useSettingsPageState({
     } finally {
       setIsStorageBusy(false);
     }
-  }, [confirm, isStorageBusy, notify, refreshStorageSnapshot, storageSnapshot?.paths.isCustomDataRoot]);
+  }, [confirm, isStorageBusy, notify, storageSnapshot?.paths.isCustomDataRoot]);
 
   const handleRestoreDefaultCacheDirectory = useCallback(async () => {
     if (isStorageBusy || !storageSnapshot?.paths.isCustomWebviewRoot) return;
@@ -561,7 +561,7 @@ export function useSettingsPageState({
     } finally {
       setIsStorageBusy(false);
     }
-  }, [confirm, isStorageBusy, notify, refreshStorageSnapshot, storageSnapshot?.paths.isCustomWebviewRoot]);
+  }, [confirm, isStorageBusy, notify, storageSnapshot?.paths.isCustomWebviewRoot]);
 
   const handleOpenStorageDirectory = useCallback(async (path: string) => {
     const storageText = UI_TEXT.settings.storage;

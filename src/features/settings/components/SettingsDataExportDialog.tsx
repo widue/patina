@@ -249,7 +249,16 @@ export default function SettingsDataExportDialog({ open, onClose, onToast }: Pro
     } finally {
       setExporting(false);
     }
-  }, [format, onToast, resolvedTimeRange.endTime, resolvedTimeRange.startTime, selectedFields, timeRangeErrorMessage]);
+  }, [
+    format,
+    onToast,
+    resolvedTimeRange.endDateKey,
+    resolvedTimeRange.endTime,
+    resolvedTimeRange.startDateKey,
+    resolvedTimeRange.startTime,
+    selectedFields,
+    timeRangeErrorMessage,
+  ]);
 
   return (
     <>

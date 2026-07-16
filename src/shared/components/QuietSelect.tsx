@@ -2,6 +2,7 @@ import {
   useEffect,
   useId,
   useLayoutEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -73,7 +74,7 @@ export default function QuietSelect<T extends string | number>({
     }
   };
 
-  const resolveMenuPosition = (measuredHeight?: number): SelectMenuPosition | null => {
+  const resolveMenuPosition = useCallback((measuredHeight?: number): SelectMenuPosition | null => {
     const trigger = triggerRef.current;
     if (!trigger) return null;
 
@@ -99,9 +100,9 @@ export default function QuietSelect<T extends string | number>({
       maxHeight,
       placement: shouldFlip ? "top" : "bottom",
     };
-  };
+  }, []);
 
-  const updateMenuPosition = (measuredHeight?: number) => {
+  const updateMenuPosition = useCallback((measuredHeight?: number) => {
     const nextPosition = resolveMenuPosition(measuredHeight);
     if (!nextPosition) return;
     setMenuPosition((current) => {
@@ -117,7 +118,7 @@ export default function QuietSelect<T extends string | number>({
       }
       return nextPosition;
     });
-  };
+  }, [resolveMenuPosition]);
 
   useEffect(() => {
     if (!open) return;
@@ -136,7 +137,7 @@ export default function QuietSelect<T extends string | number>({
     if (!open) return undefined;
     updateMenuPosition(listRef.current?.offsetHeight);
     return undefined;
-  }, [open, options.length]);
+  }, [open, options.length, updateMenuPosition]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -149,7 +150,7 @@ export default function QuietSelect<T extends string | number>({
       window.removeEventListener("resize", handleViewportChange);
       window.removeEventListener("scroll", handleViewportChange, true);
     };
-  }, [open]);
+  }, [open, updateMenuPosition]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -177,7 +178,7 @@ export default function QuietSelect<T extends string | number>({
       updateMenuPosition(listRef.current?.offsetHeight);
       listRef.current?.focus();
     });
-  }, [open]);
+  }, [open, updateMenuPosition]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (disabled) return;

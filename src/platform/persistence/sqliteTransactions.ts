@@ -7,17 +7,6 @@ export interface SqlWriteOperation {
   values?: unknown[];
 }
 
-export function isRecoverableSqliteWriteError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  const normalized = message.toLowerCase();
-  return normalized.includes("database is locked")
-    || normalized.includes("database is busy")
-    || normalized.includes("sqlite_busy")
-    || normalized.includes("sqlite_locked")
-    || normalized.includes("pool closed")
-    || normalized.includes("pooltimedout");
-}
-
 export async function executeWriteBatchWithExecutor(
   executor: SqlWriteExecutor,
   operations: readonly SqlWriteOperation[],

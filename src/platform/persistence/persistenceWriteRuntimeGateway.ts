@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invokeWithCommandError } from "./commandError.ts";
 
 export interface RemoteBackupSettingsPatchPayload {
   url: string;
@@ -8,15 +8,15 @@ export interface RemoteBackupSettingsPatchPayload {
 }
 
 export async function deleteSessionsBefore(cutoffTime: number): Promise<void> {
-  await invoke("cmd_delete_sessions_before", { cutoffTime });
+  await invokeWithCommandError("cmd_delete_sessions_before", { cutoffTime });
 }
 
 export async function clearAllSessionWindowTitles(): Promise<void> {
-  await invoke("cmd_clear_all_session_window_titles");
+  await invokeWithCommandError("cmd_clear_all_session_window_titles");
 }
 
 export async function deleteSessionsByExeNames(exeNames: string[]): Promise<void> {
-  await invoke("cmd_delete_sessions_by_exe_names", { exeNames });
+  await invokeWithCommandError("cmd_delete_sessions_by_exe_names", { exeNames });
 }
 
 export async function deleteSessionsByExeNamesBetween(
@@ -24,7 +24,7 @@ export async function deleteSessionsByExeNamesBetween(
   startTime: number,
   endTime: number,
 ): Promise<void> {
-  await invoke("cmd_delete_sessions_by_exe_names_between", {
+  await invokeWithCommandError("cmd_delete_sessions_by_exe_names_between", {
     exeNames,
     startTime,
     endTime,
@@ -32,37 +32,37 @@ export async function deleteSessionsByExeNamesBetween(
 }
 
 export async function deleteWebActivitySegmentsBefore(cutoffTime: number): Promise<void> {
-  await invoke("cmd_delete_web_activity_segments_before", { cutoffTime });
+  await invokeWithCommandError("cmd_delete_web_activity_segments_before", { cutoffTime });
 }
 
 export async function deleteWebActivitySegmentsByDomain(
   normalizedDomain: string,
 ): Promise<void> {
-  await invoke("cmd_delete_web_activity_segments_by_domain", { normalizedDomain });
+  await invokeWithCommandError("cmd_delete_web_activity_segments_by_domain", { normalizedDomain });
 }
 
 export async function saveRemoteBackupSettings(
   patch: RemoteBackupSettingsPatchPayload,
 ): Promise<void> {
-  await invoke("cmd_save_remote_backup_settings", { patch });
+  await invokeWithCommandError("cmd_save_remote_backup_settings", { patch });
 }
 
 export async function saveRemoteBackupRemoteDir(remoteDir: string): Promise<void> {
-  await invoke("cmd_save_remote_backup_remote_dir", { remoteDir });
+  await invokeWithCommandError("cmd_save_remote_backup_remote_dir", { remoteDir });
 }
 
 export async function saveRemoteBackupLastBackupAt(timestampMs: number): Promise<void> {
-  await invoke("cmd_save_remote_backup_last_backup_at", { timestampMs });
+  await invokeWithCommandError("cmd_save_remote_backup_last_backup_at", { timestampMs });
 }
 
 export async function clearRemoteBackupSettings(): Promise<void> {
-  await invoke("cmd_clear_remote_backup_settings");
+  await invokeWithCommandError("cmd_clear_remote_backup_settings");
 }
 
 export async function saveDataBootstrapSnapshotPayload(payload: string): Promise<void> {
-  await invoke("cmd_save_data_bootstrap_snapshot_payload", { payload });
+  await invokeWithCommandError("cmd_save_data_bootstrap_snapshot_payload", { payload });
 }
 
 export async function clearDataBootstrapSnapshotPayload(): Promise<void> {
-  await invoke("cmd_clear_data_bootstrap_snapshot_payload");
+  await invokeWithCommandError("cmd_clear_data_bootstrap_snapshot_payload");
 }

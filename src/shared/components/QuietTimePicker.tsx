@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -76,7 +77,7 @@ export default function QuietTimePicker({
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<TimePickerPosition | null>(null);
 
-  const resolvePosition = (): TimePickerPosition | null => {
+  const resolvePosition = useCallback((): TimePickerPosition | null => {
     const trigger = triggerRef.current;
     if (!trigger) return null;
 
@@ -95,14 +96,14 @@ export default function QuietTimePicker({
       top: placement === "top" ? clamp(aboveTop, VIEWPORT_PADDING, maxTop) : clamp(belowTop, VIEWPORT_PADDING, maxTop),
       placement,
     };
-  };
+  }, []);
 
-  const updatePosition = () => {
+  const updatePosition = useCallback(() => {
     const nextPosition = resolvePosition();
     if (nextPosition) {
       setPosition(nextPosition);
     }
-  };
+  }, [resolvePosition]);
 
   const closeTimePicker = (restoreFocus = false) => {
     setOpen(false);
@@ -158,7 +159,7 @@ export default function QuietTimePicker({
       window.removeEventListener("resize", handleViewportChange);
       window.removeEventListener("scroll", handleViewportChange, true);
     };
-  }, [open]);
+  }, [open, updatePosition]);
 
   useLayoutEffect(() => {
     if (!open) return;

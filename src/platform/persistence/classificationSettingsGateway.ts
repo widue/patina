@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invokeWithCommandError } from "./commandError.ts";
 
 const COMMIT_CLASSIFICATION_SETTINGS_COMMAND = "cmd_commit_classification_settings";
 
@@ -14,5 +14,5 @@ export async function commitClassificationSettingMutations(
     return;
   }
 
-  await invoke(COMMIT_CLASSIFICATION_SETTINGS_COMMAND, { mutations });
+  await invokeWithCommandError(COMMIT_CLASSIFICATION_SETTINGS_COMMAND, { mutations });
 }

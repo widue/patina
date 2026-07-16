@@ -64,13 +64,13 @@ export function useWebActivitySetupState({
           snapshot: nextSnapshot,
         });
         if (shouldContinuePolling) {
-          timeoutId = window.setTimeout(pollSnapshot, WEB_ACTIVITY_SETUP_POLL_MS);
+          timeoutId = window.setTimeout(() => { void pollSnapshot(); }, WEB_ACTIVITY_SETUP_POLL_MS);
         }
       } catch (error) {
         if (cancelled) return;
         console.warn("load web activity bridge snapshot failed", error);
         setSnapshot(null);
-        timeoutId = window.setTimeout(pollSnapshot, WEB_ACTIVITY_SETUP_POLL_MS);
+        timeoutId = window.setTimeout(() => { void pollSnapshot(); }, WEB_ACTIVITY_SETUP_POLL_MS);
       }
     };
 

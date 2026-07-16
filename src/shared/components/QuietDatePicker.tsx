@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -72,7 +73,7 @@ export default function QuietDatePicker({
   const today = startOfLocalDay(new Date());
   const calendarDays = useMemo(() => buildMondayFirstCalendarGrid(calendarMonth), [calendarMonth]);
 
-  const resolvePosition = (): CalendarPosition | null => {
+  const resolvePosition = useCallback((): CalendarPosition | null => {
     const trigger = triggerRef.current;
     if (!trigger) return null;
 
@@ -91,14 +92,14 @@ export default function QuietDatePicker({
       top: placement === "top" ? clamp(aboveTop, VIEWPORT_PADDING, maxTop) : clamp(belowTop, VIEWPORT_PADDING, maxTop),
       placement,
     };
-  };
+  }, []);
 
-  const updatePosition = () => {
+  const updatePosition = useCallback(() => {
     const nextPosition = resolvePosition();
     if (nextPosition) {
       setPosition(nextPosition);
     }
-  };
+  }, [resolvePosition]);
 
   const closeCalendar = () => {
     setOpen(false);
@@ -150,7 +151,7 @@ export default function QuietDatePicker({
       window.removeEventListener("resize", handleViewportChange);
       window.removeEventListener("scroll", handleViewportChange, true);
     };
-  }, [open]);
+  }, [open, updatePosition]);
 
   useEffect(() => {
     if (!open) return;

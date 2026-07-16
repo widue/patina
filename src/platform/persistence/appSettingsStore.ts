@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { invokeWithCommandError } from "./commandError.ts";
 import {
   deleteSessionsBefore,
   loadAllSettingRows,
@@ -375,5 +375,5 @@ async function commitAppSettingMutations(mutations: readonly AppSettingMutation[
     return;
   }
 
-  await invoke(COMMIT_APP_SETTINGS_COMMAND, { mutations });
+  await invokeWithCommandError(COMMIT_APP_SETTINGS_COMMAND, { mutations });
 }

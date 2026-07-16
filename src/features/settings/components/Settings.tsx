@@ -247,11 +247,11 @@ export default function Settings({
             isRestoringBackup={isRestoringBackup}
             onCleanupRangeChange={setCleanupRange}
             onRestoreStrategyChange={setRestoreStrategy}
-            onCleanup={handleCleanup}
+            onCleanup={() => { void handleCleanup(); }}
             onExportBackup={() => void handleExportBackup()}
             onOpenDataExport={() => setExportDialogOpen(true)}
             onPrepareRestoreBackup={handlePrepareRestoreBackup}
-            onRestoreBackup={handleRestoreBackup}
+            onRestoreBackup={() => { void handleRestoreBackup(); }}
             onClearPendingRestoreBackup={clearPendingRestoreBackup}
             remoteBackup={remoteBackup}
             storageSnapshot={storageSnapshot}

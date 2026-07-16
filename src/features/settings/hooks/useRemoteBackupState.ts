@@ -2,26 +2,24 @@ import { useCallback, useEffect, useState } from "react";
 import type { QuietToastTone } from "../../../shared/components/QuietToast";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import {
+  clearRemoteBackupConfig,
+  DEFAULT_WEBDAV_REMOTE_DIR,
   deleteWebDavBackupSecret,
   deleteRemoteBackupTemp,
   downloadWebDavBackup,
   hasWebDavBackupSecret,
   listWebDavBackups,
+  loadRemoteBackupConfig,
   revealWebDavBackupSecret,
+  saveRemoteBackupConfig,
+  saveRemoteBackupLastBackupAt,
   saveWebDavBackupSecret,
   testWebDavBackupTarget,
   uploadWebDavBackup,
+  type PersistedRemoteBackupConfig,
   type RemoteBackupEntry,
   type WebDavBackupConfig,
-} from "../../../platform/backup/remoteBackupRuntimeGateway.ts";
-import {
-  clearRemoteBackupConfig,
-  DEFAULT_WEBDAV_REMOTE_DIR,
-  loadRemoteBackupConfig,
-  saveRemoteBackupConfig,
-  saveRemoteBackupLastBackupAt,
-  type PersistedRemoteBackupConfig,
-} from "../../../platform/persistence/remoteBackupSettingsStore.ts";
+} from "../services/remoteBackupService.ts";
 import type { BackupRestoreStrategy } from "../services/settingsRuntimeAdapterService.ts";
 import {
   buildBackupPreviewSummary,
