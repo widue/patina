@@ -630,7 +630,7 @@ Rust 侧允许为了稳定演进保留少量入口协调或兼容封装，但规
 当前仓库里，前端关键路径变更的默认最小验证可参考：
 
 - `npm run check`
-- `npm run check:frontend`
+- `npm test`（仅在局部开发时快速验证全部确定性 TypeScript 测试）
 
 结构性改动、Rust 边界改动或发布前复核默认继续使用：
 
