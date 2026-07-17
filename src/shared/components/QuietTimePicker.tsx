@@ -33,7 +33,7 @@ interface TimePickerPosition {
 }
 
 const TIME_PICKER_WIDTH = 176;
-const TIME_PICKER_HEIGHT = 226;
+const TIME_PICKER_HEIGHT = 212;
 const TIME_PICKER_GAP = 6;
 const VIEWPORT_PADDING = 8;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
@@ -148,6 +148,7 @@ export default function QuietTimePicker({
   ) => {
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       closeTimePicker(true);
       return;
     }
@@ -184,6 +185,8 @@ export default function QuietTimePicker({
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
         closeTimePicker(true);
       }
     };
@@ -236,10 +239,12 @@ export default function QuietTimePicker({
       className={`qp-time-picker-popover qp-time-picker-popover-${position.placement}`}
       style={popoverStyle}
     >
-      <div className="qp-time-picker-title">{ariaLabel}</div>
+      <div className="qp-time-picker-column-headings" aria-hidden="true">
+        <div className="qp-time-picker-column-title">{UI_TEXT.time.hours}</div>
+        <div className="qp-time-picker-column-title">{UI_TEXT.time.minutes}</div>
+      </div>
       <div className="qp-time-picker-columns">
         <div className="qp-time-picker-column">
-          <div className="qp-time-picker-column-title">{UI_TEXT.time.hours}</div>
           <div className="qp-time-picker-list" role="listbox" aria-label={UI_TEXT.time.hours}>
             {HOURS.map((hour) => {
               const selected = hour === selectedTime.hour;
@@ -264,7 +269,6 @@ export default function QuietTimePicker({
           </div>
         </div>
         <div className="qp-time-picker-column">
-          <div className="qp-time-picker-column-title">{UI_TEXT.time.minutes}</div>
           <div className="qp-time-picker-list" role="listbox" aria-label={UI_TEXT.time.minutes}>
             {MINUTES.map((minute) => {
               const selected = minute === selectedTime.minute;

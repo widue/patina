@@ -1,100 +1,88 @@
-import type { RefObject } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { UI_TEXT } from "../../../shared/copy/index.ts";
+import QuietCalendar from "../../../shared/components/QuietCalendar.tsx";
 import {
+  addLocalMonths,
   formatLocalDateKey,
-  isSameLocalDay,
-  startOfLocalDay,
+  startOfLocalMonth,
 } from "../../../shared/lib/localDate.ts";
+import { UI_TEXT } from "../../../shared/copy/index.ts";
 
 interface HistoryCalendarPopoverProps {
   open: boolean;
+  triggerRef: RefObject<HTMLDivElement | null>;
   popoverRef: RefObject<HTMLDivElement | null>;
   position: {
     left: number;
     top: number;
   };
   calendarMonth: Date;
-  calendarDays: Date[];
   selectedDate: Date;
   today: Date;
-  canGoNextMonth: boolean;
-  onPreviousMonth: () => void;
-  onNextMonth: () => void;
+  onCalendarMonthChange: (month: Date) => void;
   onSelectDate: (date: Date) => void;
 }
 
-const formatCalendarMonth = (date: Date) => UI_TEXT.date.yearMonthLabel(date.getFullYear(), date.getMonth() + 1);
-
 export default function HistoryCalendarPopover({
   open,
+  triggerRef,
   popoverRef,
   position,
   calendarMonth,
-  calendarDays,
   selectedDate,
   today,
-  canGoNextMonth,
-  onPreviousMonth,
-  onNextMonth,
+  onCalendarMonthChange,
   onSelectDate,
 }: HistoryCalendarPopoverProps) {
+  const [focusedDate, setFocusedDate] = useState(selectedDate);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    setFocusedDate(selectedDate);
+    const selectedDateKey = formatLocalDateKey(selectedDate);
+    const frame = window.requestAnimationFrame(() => {
+      popoverRef.current
+        ?.querySelector<HTMLElement>(`[data-calendar-date="${selectedDateKey}"]`)
+        ?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, popoverRef, selectedDate]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const opener = triggerRef.current?.querySelector<HTMLElement>(".history-date-label");
+    return () => {
+      window.requestAnimationFrame(() => {
+        if (opener?.isConnected) opener.focus();
+      });
+    };
+  }, [open, triggerRef]);
+
   return createPortal(
     open ? (
         <div
           ref={popoverRef}
-          className="history-calendar-popover qp-motion-popover-enter"
+          className="qp-calendar-popover history-calendar-popover qp-motion-popover-enter"
+          role="dialog"
+          aria-label={UI_TEXT.date.pickDate}
           style={{
             left: position.left,
             top: position.top,
           }}
         >
-          <header className="history-calendar-header">
-            <button
-              type="button"
-              onClick={onPreviousMonth}
-              className="history-calendar-nav"
-              aria-label={UI_TEXT.accessibility.history.previousMonth}
-            >
-              <ChevronLeft size={14} />
-            </button>
-            <div className="history-calendar-title">{formatCalendarMonth(calendarMonth)}</div>
-            <button
-              type="button"
-              onClick={onNextMonth}
-              disabled={!canGoNextMonth}
-              className="history-calendar-nav"
-              aria-label={UI_TEXT.accessibility.history.nextMonth}
-            >
-              <ChevronRight size={14} />
-            </button>
-          </header>
-          <div className="history-calendar-grid history-calendar-weekdays">
-            {UI_TEXT.date.weekdaysShort.map((weekday) => (
-              <span key={weekday}>{weekday}</span>
-            ))}
-          </div>
-          <div className="history-calendar-grid">
-            {calendarDays.map((date) => {
-              const disabled = startOfLocalDay(date) > startOfLocalDay(today);
-              const muted = date.getMonth() !== calendarMonth.getMonth();
-              const selected = isSameLocalDay(date, selectedDate);
-              return (
-                <button
-                  key={formatLocalDateKey(date)}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => onSelectDate(date)}
-                  className={`history-calendar-day ${muted ? "history-calendar-day-muted" : ""} ${
-                    selected ? "history-calendar-day-selected" : ""
-                  }`}
-                >
-                  {date.getDate()}
-                </button>
-              );
-            })}
-          </div>
+          <QuietCalendar
+            calendarMonth={calendarMonth}
+            selectedDate={selectedDate}
+            focusedDate={focusedDate}
+            maxDate={today}
+            nextMonthDisabled={(
+              startOfLocalMonth(addLocalMonths(calendarMonth, 1))
+              > startOfLocalMonth(today)
+            )}
+            onCalendarMonthChange={onCalendarMonthChange}
+            onFocusedDateChange={setFocusedDate}
+            onSelectDate={onSelectDate}
+          />
         </div>
       ) : null,
     document.body,

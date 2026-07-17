@@ -7,7 +7,6 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { Pipette } from "lucide-react";
@@ -22,6 +21,9 @@ import {
   type RgbColor,
 } from "../lib/colorFormatting";
 import { UI_TEXT } from "../copy/index.ts";
+import QuietSegmentedFilter, {
+  type QuietSegmentedFilterOption,
+} from "./QuietSegmentedFilter.tsx";
 
 interface Props {
   color: string;
@@ -44,6 +46,10 @@ const POPOVER_GAP = 8;
 const VIEWPORT_PADDING = 8;
 const DEFAULT_POPOVER_WIDTH = 288;
 const DEFAULT_POPOVER_HEIGHT = 340;
+const FORMAT_OPTIONS: QuietSegmentedFilterOption<ColorDisplayFormat>[] = FORMAT_LIST.map((value) => ({
+  value,
+  label: value.toUpperCase(),
+}));
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -89,18 +95,25 @@ export default function QuietColorField({
 }: Props) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const titleRef = useRef<HTMLDivElement | null>(null);
   const svAreaRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<PopoverPosition>({ top: 0, left: 0, placement: "bottom" });
   const normalizedColor = useMemo(() => normalizeHex(color), [color]);
   const hsl = useMemo(() => hexToHsl(normalizedColor), [normalizedColor]);
   const rgb = useMemo(() => hexToRgb(normalizedColor), [normalizedColor]);
+  const [hue, setHue] = useState(hsl.h);
   const [hexDraft, setHexDraft] = useState(normalizedColor);
   const formatPanelId = useId();
+  const titleId = useId();
 
   useEffect(() => {
     setHexDraft(normalizedColor);
   }, [normalizedColor]);
+
+  useEffect(() => {
+    if (hsl.s > 0) setHue(hsl.h);
+  }, [hsl.h, hsl.s]);
 
   const resolvePopoverPosition = useCallback((measuredHeight?: number, measuredWidth?: number): PopoverPosition | null => {
     const trigger = triggerRef.current;
@@ -177,6 +190,7 @@ export default function QuietColorField({
 
   useEffect(() => {
     if (!open) return undefined;
+    const frame = window.requestAnimationFrame(() => titleRef.current?.focus());
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node | null;
       if (!target) return;
@@ -185,11 +199,17 @@ export default function QuietColorField({
       setOpen(false);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        window.requestAnimationFrame(() => triggerRef.current?.focus());
+      }
     };
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
     return () => {
+      window.cancelAnimationFrame(frame);
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
@@ -197,10 +217,11 @@ export default function QuietColorField({
 
   const applyHsl = (next: Partial<HslColor>) => {
     const nextHsl: HslColor = {
-      h: next.h ?? hsl.h,
+      h: next.h ?? hue,
       s: next.s ?? hsl.s,
       l: next.l ?? hsl.l,
     };
+    if (next.h !== undefined) setHue(next.h);
     onChange(hslToHex(nextHsl));
   };
 
@@ -249,22 +270,8 @@ export default function QuietColorField({
   const onHslInput = (channel: keyof HslColor, value: string) => {
     const max = channel === "h" ? 360 : 100;
     const next: HslColor = { ...hsl, [channel]: parseHslField(value, hsl[channel], max) };
+    if (channel === "h") setHue(next.h);
     onChange(hslToHex(next));
-  };
-
-  const handleFormatKeyDown = (
-    event: ReactKeyboardEvent<HTMLButtonElement>,
-    currentFormat: ColorDisplayFormat,
-  ) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    const currentIndex = FORMAT_LIST.indexOf(currentFormat);
-    const direction = event.key === "ArrowRight" ? 1 : -1;
-    const nextFormat = FORMAT_LIST[(currentIndex + direction + FORMAT_LIST.length) % FORMAT_LIST.length];
-    onFormatChange(nextFormat);
-    requestAnimationFrame(() => {
-      document.getElementById(`${formatPanelId}-tab-${nextFormat}`)?.focus();
-    });
   };
 
   const pickByEyedropper = async () => {
@@ -326,11 +333,18 @@ export default function QuietColorField({
           ref={popoverRef}
           className={`qp-color-popover ${position.placement === "top" ? "qp-color-popover-top" : "qp-color-popover-bottom"}`}
           role="dialog"
-          aria-label={UI_TEXT.accessibility.color.colorPicker}
+          aria-labelledby={titleId}
           style={{ top: `${position.top}px`, left: `${position.left}px` }}
         >
           <div className="qp-color-popover-head">
-            <div className="qp-color-popover-title">{UI_TEXT.accessibility.color.color}</div>
+            <div
+              ref={titleRef}
+              id={titleId}
+              tabIndex={-1}
+              className="qp-color-popover-title"
+            >
+              {UI_TEXT.accessibility.color.color}
+            </div>
             <QuietTooltip label={eyedropperLabel}>
               <button
                 type="button"
@@ -348,7 +362,7 @@ export default function QuietColorField({
             ref={svAreaRef}
             className="qp-color-sv-area"
             onPointerDown={handleSvPointerDown}
-            style={{ "--qp-hue": `${hsl.h}` } as CSSProperties}
+            style={{ "--qp-hue": `${hue}` } as CSSProperties}
           >
             <span
               className="qp-color-sv-thumb"
@@ -357,23 +371,28 @@ export default function QuietColorField({
             />
           </div>
 
-          <div className="qp-color-format-switch" role="tablist" aria-label={UI_TEXT.accessibility.color.colorFormat}>
-            {FORMAT_LIST.map((item) => (
-              <button
-                key={item}
-                id={`${formatPanelId}-tab-${item}`}
-                type="button"
-                role="tab"
-                aria-selected={format === item}
-                aria-controls={formatPanelId}
-                tabIndex={format === item ? 0 : -1}
-                className={`qp-color-format-segment ${format === item ? "qp-color-format-segment-active" : ""}`}
-                onClick={() => onFormatChange(item)}
-                onKeyDown={(event) => handleFormatKeyDown(event, item)}
-              >
-                {item.toUpperCase()}
-              </button>
-            ))}
+          <div className="qp-color-control-row">
+            <QuietSegmentedFilter
+              value={format}
+              options={FORMAT_OPTIONS}
+              onChange={onFormatChange}
+              semantics="tabs"
+              ariaLabel={UI_TEXT.accessibility.color.colorFormat}
+              tabIdPrefix={`${formatPanelId}-tab`}
+              tabPanelId={formatPanelId}
+              className="qp-color-format-switch"
+            />
+            <input
+              type="range"
+              min={0}
+              max={359}
+              step={1}
+              value={hue}
+              aria-label={UI_TEXT.accessibility.color.hueSlider}
+              className="qp-color-hue-slider"
+              style={{ "--qp-hue": `${hue}` } as CSSProperties}
+              onChange={(event) => applyHsl({ h: Number(event.target.value) })}
+            />
           </div>
 
           {format === "hex" && (

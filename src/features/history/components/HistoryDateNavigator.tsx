@@ -1,6 +1,5 @@
-import type { Dispatch, RefObject, SetStateAction } from "react";
+import type { RefObject } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { addLocalMonths } from "../../../shared/lib/localDate.ts";
 import { formatDateLabel } from "../services/historyFormatting.ts";
 import HistoryCalendarPopover from "./HistoryCalendarPopover.tsx";
 
@@ -16,9 +15,7 @@ interface HistoryDateNavigatorProps {
     top: number;
   };
   calendarMonth: Date;
-  calendarDays: Date[];
-  canGoNextCalendarMonth: boolean;
-  setCalendarMonth: Dispatch<SetStateAction<Date>>;
+  onCalendarMonthChange: (month: Date) => void;
   onChangeDate: (delta: number) => void;
   onOpenDatePicker: () => void;
   onSelectCalendarDate: (date: Date) => void;
@@ -33,9 +30,7 @@ export default function HistoryDateNavigator({
   calendarOpen,
   calendarPosition,
   calendarMonth,
-  calendarDays,
-  canGoNextCalendarMonth,
-  setCalendarMonth,
+  onCalendarMonthChange,
   onChangeDate,
   onOpenDatePicker,
   onSelectCalendarDate,
@@ -66,15 +61,13 @@ export default function HistoryDateNavigator({
         </span>
         <HistoryCalendarPopover
           open={calendarOpen}
+          triggerRef={datePickerRef}
           popoverRef={calendarPopoverRef}
           position={calendarPosition}
           calendarMonth={calendarMonth}
-          calendarDays={calendarDays}
           selectedDate={selectedDate}
           today={today}
-          canGoNextMonth={canGoNextCalendarMonth}
-          onPreviousMonth={() => setCalendarMonth((month) => addLocalMonths(month, -1))}
-          onNextMonth={() => setCalendarMonth((month) => addLocalMonths(month, 1))}
+          onCalendarMonthChange={onCalendarMonthChange}
           onSelectDate={onSelectCalendarDate}
         />
       </div>

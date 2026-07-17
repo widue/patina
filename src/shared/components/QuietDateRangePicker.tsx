@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -11,6 +12,8 @@ import {
   formatLocalDateKey,
   startOfLocalDay,
 } from "../lib/localDate.ts";
+import QuietButton from "./QuietButton.tsx";
+import { QuietCalendarMonthFrame } from "./QuietCalendar.tsx";
 
 export type QuietDateRangePickerMode = "custom" | "day" | "week" | "month" | "year";
 
@@ -128,6 +131,8 @@ export default function QuietDateRangePicker({
   resolveSelection,
 }: Props) {
   const popoverRef = useRef<HTMLElement | null>(null);
+  const titleRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
   const [draft, setDraft] = useState<QuietDateRangeDraft>({
     mode,
     firstDateKey: null,
@@ -147,6 +152,11 @@ export default function QuietDateRangePicker({
   };
 
   useEffect(() => {
+    const frame = window.requestAnimationFrame(() => titleRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  useEffect(() => {
     const updatePosition = () => setPosition(getPopoverPosition(anchor));
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -161,6 +171,7 @@ export default function QuietDateRangePicker({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         onClose();
         requestAnimationFrame(() => anchor.focus());
       }
@@ -193,84 +204,60 @@ export default function QuietDateRangePicker({
       className={`qp-range-picker ${className ?? ""}`.trim()}
       style={{ left: position.left, top: position.top, width: position.width }}
       role="dialog"
-      aria-label={labels.title}
+      aria-labelledby={titleId}
     >
       <header className="qp-range-picker-header">
-        <strong>{getDraftSummary(draft, labels)}</strong>
+        <strong ref={titleRef} id={titleId} tabIndex={-1}>{getDraftSummary(draft, labels)}</strong>
       </header>
 
-      <div className="qp-range-picker-month">
-        <button
-          type="button"
-          className="qp-control qp-range-picker-arrow"
-          onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
-          aria-label={labels.previousMonth}
-        >
-          <ChevronLeft size={14} />
-        </button>
-        <strong>{labels.yearMonthLabel(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1)}</strong>
-        <button
-          type="button"
-          className="qp-control qp-range-picker-arrow"
-          disabled={!canGoNextMonth}
-          onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
-          aria-label={labels.nextMonth}
-        >
-          <ChevronRight size={14} />
-        </button>
-      </div>
-
-      <div className="qp-range-picker-grid qp-range-picker-weekdays">
-        {labels.weekdaysShort.map((weekday) => <span key={weekday}>{weekday}</span>)}
-      </div>
-      <div className="qp-range-picker-grid">
-        {calendarDays.map((date) => {
+      <QuietCalendarMonthFrame
+        variant="range"
+        monthLabel={labels.yearMonthLabel(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1)}
+        previousMonthIcon={<ChevronLeft size={14} />}
+        nextMonthIcon={<ChevronRight size={14} />}
+        previousMonthLabel={labels.previousMonth}
+        nextMonthLabel={labels.nextMonth}
+        nextMonthDisabled={!canGoNextMonth}
+        weekdays={labels.weekdaysShort}
+        days={calendarDays}
+        getDay={(date) => {
           const dateKey = formatLocalDateKey(date);
-          const isFuture = dateKey > todayKey;
-          const isOutsideMonth = date.getMonth() !== calendarMonth.getMonth();
-          const isInRange = Boolean(
-            draft.range
-            && dateKey >= draft.range.startDateKey
-            && dateKey <= draft.range.endDateKey,
-          );
-          const isBoundary = dateKey === draft.range?.startDateKey
-            || dateKey === draft.range?.endDateKey
-            || dateKey === draft.firstDateKey;
-          return (
-            <button
-              key={dateKey}
-              type="button"
-              className={[
-                "qp-range-picker-day",
-                isOutsideMonth ? "qp-range-picker-day-muted" : "",
-                isInRange ? "qp-range-picker-day-in-range" : "",
-                isBoundary ? "qp-range-picker-day-selected" : "",
-              ].filter(Boolean).join(" ")}
-              disabled={isFuture}
-              data-range-picker-date={dateKey}
-              onClick={() => setDraft((current) => selectDraftDate(current, dateKey, resolveSelection, nowMs))}
-            >
-              {date.getDate()}
-            </button>
-          );
-        })}
-      </div>
+          return {
+            dateKey,
+            muted: date.getMonth() !== calendarMonth.getMonth(),
+            inRange: Boolean(
+              draft.range
+              && dateKey >= draft.range.startDateKey
+              && dateKey <= draft.range.endDateKey,
+            ),
+            selected: dateKey === draft.range?.startDateKey
+              || dateKey === draft.range?.endDateKey
+              || dateKey === draft.firstDateKey,
+            dataAttributes: { "data-range-picker-date": dateKey },
+            buttonProps: {
+              disabled: dateKey > todayKey,
+              onClick: () => setDraft((current) => selectDraftDate(current, dateKey, resolveSelection, nowMs)),
+            },
+          };
+        }}
+        onPreviousMonth={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
+        onNextMonth={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
+      />
 
       {draft.mode === "custom" && draft.range && draft.range.dayCount < 7 && labels.shortRangeHint ? (
         <p className="qp-range-picker-hint">{labels.shortRangeHint}</p>
       ) : null}
 
       <footer className={`qp-range-picker-footer ${footerClassName ?? ""}`.trim()}>
-        <button
-          type="button"
-          className="qp-button-secondary qp-range-picker-action"
+        <QuietButton
+          size="compact"
           onClick={closeAndRestoreFocus}
         >
           {labels.cancel}
-        </button>
-        <button
-          type="button"
-          className="qp-button-primary qp-range-picker-action"
+        </QuietButton>
+        <QuietButton
+          tone="primary"
+          size="compact"
           disabled={!draft.range}
           onClick={() => {
             if (draft.range) {
@@ -280,7 +267,7 @@ export default function QuietDateRangePicker({
           }}
         >
           {labels.apply}
-        </button>
+        </QuietButton>
       </footer>
     </section>
   ), document.body);

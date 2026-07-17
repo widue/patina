@@ -22,7 +22,7 @@ interface QuietSelectProps<T extends string | number> {
   value: T;
   options: Array<QuietSelectOption<T>>;
   onChange: (value: T) => void;
-  ariaLabel?: string;
+  ariaLabel: string;
   disabled?: boolean;
   className?: string;
 }
@@ -38,9 +38,31 @@ interface SelectMenuPosition {
 const MENU_GAP = 6;
 const VIEWPORT_PADDING = 8;
 const DEFAULT_MENU_MAX_HEIGHT = 220;
+const TYPEAHEAD_RESET_MS = 500;
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled]):not([type='hidden'])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+function focusAdjacentControl(trigger: HTMLElement | null, direction: -1 | 1): void {
+  if (!trigger) return;
+  const controls = Array.from(document.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+    .filter((element) => (
+      !element.closest("[inert]")
+      && element.getAttribute("aria-hidden") !== "true"
+      && element.getClientRects().length > 0
+    ));
+  const triggerIndex = controls.indexOf(trigger);
+  const target = triggerIndex >= 0 ? controls[triggerIndex + direction] : null;
+  (target ?? trigger).focus();
 }
 
 export default function QuietSelect<T extends string | number>({
@@ -57,6 +79,8 @@ export default function QuietSelect<T extends string | number>({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
+  const typeaheadBufferRef = useRef("");
+  const typeaheadResetRef = useRef<number | null>(null);
   const listboxId = useId();
 
   const selectedOption = useMemo(
@@ -67,6 +91,11 @@ export default function QuietSelect<T extends string | number>({
   const closeMenu = (restoreFocus = false) => {
     setOpen(false);
     setMenuPosition(null);
+    typeaheadBufferRef.current = "";
+    if (typeaheadResetRef.current !== null) {
+      window.clearTimeout(typeaheadResetRef.current);
+      typeaheadResetRef.current = null;
+    }
     if (restoreFocus) {
       requestAnimationFrame(() => {
         triggerRef.current?.focus();
@@ -152,6 +181,18 @@ export default function QuietSelect<T extends string | number>({
     };
   }, [open, updateMenuPosition]);
 
+  useEffect(() => () => {
+    if (typeaheadResetRef.current !== null) {
+      window.clearTimeout(typeaheadResetRef.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (disabled && open) {
+      closeMenu();
+    }
+  }, [disabled, open]);
+
   useEffect(() => {
     if (!open) return undefined;
     const handleDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -201,7 +242,10 @@ export default function QuietSelect<T extends string | number>({
 
   const handleListKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
     if (event.key === "Tab") {
+      event.preventDefault();
+      const direction = event.shiftKey ? -1 : 1;
       closeMenu();
+      requestAnimationFrame(() => focusAdjacentControl(triggerRef.current, direction));
       return;
     }
     if (event.key === "Escape") {
@@ -209,10 +253,6 @@ export default function QuietSelect<T extends string | number>({
       closeMenu(true);
       return;
     }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Enter") {
-      return;
-    }
-    event.preventDefault();
     const enabledIndexes = options
       .map((option, index) => ({ option, index }))
       .filter((item) => !item.option.disabled)
@@ -220,6 +260,58 @@ export default function QuietSelect<T extends string | number>({
     if (enabledIndexes.length === 0) {
       return;
     }
+
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      setHighlightedIndex(
+        event.key === "Home" ? enabledIndexes[0] : enabledIndexes[enabledIndexes.length - 1],
+      );
+      return;
+    }
+
+    if (
+      event.key.length === 1
+      && event.key !== " "
+      && !event.altKey
+      && !event.ctrlKey
+      && !event.metaKey
+    ) {
+      event.preventDefault();
+      const nextBuffer = `${typeaheadBufferRef.current}${event.key.toLocaleLowerCase()}`;
+      const searchText = Array.from(nextBuffer).every((character) => character === nextBuffer[0])
+        ? nextBuffer[0]
+        : nextBuffer;
+      typeaheadBufferRef.current = nextBuffer;
+      if (typeaheadResetRef.current !== null) {
+        window.clearTimeout(typeaheadResetRef.current);
+      }
+      typeaheadResetRef.current = window.setTimeout(() => {
+        typeaheadBufferRef.current = "";
+        typeaheadResetRef.current = null;
+      }, TYPEAHEAD_RESET_MS);
+      const currentPos = enabledIndexes.indexOf(highlightedIndex);
+      const orderedIndexes = [
+        ...enabledIndexes.slice(currentPos + 1),
+        ...enabledIndexes.slice(0, currentPos + 1),
+      ];
+      const match = orderedIndexes.find((index) => (
+        options[index]?.label.trim().toLocaleLowerCase().startsWith(searchText)
+      ));
+      if (match !== undefined) {
+        setHighlightedIndex(match);
+      }
+      return;
+    }
+
+    if (
+      event.key !== "ArrowDown"
+      && event.key !== "ArrowUp"
+      && event.key !== "Enter"
+      && event.key !== " "
+    ) {
+      return;
+    }
+    event.preventDefault();
     const currentPos = enabledIndexes.indexOf(highlightedIndex);
     if (event.key === "ArrowDown") {
       const nextPos = currentPos < 0 ? 0 : (currentPos + 1) % enabledIndexes.length;
@@ -264,16 +356,14 @@ export default function QuietSelect<T extends string | number>({
         const selected = option.value === value;
         const highlighted = index === highlightedIndex;
         return (
-          <li
-            key={String(option.value)}
-            id={`${listboxId}-option-${index}`}
-            role="option"
-            aria-selected={selected}
-            aria-disabled={option.disabled || undefined}
-          >
+          <li key={String(option.value)} role="none">
             <button
               type="button"
+              id={`${listboxId}-option-${index}`}
+              role="option"
               tabIndex={-1}
+              aria-selected={selected}
+              aria-disabled={option.disabled || undefined}
               disabled={option.disabled}
               onMouseEnter={() => setHighlightedIndex(index)}
               onClick={() => {
@@ -303,7 +393,7 @@ export default function QuietSelect<T extends string | number>({
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listboxId : undefined}
-        aria-label={ariaLabel}
+        aria-label={selectedOption ? `${ariaLabel}: ${selectedOption.label}` : ariaLabel}
         disabled={disabled}
         onClick={() => setOpen((current) => !current)}
         onKeyDown={handleKeyDown}
