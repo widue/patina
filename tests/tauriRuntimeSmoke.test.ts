@@ -11,9 +11,9 @@ import {
   waitFor,
 } from "./uiBrowserSmoke/browserHarness.ts";
 
-// Keep a wide cold-build allowance while leaving at least five minutes for cleanup
-// and CI diagnostics inside the independent 10-minute runtime-smoke job.
-const STARTUP_TIMEOUT_MS = 300_000;
+// Hosted Windows runners can spend more than five minutes on the isolated cold
+// Rust build. Keep enough of the 10-minute job budget for process and data cleanup.
+const STARTUP_TIMEOUT_MS = 420_000;
 const RUNTIME_TARGET_DIR = join(process.cwd(), "src-tauri", "target", "runtime-smoke");
 async function reservePort() {
   return new Promise<number>((resolve, reject) => {

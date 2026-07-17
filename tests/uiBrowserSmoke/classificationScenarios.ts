@@ -417,6 +417,13 @@ export async function runClassificationScenarios(context: BrowserSmokeContext) {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     `);
     await waitForExpression(client!, sessionId, `!document.querySelector(".qp-select-menu")`);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.activeElement?.classList.contains('qp-select-trigger')`,
+      undefined,
+      "select trigger should regain focus before reopening",
+    );
     assert.equal(
       await evaluate(client!, sessionId, `
         (() => {
