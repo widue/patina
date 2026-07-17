@@ -80,6 +80,10 @@ function tauriStubFor(path: string) {
         }
       }
 
+      function storeSettings(settings) {
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+      }
+
       export async function invoke(command, payload = {}) {
         if (command === "cmd_get_web_activity_bridge_snapshot") {
           return globalThis.__TIME_TRACKER_WEB_ACTIVITY_BRIDGE_SNAPSHOT ?? {
@@ -127,7 +131,7 @@ function tauriStubFor(path: string) {
           for (const mutation of payload.mutations ?? []) {
             settings[mutation.key] = mutation.value;
           }
-          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+          storeSettings(settings);
         }
         if (command === "cmd_commit_classification_settings") {
           const settings = loadStoredSettings();
@@ -139,7 +143,17 @@ function tauriStubFor(path: string) {
               settings[mutation.key] = mutation.value;
             }
           }
-          localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+          storeSettings(settings);
+        }
+        if (command === "cmd_save_history_bootstrap_snapshot_payload") {
+          const settings = loadStoredSettings();
+          settings["history.bootstrap_snapshot.v1"] = String(payload.payload ?? "");
+          storeSettings(settings);
+        }
+        if (command === "cmd_clear_history_bootstrap_snapshot_payload") {
+          const settings = loadStoredSettings();
+          delete settings["history.bootstrap_snapshot.v1"];
+          storeSettings(settings);
         }
         return null;
       }
@@ -271,6 +285,18 @@ function tauriStubFor(path: string) {
 
         async select(query, params = []) {
           const normalizedQuery = String(query ?? "").toLowerCase();
+          const classificationQueryDelayMs = Number(
+            globalThis.__TIME_TRACKER_CLASSIFICATION_QUERY_DELAY_MS
+              ?? localStorage.getItem("__time_tracker_classification_query_delay_ms")
+              ?? 0
+          );
+          if (
+            classificationQueryDelayMs > 0
+            && normalizedQuery.includes("max(coalesce(app_name")
+            && normalizedQuery.includes("group by exe_name")
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, classificationQueryDelayMs));
+          }
           if (normalizedQuery.includes("from settings")) {
             const settings = loadStoredSettings();
             const language = globalThis.__TIME_TRACKER_SMOKE_LANGUAGE;
@@ -278,9 +304,42 @@ function tauriStubFor(path: string) {
             const keyPrefix = normalizedQuery.includes("key like")
               ? String(params[0] ?? "").replace(/%$/, "")
               : "";
+            const exactKey = normalizedQuery.includes("where key = ?")
+              ? String(params[0] ?? "")
+              : "";
             return Object.entries(settings)
-              .filter(([key]) => !keyPrefix || key.startsWith(keyPrefix))
+              .filter(([key]) => (!keyPrefix || key.startsWith(keyPrefix)) && (!exactKey || key === exactKey))
               .map(([key, value]) => ({ key, value: String(value) }));
+          }
+          if (normalizedQuery.includes("from icon_cache")) {
+            const requestedExecutables = new Set(params.map((value) => String(value).toLowerCase()));
+            return [
+              {
+                exe_name: "cursor.exe",
+                icon_base64: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2248%22%20height%3D%2248%22%3E%3Crect%20width%3D%2248%22%20height%3D%2248%22%20fill%3D%22%23E34A3A%22%2F%3E%3C%2Fsvg%3E",
+              },
+              {
+                exe_name: "deep-research-workbench.exe",
+                icon_base64: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2248%22%20height%3D%2248%22%3E%3Crect%20width%3D%2248%22%20height%3D%2248%22%20fill%3D%22%23257F62%22%2F%3E%3C%2Fsvg%3E",
+              },
+            ].filter((row) => (
+              requestedExecutables.size === 0 || requestedExecutables.has(row.exe_name)
+            ));
+          }
+          const historyQueryDelayMs = Number(
+            globalThis.__TIME_TRACKER_HISTORY_QUERY_DELAY_MS
+              ?? localStorage.getItem("__time_tracker_history_query_delay_ms")
+              ?? 0
+          );
+          if (
+            historyQueryDelayMs > 0
+            && (
+              normalizedQuery.includes("from sessions")
+              || normalizedQuery.includes("from session_title_samples")
+              || normalizedQuery.includes("from web_activity_segments")
+            )
+          ) {
+            await new Promise((resolve) => setTimeout(resolve, historyQueryDelayMs));
           }
           if (normalizedQuery.includes("min(start_time)")) {
             return [{ earliest_start_time: historySessionRows()[0].start_time }];
