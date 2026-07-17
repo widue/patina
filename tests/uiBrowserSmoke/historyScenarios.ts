@@ -645,15 +645,33 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
     assert.ok(initialZoomDialogState.dialogBottomGap >= 0 && initialZoomDialogState.dialogBottomGap <= 32);
     const laneHoverPoint = JSON.parse(String(await evaluate(client!, sessionId, `
       (() => {
-        const segment = document.querySelector(".history-timeline-lane-track .history-horizontal-timeline-segment");
-        if (!(segment instanceof HTMLElement)) return JSON.stringify(null);
-        const rect = segment.getBoundingClientRect();
-        return JSON.stringify({
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2,
-        });
+        const viewport = document.querySelector(".history-timeline-lanes-scroll")?.getBoundingClientRect();
+        if (!viewport) return JSON.stringify(null);
+        const segments = Array.from(document.querySelectorAll(
+          ".history-timeline-lane-track .history-horizontal-timeline-segment"
+        ));
+        for (const segment of segments) {
+          if (!(segment instanceof HTMLElement)) continue;
+          const rect = segment.getBoundingClientRect();
+          const left = Math.max(rect.left, viewport.left);
+          const right = Math.min(rect.right, viewport.right);
+          const top = Math.max(rect.top, viewport.top);
+          const bottom = Math.min(rect.bottom, viewport.bottom);
+          if (right - left < 1 || bottom - top < 1) continue;
+          const x = left + (right - left) / 2;
+          const y = top + (bottom - top) / 2;
+          const hit = document.elementFromPoint(x, y);
+          if (hit && segment.contains(hit)) return JSON.stringify({ x, y });
+        }
+        return JSON.stringify(null);
       })()
-    `))) as { x: number; y: number };
+    `))) as { x: number; y: number } | null;
+    assert.ok(laneHoverPoint, "expected a visible lane segment for tooltip hover");
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: 1,
+      y: 1,
+    }, sessionId);
     await client!.command("Input.dispatchMouseEvent", {
       type: "mouseMoved",
       x: laneHoverPoint.x,
