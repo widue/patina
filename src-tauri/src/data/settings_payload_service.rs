@@ -8,8 +8,10 @@ const WEBDAV_BACKUP_USERNAME_KEY: &str = "webdav_backup_username";
 const WEBDAV_BACKUP_REMOTE_DIR_KEY: &str = "webdav_backup_remote_dir";
 const WEBDAV_BACKUP_LAST_BACKUP_AT_MS_KEY: &str = "webdav_backup_last_backup_at_ms";
 const DATA_BOOTSTRAP_SNAPSHOT_KEY: &str = "data.bootstrap_snapshot";
+const HISTORY_BOOTSTRAP_SNAPSHOT_KEY: &str = "history.bootstrap_snapshot.v1";
 const DEFAULT_WEBDAV_REMOTE_DIR: &str = "/Patina";
 const MAX_SETTINGS_PAYLOAD_LEN: usize = 10 * 1024 * 1024;
+const MAX_HISTORY_BOOTSTRAP_SNAPSHOT_LEN: usize = 256 * 1024;
 
 pub struct RemoteBackupSettingsPatch {
     pub url: String,
@@ -138,6 +140,41 @@ pub async fn clear_data_bootstrap_snapshot_payload<R: Runtime>(
         },
     )
     .await
+}
+
+pub async fn save_history_bootstrap_snapshot_payload<R: Runtime>(
+    app: &AppHandle<R>,
+    payload: String,
+) -> Result<(), SqliteOperationError> {
+    validate_history_bootstrap_snapshot_payload(&payload)?;
+    upsert_single_setting(app, HISTORY_BOOTSTRAP_SNAPSHOT_KEY, payload).await
+}
+
+pub async fn clear_history_bootstrap_snapshot_payload<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<(), SqliteOperationError> {
+    run_recoverable_sqlite_write(
+        app,
+        "failed to clear history bootstrap snapshot",
+        |pool| async move {
+            commit_settings_in_pool(
+                &pool,
+                &[SettingMutation::delete(HISTORY_BOOTSTRAP_SNAPSHOT_KEY)],
+            )
+            .await
+        },
+    )
+    .await
+}
+
+fn validate_history_bootstrap_snapshot_payload(payload: &str) -> Result<(), SqliteOperationError> {
+    if payload.len() > MAX_HISTORY_BOOTSTRAP_SNAPSHOT_LEN {
+        return Err(SqliteOperationError::invalid_input(
+            "save history bootstrap snapshot",
+            "payload is too large",
+        ));
+    }
+    Ok(())
 }
 
 async fn upsert_single_setting<R: Runtime>(
@@ -282,6 +319,10 @@ mod tests {
                 &[
                     SettingMutation::upsert(WEBDAV_BACKUP_URL_KEY, "https://example.test".into()),
                     SettingMutation::upsert(DATA_BOOTSTRAP_SNAPSHOT_KEY, "{\"ok\":true}".into()),
+                    SettingMutation::upsert(
+                        HISTORY_BOOTSTRAP_SNAPSHOT_KEY,
+                        "{\"version\":1}".into(),
+                    ),
                 ],
             )
             .await
@@ -298,6 +339,19 @@ mod tests {
             .await
             .unwrap();
             assert_eq!(load_setting(&pool, DATA_BOOTSTRAP_SNAPSHOT_KEY).await, None);
+            assert_eq!(
+                load_setting(&pool, HISTORY_BOOTSTRAP_SNAPSHOT_KEY).await,
+                Some("{\"version\":1}".to_string())
+            );
         });
+    }
+
+    #[test]
+    fn history_bootstrap_payload_has_a_strict_size_limit() {
+        assert!(validate_history_bootstrap_snapshot_payload("{}").is_ok());
+        assert!(validate_history_bootstrap_snapshot_payload(
+            &"x".repeat(MAX_HISTORY_BOOTSTRAP_SNAPSHOT_LEN + 1)
+        )
+        .is_err());
     }
 }

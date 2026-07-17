@@ -143,3 +143,22 @@ pub async fn cmd_clear_data_bootstrap_snapshot_payload<R: Runtime>(
         .await
         .map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn cmd_save_history_bootstrap_snapshot_payload<R: Runtime>(
+    payload: String,
+    app: AppHandle<R>,
+) -> Result<(), CommandErrorDto> {
+    settings_payload_service::save_history_bootstrap_snapshot_payload(&app, payload)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn cmd_clear_history_bootstrap_snapshot_payload<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<(), CommandErrorDto> {
+    settings_payload_service::clear_history_bootstrap_snapshot_payload(&app)
+        .await
+        .map_err(Into::into)
+}

@@ -166,6 +166,8 @@ fn register_invoke_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Build
         commands::persistence::cmd_clear_remote_backup_settings,
         commands::persistence::cmd_save_data_bootstrap_snapshot_payload,
         commands::persistence::cmd_clear_data_bootstrap_snapshot_payload,
+        commands::persistence::cmd_save_history_bootstrap_snapshot_payload,
+        commands::persistence::cmd_clear_history_bootstrap_snapshot_payload,
         commands::diagnostics::cmd_get_resource_diagnostics,
     ])
 }
