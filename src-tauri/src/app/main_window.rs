@@ -126,7 +126,7 @@ pub(crate) fn ensure_main_window_with_initial_visibility<R: Runtime>(
 
     let webview_root = storage_paths::resolve_storage_paths(app)?.webview_root;
 
-    WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, main_window_url())
+    let builder = WebviewWindowBuilder::new(app, MAIN_WINDOW_LABEL, main_window_url())
         .title(MAIN_WINDOW_TITLE)
         .inner_size(MAIN_WINDOW_WIDTH, MAIN_WINDOW_HEIGHT)
         .min_inner_size(MAIN_WINDOW_MIN_WIDTH, MAIN_WINDOW_MIN_HEIGHT)
@@ -135,7 +135,23 @@ pub(crate) fn ensure_main_window_with_initial_visibility<R: Runtime>(
         .transparent(true)
         .center()
         .visible(visible)
-        .data_directory(webview_root)
+        .data_directory(webview_root);
+
+    #[cfg(debug_assertions)]
+    let builder = if std::env::var("PATINA_E2E").as_deref() == Ok("1") {
+        let devtools_port = std::env::var("PATINA_E2E_DEVTOOLS_PORT")
+            .expect("PATINA_E2E_DEVTOOLS_PORT is required when PATINA_E2E=1")
+            .parse::<u16>()
+            .expect("PATINA_E2E_DEVTOOLS_PORT must be a valid TCP port");
+        builder.additional_browser_args(&format!(
+            "--remote-debugging-port={devtools_port} \
+             --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
+        ))
+    } else {
+        builder
+    };
+
+    builder
         .build()
         .map_err(|error| format!("failed to create main window: {error}"))
 }

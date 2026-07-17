@@ -160,10 +160,10 @@ try {
       PATINA_E2E: "1",
       PATINA_E2E_DATA_ROOT: root,
       PATINA_E2E_FRONTEND_URL: frontendUrl,
+      PATINA_E2E_DEVTOOLS_PORT: String(devtoolsPort),
       CARGO_TARGET_DIR: RUNTIME_TARGET_DIR,
       TAURI_CONFIG: tauriConfigOverrideJson,
       WEBVIEW2_USER_DATA_FOLDER: join(root, "webview-user-data"),
-      WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${devtoolsPort}`,
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
