@@ -107,6 +107,47 @@ export async function runDashboardScenarios(context: BrowserSmokeContext) {
       ),
       "按分类显示",
     );
+    const barPoint = await evaluate(client!, sessionId, `
+      (() => {
+        const bar = Array.from(document.querySelectorAll(".dashboard-pulse-chart .recharts-rectangle"))
+          .find((node) => {
+            const rect = node.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+          });
+        if (!bar) return null;
+        const rect = bar.getBoundingClientRect();
+        return { x: rect.left + rect.width / 2, y: rect.top + Math.min(rect.height / 2, 2) };
+      })()
+    `) as { x: number; y: number } | null;
+    assert.ok(barPoint);
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: barPoint.x,
+      y: barPoint.y,
+    }, sessionId);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `Boolean(document.querySelector('.qp-chart-tooltip-fixed-bottom[role="tooltip"]'))`,
+      undefined,
+      "fixed-bottom hourly chart tooltip",
+    );
+    assert.notEqual(
+      await evaluate(client!, sessionId, `
+        getComputedStyle(document.querySelector('.qp-chart-tooltip-fixed-bottom[role="tooltip"]')).transform
+      `),
+      "none",
+    );
+    await client!.command("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x: 1,
+      y: 1,
+    }, sessionId);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `!document.querySelector('.qp-chart-tooltip-fixed-bottom[role="tooltip"]')`,
+    );
   });
 
   await runTest("dashboard hourly chart supports keyboard toggle and keeps category mode across views", async () => {

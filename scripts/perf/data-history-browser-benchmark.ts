@@ -13,11 +13,40 @@ import {
 } from "../../tests/uiBrowserSmoke/browserHarness.ts";
 import { APP_LOADING_VIEW, HISTORY_LOADING_VIEW } from "../../tests/uiBrowserSmoke/constants.ts";
 import { tauriBrowserSmokeStubPlugin } from "../../tests/uiBrowserSmoke/tauriStubs.ts";
-import { createBenchmarkMeasurement, measureAsyncBenchmark, printBenchmarkReport } from "./benchmarkUtils.ts";
+import {
+  createBenchmarkMeasurement,
+  measureAsyncBenchmark,
+  printBenchmarkReport,
+  type BenchmarkMeasurement,
+} from "./benchmarkUtils.ts";
 
 const DATA_LABEL = "数据";
 const DASHBOARD_LABEL = "今天";
 const HISTORY_LABEL = "历史";
+const HISTORY_MEANINGFUL_CONTENT_EXPRESSION = `
+  (() => {
+    const root = document.querySelector("[data-history-content-state]");
+    const state = root?.getAttribute("data-history-content-state");
+    return Boolean(
+      root?.getAttribute("data-history-content-date")
+      && ["bootstrap", "refreshing", "ready", "empty"].includes(state ?? "")
+      && document.querySelector(".history-horizontal-timeline")?.checkVisibility()
+    );
+  })()
+`;
+
+function enforceP95Budget(
+  measurement: BenchmarkMeasurement,
+  budgetP95Ms: number,
+): BenchmarkMeasurement {
+  return {
+    ...measurement,
+    budgetP95Ms,
+    withinBudget: measurement.averageMs <= measurement.budgetAverageMs
+      && measurement.p95Ms <= budgetP95Ms
+      && measurement.maxMs <= measurement.budgetMaxMs,
+  };
+}
 
 function navClickExpression(label: string) {
   return `
@@ -99,11 +128,11 @@ async function clickNavActiveDurationMs(
   return duration as number;
 }
 
-async function clickNavReadyDurationMs(
+async function clickNavConditionDurationMs(
   client: CdpConnection,
   sessionId: string,
   label: string,
-  readySelector: string,
+  readyExpression: string,
 ) {
   const duration = await evaluate(client, sessionId, `
     new Promise((resolve, reject) => {
@@ -115,24 +144,17 @@ async function clickNavReadyDurationMs(
 
       const startedAt = performance.now();
       node.click();
-
-      const finishAfterPaint = () => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => resolve(performance.now() - startedAt));
-        });
-      };
       const checkReady = () => {
-        if (document.querySelector(${jsonString(readySelector)})?.checkVisibility()) {
-          finishAfterPaint();
+        if (${readyExpression}) {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve(performance.now() - startedAt)));
           return;
         }
         if (performance.now() - startedAt > 45000) {
-          reject(new Error("timed out waiting for ready view"));
+          reject(new Error("timed out waiting for meaningful content"));
           return;
         }
         requestAnimationFrame(checkReady);
       };
-
       checkReady();
     })
   `);
@@ -180,8 +202,8 @@ async function openHistory(client: CdpConnection, sessionId: string) {
     client,
     sessionId,
     HISTORY_LABEL,
-    `Boolean(document.querySelector(".history-horizontal-timeline")?.checkVisibility()
-      && document.querySelector(".history-app-distribution-card")?.checkVisibility())`,
+    `${HISTORY_MEANINGFUL_CONTENT_EXPRESSION}
+      && Boolean(document.querySelector(".history-app-distribution-card")?.checkVisibility())`,
   );
   assert.equal(await evaluate(client, sessionId, `document.body.innerText.includes(${jsonString(APP_LOADING_VIEW)})`), false);
   assert.equal(await evaluate(client, sessionId, `document.body.innerText.includes(${jsonString(HISTORY_LOADING_VIEW)})`), false);
@@ -319,11 +341,11 @@ try {
   await waitForExpression(client, sessionId, navActiveExpression(DASHBOARD_LABEL), 45_000);
   await waitForPaint(client, sessionId);
 
-  const coldHistoryFirstPaintDurationMs = await clickNavReadyDurationMs(
+  const coldHistoryMeaningfulContentDurationMs = await clickNavConditionDurationMs(
     client,
     sessionId,
     HISTORY_LABEL,
-    ".history-horizontal-timeline",
+    HISTORY_MEANINGFUL_CONTENT_EXPRESSION,
   );
   await waitForExpression(
     client,
@@ -335,8 +357,8 @@ try {
 
   const measurements = [
     createBenchmarkMeasurement(
-      "browser-dashboard-to-history-first-paint-cold",
-      [coldHistoryFirstPaintDurationMs],
+      "browser-dashboard-to-history-meaningful-content-cold",
+      [coldHistoryMeaningfulContentDurationMs],
       350,
     ),
     await measurePreparedBrowserDuration("browser-dashboard-to-data-active", 8, 160, async () => {
@@ -364,18 +386,24 @@ try {
       await openDashboard(client!, sessionId);
       await openHistory(client!, sessionId);
     }),
+    enforceP95Budget(
+      await measurePreparedBrowserDuration("browser-dashboard-to-history-active", 8, 160, async () => {
+        await openDashboard(client!, sessionId);
+      }, () => clickNavActiveDurationMs(client!, sessionId, HISTORY_LABEL)),
+      160,
+    ),
     await measurePreparedBrowserDuration(
-      "browser-dashboard-to-history-first-paint-hot",
+      "browser-dashboard-to-history-meaningful-content-hot",
       8,
       160,
       async () => {
         await openDashboard(client!, sessionId);
       },
-      () => clickNavReadyDurationMs(
+      () => clickNavConditionDurationMs(
         client!,
         sessionId,
         HISTORY_LABEL,
-        ".history-horizontal-timeline",
+        HISTORY_MEANINGFUL_CONTENT_EXPRESSION,
       ),
     ),
   ];

@@ -22,6 +22,92 @@ function timelineSegmentContainsPointExpression(x: number, y: number) {
 export async function runHistoryScenarios(context: BrowserSmokeContext) {
   const { appUrl, client, sessionId, runTest } = context;
 
+  await runTest("history date picker uses the shared calendar skeleton", async () => {
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const navigation = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("历史"))} + ']');
+          if (!navigation) return false;
+          navigation.click();
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(client!, sessionId, `Boolean(document.querySelector(".history-date-label"))`);
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const trigger = document.querySelector(".history-date-label");
+          if (!trigger) return false;
+          trigger.click();
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(client!, sessionId, `Boolean(document.querySelector(".history-calendar-popover.qp-calendar-popover"))`);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.activeElement?.matches('.history-calendar-popover .qp-calendar-day[data-selected="true"]')`,
+      undefined,
+      "history calendar should focus the selected date",
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const popover = document.querySelector(".history-calendar-popover");
+          if (!popover) return false;
+          const days = popover.querySelectorAll(".qp-calendar-day");
+          const selected = popover.querySelectorAll('.qp-calendar-day[data-selected="true"]');
+          const nextMonth = popover.querySelector('[aria-label=' + ${jsonString(JSON.stringify("下个月"))} + ']');
+          const navigation = popover.querySelector(".qp-calendar-nav");
+          const day = days[0];
+          const grid = popover.querySelector(".qp-calendar-days");
+          const popoverRect = popover.getBoundingClientRect();
+          const navigationRect = navigation?.getBoundingClientRect();
+          const dayRect = day?.getBoundingClientRect();
+          const gridStyle = grid ? getComputedStyle(grid) : null;
+          return Boolean(
+            popover.getAttribute("role") === "dialog"
+            && popover.querySelector(".qp-calendar-header")
+            && popover.querySelector(".qp-calendar-weekdays")
+            && days.length === 42
+            && selected.length === 1
+            && nextMonth?.disabled === true
+            && Math.abs(popoverRect.width - 236) <= 0.5
+            && Math.abs((navigationRect?.width ?? 0) - 28) <= 0.5
+            && Math.abs((navigationRect?.height ?? 0) - 28) <= 0.5
+            && Math.abs((dayRect?.height ?? 0) - 26) <= 0.5
+            && gridStyle?.columnGap === "4px"
+            && gridStyle?.rowGap === "4px"
+          );
+        })()
+      `),
+      true,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const selected = document.querySelector('.history-calendar-popover .qp-calendar-day[data-selected="true"]');
+          if (!selected) return false;
+          selected.click();
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(client!, sessionId, `!document.querySelector(".history-calendar-popover")`);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.activeElement?.classList.contains('history-date-label')`,
+      undefined,
+      "history calendar opener focus restoration",
+    );
+  });
+
   await runTest("history hourly chart toggles category layers", async () => {
     assert.equal(
       await evaluate(client!, sessionId, `
@@ -363,7 +449,7 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
           return Boolean(
             dialog
             && dialog.getAttribute("role") === "dialog"
-            && dialog.getAttribute("aria-label") === "时间线"
+            && document.getElementById(dialog.getAttribute("aria-labelledby") ?? "")?.textContent === "时间线"
             && dialogList
             && dialogDurationControls
             && dialogDateSwitch
@@ -517,7 +603,7 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
           hasDialog: Boolean(
             dialog
             && dialog.getAttribute("role") === "dialog"
-            && dialog.getAttribute("aria-label") === "时间轴缩放"
+            && document.getElementById(dialog.getAttribute("aria-labelledby") ?? "")?.textContent === "时间轴缩放"
             && timeline
           ),
           viewportZoomHours: timeline?.getAttribute("data-history-timeline-zoom-hours") ?? null,
