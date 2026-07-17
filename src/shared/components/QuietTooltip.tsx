@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
   type ReactElement,
   type ReactNode,
 } from "react";
@@ -32,6 +33,7 @@ interface TooltipPosition {
 
 const TOOLTIP_GAP = 8;
 const VIEWPORT_PADDING = 8;
+const POINTER_SHOW_DELAY_MS = 300;
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -110,21 +112,30 @@ export default function QuietTooltip({
   const anchorRef = useRef<HTMLSpanElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
   const suppressFocusTooltipRef = useRef(false);
+  const pointerShowTimerRef = useRef<number | null>(null);
   const [visible, setVisible] = useState(false);
   const [position, setPosition] = useState<TooltipPosition | null>(null);
   const tooltipId = useId();
   const canShow = Boolean(label) && !disabled;
   const childAriaDescribedBy = children.props["aria-describedby"];
   const describedChild = cloneElement(children, {
-    "aria-describedby": canShow
+    "aria-describedby": visible && canShow
       ? [childAriaDescribedBy, tooltipId].filter(Boolean).join(" ")
       : childAriaDescribedBy,
   });
 
+  const clearPointerShowTimer = useCallback(() => {
+    if (pointerShowTimerRef.current !== null) {
+      window.clearTimeout(pointerShowTimerRef.current);
+      pointerShowTimerRef.current = null;
+    }
+  }, []);
+
   const hideTooltip = useCallback(() => {
+    clearPointerShowTimer();
     setVisible(false);
     setPosition(null);
-  }, []);
+  }, [clearPointerShowTimer]);
 
   const updatePosition = useCallback(() => {
     const anchor = anchorRef.current;
@@ -144,8 +155,23 @@ export default function QuietTooltip({
     }
 
     updatePosition();
-    return undefined;
+    if (typeof ResizeObserver === "undefined") {
+      return undefined;
+    }
+
+    const resizeObserver = new ResizeObserver(updatePosition);
+    if (anchorRef.current) resizeObserver.observe(anchorRef.current);
+    if (tooltipRef.current) resizeObserver.observe(tooltipRef.current);
+    return () => resizeObserver.disconnect();
   }, [canShow, updatePosition, visible]);
+
+  useEffect(() => {
+    if (!canShow && visible) {
+      hideTooltip();
+    }
+  }, [canShow, hideTooltip, visible]);
+
+  useEffect(() => clearPointerShowTimer, [clearPointerShowTimer]);
 
   useEffect(() => {
     if (!visible || !canShow) {
@@ -162,6 +188,7 @@ export default function QuietTooltip({
   }, [canShow, updatePosition, visible]);
 
   const showTooltip = () => {
+    clearPointerShowTimer();
     if (canShow && !suppressFocusTooltipRef.current) {
       setVisible(true);
     }
@@ -169,8 +196,12 @@ export default function QuietTooltip({
 
   const showTooltipFromPointer = () => {
     suppressFocusTooltipRef.current = false;
+    clearPointerShowTimer();
     if (canShow) {
-      setVisible(true);
+      pointerShowTimerRef.current = window.setTimeout(() => {
+        pointerShowTimerRef.current = null;
+        setVisible(true);
+      }, POINTER_SHOW_DELAY_MS);
     }
   };
 
@@ -179,8 +210,20 @@ export default function QuietTooltip({
     hideTooltip();
   };
 
+  const hideTooltipAfterBlur = () => {
+    suppressFocusTooltipRef.current = false;
+    hideTooltip();
+  };
+
   const hideTooltipAfterPointerLeave = () => {
     suppressFocusTooltipRef.current = false;
+    hideTooltip();
+  };
+
+  const hideTooltipFromKeyboard = (event: KeyboardEvent<HTMLSpanElement>) => {
+    if (event.key !== "Escape" || !visible) return;
+    event.preventDefault();
+    event.stopPropagation();
     hideTooltip();
   };
 
@@ -191,7 +234,8 @@ export default function QuietTooltip({
         className={`qp-tooltip-anchor ${className ?? ""}`.trim()}
         style={style}
         onFocus={showTooltip}
-        onBlur={hideTooltip}
+        onBlur={hideTooltipAfterBlur}
+        onKeyDownCapture={hideTooltipFromKeyboard}
         onMouseEnter={showTooltipFromPointer}
         onMouseLeave={hideTooltipAfterPointerLeave}
         onPointerDownCapture={hideOnPointerDown ? hideTooltipAfterPointerDown : undefined}

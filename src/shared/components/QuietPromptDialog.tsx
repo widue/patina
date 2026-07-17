@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import QuietDialog from "./QuietDialog";
 import QuietButton from "./QuietButton";
 
@@ -28,15 +29,19 @@ export default function QuietPromptDialog({
   onCancel,
   onConfirm,
 }: QuietPromptDialogProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
   return (
     <QuietDialog
       open={open}
       title={title}
       description={description}
       onClose={onCancel}
+      initialFocusRef={inputRef}
       actions={(
         <>
           <QuietButton
+            size="large"
             onClick={onCancel}
             className="qp-dialog-action"
           >
@@ -44,6 +49,7 @@ export default function QuietPromptDialog({
           </QuietButton>
           <QuietButton
             tone="primary"
+            size="large"
             onClick={onConfirm}
             disabled={confirmDisabled}
             className="qp-dialog-action"
@@ -54,9 +60,9 @@ export default function QuietPromptDialog({
       )}
     >
       <input
+        ref={inputRef}
         type="text"
         value={value}
-        autoFocus
         placeholder={placeholder}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
