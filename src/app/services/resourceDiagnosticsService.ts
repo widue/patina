@@ -8,6 +8,7 @@ import { getDataHeatmapSessionCacheStats } from "../../features/data/services/da
 import { getDataTrendSnapshotCacheStats } from "../../features/data/services/dataTrendSnapshot.ts";
 import { getHistorySnapshotCacheStats } from "../../features/history/services/historySnapshotCache.ts";
 import { getHistoryBootstrapSnapshotStats } from "../../features/history/services/historyBootstrapSnapshot.ts";
+import { getHistoryWebFaviconRuntimeCacheStats } from "../../features/history/services/historyReadModel.ts";
 import { getAppIconRuntimeCacheStats } from "../../platform/persistence/appIconRuntimeCache.ts";
 
 interface FrontendCacheDiagnostics {
@@ -17,6 +18,7 @@ interface FrontendCacheDiagnostics {
   dataTrendSnapshot: ReturnType<typeof getDataTrendSnapshotCacheStats>;
   historySnapshot: ReturnType<typeof getHistorySnapshotCacheStats>;
   historyBootstrapSnapshot: ReturnType<typeof getHistoryBootstrapSnapshotStats>;
+  historyWebFaviconRuntime: ReturnType<typeof getHistoryWebFaviconRuntimeCacheStats>;
 }
 
 export interface AppResourceDiagnosticsSnapshot extends ResourceDiagnosticsSnapshot {
@@ -34,6 +36,7 @@ async function loadAppResourceDiagnostics(): Promise<AppResourceDiagnosticsSnaps
       dataTrendSnapshot: getDataTrendSnapshotCacheStats(),
       historySnapshot: getHistorySnapshotCacheStats(),
       historyBootstrapSnapshot: getHistoryBootstrapSnapshotStats(),
+      historyWebFaviconRuntime: getHistoryWebFaviconRuntimeCacheStats(),
     },
   };
 }

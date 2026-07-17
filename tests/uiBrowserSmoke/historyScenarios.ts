@@ -1272,4 +1272,165 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
       `!document.querySelector(".history-timeline-dialog-surface") && !document.querySelector(".history-activity-popover")`,
     );
   });
+
+  await runTest("history web distribution publishes favicon colors as one stable frame", async () => {
+    const navigateTo = async (label: string) => {
+      assert.equal(
+        await evaluate(client!, sessionId, `
+          (() => {
+            const node = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify(label))} + ']');
+            if (!node) return false;
+            node.click();
+            return true;
+          })()
+        `),
+        true,
+      );
+      await waitForExpression(
+        client!,
+        sessionId,
+        `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify(label))} + ']')?.className.includes("qp-nav-item-active")`,
+      );
+    };
+    const startSampling = async () => {
+      await evaluate(client!, sessionId, `
+        (() => {
+          globalThis.__TIME_TRACKER_WEB_VISUAL_FRAMES = [];
+          const capture = () => {
+            const card = document.querySelector(".history-app-distribution-card");
+            if (!card) return;
+            const rows = Array.from(card.querySelectorAll(".history-day-distribution-progress"))
+              .map((progress) => {
+                const row = progress.parentElement?.parentElement;
+                return {
+                  label: row?.querySelector("span.block.truncate")?.textContent?.trim() ?? "",
+                  iconSrc: row?.querySelector("img")?.getAttribute("src") ?? null,
+                  hasGlobe: Boolean(row?.querySelector("svg")),
+                  color: progress instanceof HTMLElement ? progress.style.backgroundColor : "",
+                };
+              });
+            const frames = globalThis.__TIME_TRACKER_WEB_VISUAL_FRAMES;
+            const signature = JSON.stringify(rows);
+            if (frames[frames.length - 1] !== signature) {
+              frames.push(signature);
+            }
+          };
+          capture();
+          globalThis.__TIME_TRACKER_WEB_VISUAL_OBSERVER = new MutationObserver(capture);
+          globalThis.__TIME_TRACKER_WEB_VISUAL_OBSERVER.observe(document.body, {
+            attributes: true,
+            childList: true,
+            subtree: true,
+          });
+          globalThis.__TIME_TRACKER_WEB_VISUAL_TIMER = setInterval(capture, 5);
+        })()
+      `);
+    };
+    const stopSampling = async () => JSON.parse(String(await evaluate(client!, sessionId, `
+      (() => {
+        globalThis.__TIME_TRACKER_WEB_VISUAL_OBSERVER?.disconnect();
+        clearInterval(globalThis.__TIME_TRACKER_WEB_VISUAL_TIMER);
+        const frames = globalThis.__TIME_TRACKER_WEB_VISUAL_FRAMES ?? [];
+        delete globalThis.__TIME_TRACKER_WEB_VISUAL_OBSERVER;
+        delete globalThis.__TIME_TRACKER_WEB_VISUAL_TIMER;
+        delete globalThis.__TIME_TRACKER_WEB_VISUAL_FRAMES;
+        return JSON.stringify(frames.map((frame) => JSON.parse(frame)));
+      })()
+    `))) as Array<Array<{
+      label: string;
+      iconSrc: string | null;
+      hasGlobe: boolean;
+      color: string;
+    }>>;
+
+    await navigateTo("数据");
+    await evaluate(client!, sessionId, `
+      (() => {
+        const settings = JSON.parse(localStorage.getItem("__time_tracker_smoke_settings") ?? "{}");
+        settings.web_activity_enabled = "1";
+        localStorage.setItem("__time_tracker_smoke_settings", JSON.stringify(settings));
+        localStorage.setItem("patina:history-day-distribution-mode", "web");
+        window.location.reload();
+      })()
+    `);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("数据"))} + ']')?.className.includes("qp-nav-item-active")`,
+    );
+    await evaluate(client!, sessionId, `
+      (() => {
+        globalThis.__TIME_TRACKER_ENABLE_WEB_FIXTURE = true;
+        globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_DELAY_MS = 500;
+        globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_COUNT = 0;
+      })()
+    `);
+    await startSampling();
+    await navigateTo("历史");
+    await waitForExpression(
+      client!,
+      sessionId,
+      `
+        document.querySelectorAll(".history-app-distribution-card img").length === 2
+        && document.querySelector(".history-app-distribution-card")?.textContent?.includes("stable.example")
+        && document.querySelector(".history-app-distribution-card")?.textContent?.includes("docs.example")
+      `,
+      15_000,
+      "History web visuals should settle",
+    );
+    const coldFrames = await stopSampling();
+    const coldNonEmptyFrames = coldFrames.filter((frame) => frame.length > 0);
+    const coldFinalFrame = coldNonEmptyFrames[coldNonEmptyFrames.length - 1];
+    assert.ok(coldFinalFrame, JSON.stringify(coldFrames));
+    assert.ok(coldFinalFrame.every((row) => row.iconSrc && !row.hasGlobe && row.color));
+    assert.ok(
+      coldNonEmptyFrames.every((frame) => JSON.stringify(frame) === JSON.stringify(coldFinalFrame)),
+      `web visuals exposed an intermediate frame: ${JSON.stringify(coldFrames)}`,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_COUNT`),
+      1,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `document.body.innerText.includes("加载中")`),
+      false,
+    );
+
+    await navigateTo("数据");
+    await evaluate(client!, sessionId, `
+      (() => {
+        globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_COUNT = 0;
+        globalThis.__TIME_TRACKER_SET_FOREGROUND_STATE?.({ visible: false, focused: false });
+        globalThis.__TIME_TRACKER_SET_FOREGROUND_STATE?.({ visible: true, focused: false });
+      })()
+    `);
+    await startSampling();
+    await navigateTo("历史");
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelectorAll(".history-app-distribution-card img").length === 2`,
+    );
+    const returnFrames = await stopSampling();
+    assert.ok(returnFrames.length > 0, JSON.stringify(returnFrames));
+    assert.ok(
+      returnFrames.every((frame) => (
+        frame.length === 2
+        && frame.every((row) => row.iconSrc && !row.hasGlobe && row.color)
+      )),
+      `cached web visuals were not present on the first frame: ${JSON.stringify(returnFrames)}`,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_COUNT`),
+      0,
+    );
+
+    await evaluate(client!, sessionId, `
+      (() => {
+        localStorage.setItem("patina:history-day-distribution-mode", "app");
+        delete globalThis.__TIME_TRACKER_ENABLE_WEB_FIXTURE;
+        delete globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_DELAY_MS;
+      })()
+    `);
+  });
 }

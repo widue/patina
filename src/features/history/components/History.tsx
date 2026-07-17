@@ -221,6 +221,7 @@ export default function History({
     snapshotIcons,
     visibleDateKey,
     webDomainFavicons,
+    webFaviconsReady,
     webDomainOverrides,
   } = useHistorySnapshotRuntime({
     getHistorySeedSnapshot,
@@ -275,6 +276,15 @@ export default function History({
     return next;
   }, [rawDayWebSegments, webActivityEnabled, webDomainFavicons]);
   const webDomainIconThemeColors = useIconThemeColors(webDomainIcons);
+  const webSnapshotReady = rawDayWebSegments.length > 0
+    || contentState === "ready"
+    || contentState === "empty"
+    || contentState === "error";
+  const webVisualsReady = webSnapshotReady
+    && webFaviconsReady
+    && Object.keys(webDomainIcons).every((domain) => (
+      Boolean(webDomainIconThemeColors[domain])
+    ));
   const [timelineDialogOpen, setTimelineDialogOpen] = useState(false);
   const [timelineDialogMode, setTimelineDialogMode] = useState<TimelineDialogMode>("app");
   const [timelineDialogSyncedHeight, setTimelineDialogSyncedHeight] = useState<number | null>(null);
@@ -1040,7 +1050,7 @@ export default function History({
   );
   const renderWebTimelineList = (className = "") => (
     <HistoryWebTimelineList
-      loading={showQuietPlaceholder}
+      loading={showQuietPlaceholder || !webVisualsReady}
       items={webTimelineItems}
       detailsPopover={timelineDetailsPopover}
       className={className}
@@ -1053,7 +1063,9 @@ export default function History({
       mode={effectiveDayDistributionMode}
       modeOptions={dayDistributionOptions}
       items={dayDistributionItems}
-      showQuietPlaceholder={showQuietPlaceholder}
+      showQuietPlaceholder={showQuietPlaceholder || (
+        effectiveDayDistributionMode === "web" && !webVisualsReady
+      )}
       placeholderMessage={contentPlaceholderMessage}
       onModeChange={handleDayDistributionModeChange}
     />

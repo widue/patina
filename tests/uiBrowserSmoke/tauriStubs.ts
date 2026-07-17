@@ -274,6 +274,57 @@ function tauriStubFor(path: string) {
         });
       }
 
+      function historyWebActivityRows() {
+        if (!globalThis.__TIME_TRACKER_ENABLE_WEB_FIXTURE) return [];
+        const timing = smokeSessionTiming();
+        const firstDuration = Math.max(60 * 1000, Math.floor(timing.duration * 0.6));
+        return [
+          {
+            id: 1901,
+            browser_client_id: "smoke-browser",
+            browser_kind: "chrome",
+            browser_exe_name: "chrome.exe",
+            domain: "stable.example",
+            normalized_domain: "stable.example",
+            url: "https://stable.example/work",
+            title: "Stable work",
+            favicon_url: null,
+            start_time: timing.start,
+            end_time: timing.start + firstDuration,
+            duration: firstDuration,
+          },
+          {
+            id: 1902,
+            browser_client_id: "smoke-browser",
+            browser_kind: "chrome",
+            browser_exe_name: "chrome.exe",
+            domain: "docs.example",
+            normalized_domain: "docs.example",
+            url: "https://docs.example/guide",
+            title: "Stable docs",
+            favicon_url: null,
+            start_time: timing.start + firstDuration,
+            end_time: timing.end,
+            duration: Math.max(60 * 1000, timing.end - timing.start - firstDuration),
+          },
+        ];
+      }
+
+      function historyWebFaviconRows(params) {
+        if (!globalThis.__TIME_TRACKER_ENABLE_WEB_FIXTURE) return [];
+        const requestedDomains = new Set(params.map((value) => String(value).toLowerCase()));
+        return [
+          {
+            normalized_domain: "stable.example",
+            favicon_url: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2248%22%20height%3D%2248%22%3E%3Crect%20width%3D%2248%22%20height%3D%2248%22%20fill%3D%22%23236CC7%22%2F%3E%3C%2Fsvg%3E",
+          },
+          {
+            normalized_domain: "docs.example",
+            favicon_url: "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2248%22%20height%3D%2248%22%3E%3Crect%20width%3D%2248%22%20height%3D%2248%22%20fill%3D%22%23C94F63%22%2F%3E%3C%2Fsvg%3E",
+          },
+        ].filter((row) => requestedDomains.size === 0 || requestedDomains.has(row.normalized_domain));
+      }
+
       export default class Database {
         static get() {
           return new Database();
@@ -340,6 +391,18 @@ function tauriStubFor(path: string) {
             )
           ) {
             await new Promise((resolve) => setTimeout(resolve, historyQueryDelayMs));
+          }
+          if (normalizedQuery.includes("from web_favicon_cache")) {
+            globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_COUNT =
+              (globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_COUNT ?? 0) + 1;
+            const faviconDelayMs = Number(globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_DELAY_MS ?? 0);
+            if (faviconDelayMs > 0) {
+              await new Promise((resolve) => setTimeout(resolve, faviconDelayMs));
+            }
+            return historyWebFaviconRows(params);
+          }
+          if (normalizedQuery.includes("from web_activity_segments")) {
+            return historyWebActivityRows();
           }
           if (normalizedQuery.includes("min(start_time)")) {
             return [{ earliest_start_time: historySessionRows()[0].start_time }];

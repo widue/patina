@@ -94,6 +94,100 @@ const DEFAULT_HISTORY_SNAPSHOT_DEPS: HistorySnapshotDeps = {
 let warnedWebHistoryFallback = false;
 let warnedWebFaviconFallback = false;
 
+const HISTORY_WEB_FAVICON_RUNTIME_CACHE_LIMIT = 64;
+const HISTORY_WEB_FAVICON_REFRESH_INTERVAL_MS = 30_000;
+const HISTORY_WEB_FAVICON_SOURCE_MAX_CHARS = 8_192;
+const historyWebFaviconRuntimeCache = new Map<string, string>();
+const historyWebFaviconResolvedAt = new Map<string, number>();
+let pendingHistoryWebFaviconRefresh: Promise<void> | null = null;
+
+function normalizeHistoryWebDomain(domain: string): string {
+  return domain.trim().toLowerCase();
+}
+
+function collectHistoryWebDomains(dayWebSegments: WebActivitySegment[]): string[] {
+  return Array.from(new Set(
+    dayWebSegments
+      .map((segment) => normalizeHistoryWebDomain(segment.normalizedDomain))
+      .filter(Boolean),
+  ));
+}
+
+function touchHistoryWebFaviconDomain(domain: string, resolvedAtMs: number): void {
+  historyWebFaviconResolvedAt.delete(domain);
+  historyWebFaviconResolvedAt.set(domain, resolvedAtMs);
+
+  const favicon = historyWebFaviconRuntimeCache.get(domain);
+  if (favicon) {
+    historyWebFaviconRuntimeCache.delete(domain);
+    historyWebFaviconRuntimeCache.set(domain, favicon);
+  }
+
+  while (historyWebFaviconResolvedAt.size > HISTORY_WEB_FAVICON_RUNTIME_CACHE_LIMIT) {
+    const oldestDomain = historyWebFaviconResolvedAt.keys().next().value;
+    if (!oldestDomain) break;
+    historyWebFaviconResolvedAt.delete(oldestDomain);
+    historyWebFaviconRuntimeCache.delete(oldestDomain);
+  }
+}
+
+function rememberHistoryWebFaviconRefresh(
+  domains: string[],
+  favicons: Record<string, string>,
+  resolvedAtMs: number,
+): void {
+  const normalizedFavicons = new Map(
+    Object.entries(favicons).map(([domain, favicon]) => [
+      normalizeHistoryWebDomain(domain),
+      favicon.trim(),
+    ]),
+  );
+
+  for (const domain of domains) {
+    const favicon = normalizedFavicons.get(domain) ?? "";
+    if (favicon && favicon.length <= HISTORY_WEB_FAVICON_SOURCE_MAX_CHARS) {
+      historyWebFaviconRuntimeCache.set(domain, favicon);
+    } else {
+      historyWebFaviconRuntimeCache.delete(domain);
+    }
+    touchHistoryWebFaviconDomain(domain, resolvedAtMs);
+  }
+}
+
+export function getCachedHistoryWebFaviconsForSegments(
+  dayWebSegments: WebActivitySegment[],
+): Record<string, string> {
+  const favicons: Record<string, string> = {};
+  for (const domain of collectHistoryWebDomains(dayWebSegments)) {
+    const favicon = historyWebFaviconRuntimeCache.get(domain);
+    if (favicon) favicons[domain] = favicon;
+  }
+  return favicons;
+}
+
+export function areHistoryWebFaviconsResolvedForSegments(
+  dayWebSegments: WebActivitySegment[],
+): boolean {
+  return collectHistoryWebDomains(dayWebSegments).every((domain) => (
+    historyWebFaviconResolvedAt.has(domain)
+  ));
+}
+
+export function resetHistoryWebFaviconRuntimeCacheForTests(): void {
+  historyWebFaviconRuntimeCache.clear();
+  historyWebFaviconResolvedAt.clear();
+  pendingHistoryWebFaviconRefresh = null;
+}
+
+export function getHistoryWebFaviconRuntimeCacheStats() {
+  return {
+    entries: historyWebFaviconRuntimeCache.size,
+    limit: HISTORY_WEB_FAVICON_RUNTIME_CACHE_LIMIT,
+    resolvedDomains: historyWebFaviconResolvedAt.size,
+    pendingRefresh: pendingHistoryWebFaviconRefresh !== null,
+  };
+}
+
 function collectHistoryIconExecutables(...sessionGroups: HistorySession[][]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -124,17 +218,42 @@ async function loadOptionalWebFaviconMap(
   deps: HistorySnapshotDeps,
   dayWebSegments: WebActivitySegment[],
 ): Promise<Record<string, string>> {
+  const domains = collectHistoryWebDomains(dayWebSegments);
+  if (domains.length === 0) return {};
+
+  const requestedAtMs = Date.now();
+  if (pendingHistoryWebFaviconRefresh) {
+    await pendingHistoryWebFaviconRefresh.catch(() => undefined);
+  }
+
+  const domainsToRefresh = domains.filter((domain) => (
+    requestedAtMs - (historyWebFaviconResolvedAt.get(domain) ?? 0)
+      >= HISTORY_WEB_FAVICON_REFRESH_INTERVAL_MS
+  ));
+  if (domainsToRefresh.length === 0) {
+    return getCachedHistoryWebFaviconsForSegments(dayWebSegments);
+  }
+
+  const refresh = deps.getWebFaviconsForDomains(domainsToRefresh)
+    .then((favicons) => {
+      rememberHistoryWebFaviconRefresh(domainsToRefresh, favicons, Date.now());
+    });
+  pendingHistoryWebFaviconRefresh = refresh;
+
   try {
-    return await deps.getWebFaviconsForDomains(
-      Array.from(new Set(dayWebSegments.map((segment) => segment.normalizedDomain))),
-    );
+    await refresh;
   } catch (error) {
     if (!warnedWebFaviconFallback) {
       warnedWebFaviconFallback = true;
       console.warn("History web favicon cache is unavailable; continuing without domain favicons.", error);
     }
-    return {};
+  } finally {
+    if (pendingHistoryWebFaviconRefresh === refresh) {
+      pendingHistoryWebFaviconRefresh = null;
+    }
   }
+
+  return getCachedHistoryWebFaviconsForSegments(dayWebSegments);
 }
 
 export async function loadHistoryWebFaviconsForSegments(

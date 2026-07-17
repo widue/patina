@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
 import {
+  areHistoryWebFaviconsResolvedForSegments,
+  getCachedHistoryWebFaviconsForSegments,
+  getHistoryWebFaviconRuntimeCacheStats,
   loadHistoryDaySessionDetails,
   loadHistorySnapshot,
   loadHistoryWebFaviconsForSegments,
+  resetHistoryWebFaviconRuntimeCacheForTests,
 } from "../src/features/history/services/historyReadModel.ts";
 import {
   clearHistorySnapshotCache,
@@ -62,9 +66,11 @@ let passed = 0;
 async function runTest(name: string, fn: () => Promise<void>) {
   clearHistorySnapshotCache();
   resetHistoryBootstrapSnapshotForTests();
+  resetHistoryWebFaviconRuntimeCacheForTests();
   await fn();
   clearHistorySnapshotCache();
   resetHistoryBootstrapSnapshotForTests();
+  resetHistoryWebFaviconRuntimeCacheForTests();
   passed += 1;
   console.log(`PASS ${name}`);
 }
@@ -593,6 +599,88 @@ await runTest("history favicon enrichment fails independently from the core snap
   } finally {
     console.warn = originalWarn;
   }
+});
+
+await runTest("history favicon enrichment dedupes requests and keeps a bounded stable runtime result", async () => {
+  const githubSegment = makeWebSegment();
+  const docsSegment = makeWebSegment({
+    id: 2,
+    domain: "docs.rs",
+    normalizedDomain: "docs.rs",
+  });
+  let loadCount = 0;
+  let releaseLoad: ((favicons: Record<string, string>) => void) | null = null;
+  const deps = {
+    getHistoryByDate: async () => [],
+    getSessionsInRange: async () => [],
+    getWebActivitySegmentsInRange: async () => [],
+    getWebFaviconsForDomains: async () => {
+      loadCount += 1;
+      return new Promise<Record<string, string>>((resolve) => {
+        releaseLoad = resolve;
+      });
+    },
+    loadWebDomainOverrides: async () => ({}),
+  };
+
+  const first = loadHistoryWebFaviconsForSegments([githubSegment, docsSegment], deps);
+  const second = loadHistoryWebFaviconsForSegments([githubSegment, docsSegment], deps);
+  releaseLoad?.({
+    "github.com": "data:image/png;base64,github",
+    "docs.rs": "data:image/png;base64,docs",
+  });
+  const [firstResult, secondResult] = await Promise.all([first, second]);
+
+  assert.equal(loadCount, 1);
+  assert.deepEqual(secondResult, firstResult);
+  assert.deepEqual(getCachedHistoryWebFaviconsForSegments([githubSegment, docsSegment]), firstResult);
+  assert.equal(areHistoryWebFaviconsResolvedForSegments([githubSegment, docsSegment]), true);
+  assert.deepEqual(getHistoryWebFaviconRuntimeCacheStats(), {
+    entries: 2,
+    limit: 64,
+    resolvedDomains: 2,
+    pendingRefresh: false,
+  });
+
+  clearHistorySnapshotCache();
+  assert.deepEqual(getCachedHistoryWebFaviconsForSegments([githubSegment, docsSegment]), firstResult);
+
+  assert.deepEqual(
+    await loadHistoryWebFaviconsForSegments([githubSegment, docsSegment], deps),
+    firstResult,
+  );
+  assert.equal(loadCount, 1);
+});
+
+await runTest("history favicon runtime cache evicts old domains and rejects oversized sources", async () => {
+  const segments = Array.from({ length: 70 }, (_, index) => makeWebSegment({
+    id: index + 1,
+    domain: `site-${index}.example`,
+    normalizedDomain: `site-${index}.example`,
+  }));
+  const oversizedDomain = segments[69].normalizedDomain;
+  const favicons = Object.fromEntries(segments.map((segment, index) => [
+    segment.normalizedDomain,
+    index === 69
+      ? `data:image/png;base64,${"x".repeat(8_192)}`
+      : `data:image/png;base64,${index}`,
+  ]));
+
+  await loadHistoryWebFaviconsForSegments(segments, {
+    getHistoryByDate: async () => [],
+    getSessionsInRange: async () => [],
+    getWebActivitySegmentsInRange: async () => [],
+    getWebFaviconsForDomains: async () => favicons,
+    loadWebDomainOverrides: async () => ({}),
+  });
+
+  const stats = getHistoryWebFaviconRuntimeCacheStats();
+  assert.equal(stats.limit, 64);
+  assert.equal(stats.resolvedDomains, 64);
+  assert.equal(stats.entries, 63);
+  assert.equal(getCachedHistoryWebFaviconsForSegments([segments[0]])[segments[0].normalizedDomain], undefined);
+  assert.equal(getCachedHistoryWebFaviconsForSegments([segments[6]])[segments[6].normalizedDomain] !== undefined, true);
+  assert.equal(getCachedHistoryWebFaviconsForSegments([segments[69]])[oversizedDomain], undefined);
 });
 
 await runTest("history snapshot uses lightweight weekly loader when provided", async () => {
