@@ -217,6 +217,24 @@ try {
     values: ["refresh_interval_secs"],
   })`);
   assert.deepEqual(rows, [{ value: "77" }]);
+
+  const historyBootstrapPayload = JSON.stringify({ version: 1, smoke: true });
+  await evaluate(client, `window.__TAURI_INTERNALS__.invoke("cmd_save_history_bootstrap_snapshot_payload", {
+    payload: ${JSON.stringify(historyBootstrapPayload)},
+  })`);
+  const historyBootstrapRows = await evaluate(client, `window.__TAURI_INTERNALS__.invoke("plugin:sql|select", {
+    db: "sqlite:patina.db",
+    query: "SELECT value FROM settings WHERE key = ?",
+    values: ["history.bootstrap_snapshot.v1"],
+  })`);
+  assert.deepEqual(historyBootstrapRows, [{ value: historyBootstrapPayload }]);
+  await evaluate(client, `window.__TAURI_INTERNALS__.invoke("cmd_clear_history_bootstrap_snapshot_payload")`);
+  const clearedHistoryBootstrapRows = await evaluate(client, `window.__TAURI_INTERNALS__.invoke("plugin:sql|select", {
+    db: "sqlite:patina.db",
+    query: "SELECT value FROM settings WHERE key = ?",
+    values: ["history.bootstrap_snapshot.v1"],
+  })`);
+  assert.deepEqual(clearedHistoryBootstrapRows, []);
   databaseMutationCompleted = true;
 
   const deniedWrite = await evaluate(client, `

@@ -106,6 +106,10 @@ function createWarmupDeps(events: string[], options: {
       events.push("data-bootstrap-snapshot-cache");
       return null;
     },
+    loadPersistedHistoryBootstrapSnapshot: async () => {
+      events.push("history-bootstrap-snapshot-cache");
+      return null;
+    },
     preloadLazyViewChunk: async (view: PreloadableView) => {
       events.push(`chunk:${view}`);
       maybeFail("view-chunks");
@@ -180,10 +184,11 @@ await runTest("startup warmup runs default tasks in a stable order", async () =>
   await controller.ready;
 
   assert.deepEqual(events, [
+    "history-bootstrap-snapshot-cache",
+    "mapping-bootstrap",
     "chunk:history",
     "chunk:data",
     "settings-bootstrap",
-    "mapping-bootstrap",
     "data-bootstrap-snapshot-cache",
     "dashboard-snapshot",
     "tools-snapshot",
@@ -191,6 +196,39 @@ await runTest("startup warmup runs default tasks in a stable order", async () =>
   ]);
   assert.deepEqual(warnings, []);
   assert.equal(controller.snapshot().tasks["history-today-snapshot"].status, "skipped");
+});
+
+await runTest("visible startup begins classification bootstrap before queued warmup tasks", async () => {
+  const scheduler = createTaskScheduler();
+  const events: string[] = [];
+  const controller = startStartupWarmup({
+    initialDelayMs: 1_000,
+    runtimeReady: Promise.resolve(),
+    taskGapMs: 250,
+    views: ["history"],
+  }, {
+    ...createWarmupDeps(events),
+    scheduler: scheduler.schedule,
+    warn: () => {
+      throw new Error("unexpected warning");
+    },
+  });
+
+  await flushPromises();
+
+  assert.deepEqual(events, ["history-bootstrap-snapshot-cache"]);
+  assert.equal(scheduler.tasks[0]?.delayMs, 1_000);
+
+  scheduler.runNext();
+  await flushPromises();
+
+  assert.deepEqual(events, [
+    "history-bootstrap-snapshot-cache",
+    "mapping-bootstrap",
+  ]);
+  assert.equal(scheduler.tasks[0]?.delayMs, 250);
+
+  controller.cancel();
 });
 
 await runTest("startup warmup preloads Tools chunk and runtime snapshot by default", async () => {
@@ -207,13 +245,14 @@ await runTest("startup warmup preloads Tools chunk and runtime snapshot by defau
 
   await controller.ready;
 
-  assert.deepEqual(events.slice(0, 6), [
+  assert.deepEqual(events.slice(0, 7), [
+    "history-bootstrap-snapshot-cache",
+    "mapping-bootstrap",
     "chunk:history",
     "chunk:data",
     "chunk:tools",
     "chunk:mapping",
     "chunk:settings",
-    "chunk:about",
   ]);
   assert.ok(events.includes("tools-snapshot"));
   assert.equal(controller.snapshot().tasks["tools-runtime-snapshot"].status, "fulfilled");
@@ -259,11 +298,12 @@ await runTest("startup warmup waits for runtime readiness before runtime tasks",
     },
   });
 
-  await waitForEventCount(events, 3);
-  assert.deepEqual(events.slice(0, 3), [
+  await waitForEventCount(events, 4);
+  assert.deepEqual(events.slice(0, 4), [
+    "history-bootstrap-snapshot-cache",
+    "mapping-bootstrap",
     "chunk:history",
     "settings-bootstrap",
-    "mapping-bootstrap",
   ]);
   assert.equal(events.includes("dashboard-snapshot"), false);
 
@@ -291,10 +331,11 @@ await runTest("hidden autostart warmup skips chunks and heavy read models", asyn
 
   await controller.ready;
 
-  assert.deepEqual(events, []);
+  assert.deepEqual(events, ["history-bootstrap-snapshot-cache"]);
   assert.equal(controller.snapshot().tasks["view-chunks"].status, "skipped");
   assert.equal(controller.snapshot().tasks["dashboard-snapshot"].status, "skipped");
   assert.equal(controller.snapshot().tasks["history-today-snapshot"].status, "skipped");
+  assert.notEqual(controller.snapshot().tasks["history-bootstrap-snapshot-cache"].status, "rejected");
   assert.equal(controller.snapshot().tasks["tools-runtime-snapshot"].status, "skipped");
 });
 
@@ -323,7 +364,10 @@ await runTest("startup warmup exposes scheduling and cancels queued work", async
   scheduler.runNext();
   await flushPromises();
 
-  assert.deepEqual(events, []);
+  assert.deepEqual(events, [
+    "history-bootstrap-snapshot-cache",
+    "mapping-bootstrap",
+  ]);
   assert.equal(controller.snapshot().tasks["view-chunks"].status, "cancelled");
 });
 
