@@ -1,6 +1,11 @@
 import {
   memo,
   type CSSProperties,
+  type FocusEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+  useCallback,
+  useEffect,
   useMemo,
   useRef,
 } from "react";
@@ -8,7 +13,14 @@ import QuietRangeControl from "../../../shared/components/QuietRangeControl.tsx"
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import QuietSegmentedFilter from "../../../shared/components/QuietSegmentedFilter";
 import { formatDuration } from "../../history/services/historyFormatting";
+import { formatLocalDateKey } from "../../../shared/lib/localDate.ts";
 import type { HeatmapSelection, HeatmapWeek } from "../services/dataReadModel.ts";
+import {
+  buildDataHeatmapKeyboardModel,
+  isHeatmapNavigationKey,
+  resolveDataHeatmapActiveDate,
+  resolveDataHeatmapNavigationDate,
+} from "../services/dataHeatmapInteraction.ts";
 import DataHeatmapTooltip from "./DataHeatmapTooltip.tsx";
 
 export type HeatmapGranularity = "daily" | "weekly";
@@ -72,6 +84,15 @@ function buildWeeklyHeatmapCells(rows: HeatmapWeek[]) {
   }));
 }
 
+function findHeatmapCell(target: EventTarget | null, container: HTMLElement) {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+
+  const cell = target.closest<HTMLElement>(".data-heatmap-cell");
+  return cell && container.contains(cell) ? cell : null;
+}
+
 function DataHeatmapPanel({
   selectedHeatmapView,
   selectedHeatmapViewKey,
@@ -87,11 +108,131 @@ function DataHeatmapPanel({
   loading = false,
 }: DataHeatmapPanelProps) {
   const heatmapWeeksRef = useRef<HTMLDivElement | null>(null);
+  const activeHeatmapDateRef = useRef<string | null>(null);
+  const activeHeatmapDatesByViewRef = useRef(new Map<string, string>());
   const weeklyHeatmapCells = useMemo(() => buildWeeklyHeatmapCells(rows), [rows]);
   const weeklyHeatmapCellsByKey = useMemo(
     () => new Map(weeklyHeatmapCells.map((cell) => [cell.key, cell])),
     [weeklyHeatmapCells],
   );
+  const keyboardModel = useMemo(() => buildDataHeatmapKeyboardModel(rows), [rows]);
+  const todayDateKey = formatLocalDateKey(new Date());
+  const initialActiveDate = resolveDataHeatmapActiveDate(
+    keyboardModel,
+    activeHeatmapDatesByViewRef.current.get(selectedHeatmapViewKey) ?? activeHeatmapDateRef.current,
+    todayDateKey,
+  );
+
+  const rememberActiveDate = useCallback((date: string) => {
+    activeHeatmapDateRef.current = date;
+    activeHeatmapDatesByViewRef.current.set(selectedHeatmapViewKey, date);
+  }, [selectedHeatmapViewKey]);
+
+  const moveHeatmapFocus = useCallback((date: string, shouldFocus: boolean) => {
+    const container = heatmapWeeksRef.current;
+    if (!container || !keyboardModel.positionsByDate.has(date)) {
+      return false;
+    }
+
+    const nextCell = container.querySelector<HTMLElement>(`[data-heatmap-date="${date}"]`);
+    if (!nextCell) {
+      return false;
+    }
+
+    const currentTabStop = container.querySelector<HTMLElement>('[data-heatmap-date][tabindex="0"]');
+    if (currentTabStop !== nextCell) {
+      currentTabStop?.setAttribute("tabindex", "-1");
+      nextCell.setAttribute("tabindex", "0");
+    }
+    rememberActiveDate(date);
+
+    if (shouldFocus && document.activeElement !== nextCell) {
+      nextCell.focus({ preventScroll: true });
+      nextCell.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
+    return true;
+  }, [keyboardModel, rememberActiveDate]);
+
+  const handleHeatmapFocus = useCallback((event: FocusEvent<HTMLDivElement>) => {
+    const container = heatmapWeeksRef.current;
+    if (!container) {
+      return;
+    }
+
+    const cell = findHeatmapCell(event.target, container);
+    const date = cell?.dataset.heatmapDate;
+    if (date) {
+      moveHeatmapFocus(date, false);
+    }
+  }, [moveHeatmapFocus]);
+
+  const handleHeatmapClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    const container = heatmapWeeksRef.current;
+    if (!container) {
+      return;
+    }
+
+    const cell = findHeatmapCell(event.target, container);
+    const date = cell?.dataset.heatmapDate;
+    if (date) {
+      moveHeatmapFocus(date, true);
+    }
+  }, [moveHeatmapFocus]);
+
+  const handleHeatmapDoubleClick = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    const container = heatmapWeeksRef.current;
+    if (!container) {
+      return;
+    }
+
+    const historyDate = findHeatmapCell(event.target, container)?.dataset.historyDate;
+    if (historyDate) {
+      onOpenHistoryDate?.(historyDate);
+    }
+  }, [onOpenHistoryDate]);
+
+  const handleHeatmapKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
+    const container = heatmapWeeksRef.current;
+    if (!container) {
+      return;
+    }
+
+    const cell = findHeatmapCell(event.target, container);
+    const currentDate = cell?.dataset.heatmapDate;
+    if (!cell || !currentDate) {
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === " ") {
+      const historyDate = cell.dataset.historyDate;
+      if (historyDate) {
+        event.preventDefault();
+        onOpenHistoryDate?.(historyDate);
+      }
+      return;
+    }
+
+    if (!isHeatmapNavigationKey(event.key)) {
+      return;
+    }
+
+    event.preventDefault();
+    const nextDate = resolveDataHeatmapNavigationDate(
+      keyboardModel,
+      currentDate,
+      event.key,
+      event.ctrlKey,
+    );
+    if (nextDate) {
+      moveHeatmapFocus(nextDate, true);
+    }
+  }, [keyboardModel, moveHeatmapFocus, onOpenHistoryDate]);
+
+  useEffect(() => {
+    if (initialActiveDate) {
+      rememberActiveDate(initialActiveDate);
+    }
+  }, [initialActiveDate, rememberActiveDate]);
 
   return (
     <div className="qp-panel p-5 data-heatmap-panel">
@@ -117,7 +258,6 @@ function DataHeatmapPanel({
             nextAriaLabel={UI_TEXT.accessibility.data.newerRange}
             previousDisabled={!canSelectOlderHeatmapView}
             nextDisabled={!canSelectNewerHeatmapView}
-            labelDisabled
             onPrevious={() => onSelectAdjacentHeatmapView(1)}
             onNext={() => onSelectAdjacentHeatmapView(-1)}
           />
@@ -136,7 +276,7 @@ function DataHeatmapPanel({
                 <span key={`${selectedHeatmapViewKey}:${week.key}`}>{week.monthLabel}</span>
               ))}
             </div>
-            <div className="data-heatmap-body" aria-label={UI_TEXT.data.activityHeatmap}>
+            <div className="data-heatmap-body">
               <div className="data-heatmap-weekdays" aria-hidden>
                 {UI_TEXT.date.heatmapWeekdays.map((weekday, index) => (
                   <span key={`${weekday}-${index}`}>{weekday}</span>
@@ -145,58 +285,86 @@ function DataHeatmapPanel({
               <div
                 ref={heatmapWeeksRef}
                 className="data-heatmap-weeks"
+                role="grid"
+                aria-label={UI_TEXT.data.activityHeatmap}
+                aria-rowcount={HEATMAP_WEEKDAY_COUNT}
+                aria-colcount={rows.length}
+                onClick={handleHeatmapClick}
+                onDoubleClick={handleHeatmapDoubleClick}
+                onFocusCapture={handleHeatmapFocus}
+                onKeyDown={handleHeatmapKeyDown}
               >
-                {rows.map((week) => {
-                  const weeklyCell = weeklyHeatmapCellsByKey.get(week.key);
-                  return (
-                    <div key={`${selectedHeatmapViewKey}:${week.key}`} className="data-heatmap-week">
-                      {week.cells.map((cell, cellIndex) => {
-                        const hideRecentDailyFutureCell = granularity === "daily"
-                          && selectedHeatmapView === "recent"
-                          && cell.isFuture;
-                        if (hideRecentDailyFutureCell) {
-                          return null;
-                        }
+                {Array.from({ length: HEATMAP_WEEKDAY_COUNT }, (_, weekdayIndex) => (
+                  <div
+                    key={`${selectedHeatmapViewKey}:weekday:${weekdayIndex}`}
+                    className="data-heatmap-row"
+                    role="row"
+                    aria-rowindex={weekdayIndex + 1}
+                  >
+                    {rows.map((week, weekIndex) => {
+                      const cell = week.cells[weekdayIndex];
+                      if (!cell) {
+                        return null;
+                      }
 
-                        const isDailyFutureCell = granularity === "daily" && cell.isFuture;
-                        const isUnavailable = isDailyFutureCell || cell.isOutsideYear;
-                        const canOpenHistoryDate = !cell.isFuture && !cell.isOutsideYear && Boolean(onOpenHistoryDate);
-                        const tooltipLabel = granularity === "weekly"
-                          ? weeklyCell?.label ?? cell.label
-                          : cell.label;
-                        const isWeeklyFutureCell = granularity === "weekly"
-                          && Boolean(weeklyCell?.isFuture);
-                        const tooltipDisabled = granularity === "weekly"
-                          ? cell.isOutsideYear || isWeeklyFutureCell
-                          : isUnavailable;
-                        const isWeeklyFilledCell = granularity === "weekly"
-                          && !cell.isOutsideYear
-                          && cellIndex >= HEATMAP_WEEKDAY_COUNT - (weeklyCell?.activeRows ?? 0);
-                        const heatmapIntensity = granularity === "weekly"
-                          ? isWeeklyFilledCell ? weeklyCell?.intensity ?? 0 : 0
-                          : cell.intensity;
+                      const weeklyCell = weeklyHeatmapCellsByKey.get(week.key);
+                      const hideRecentDailyFutureCell = granularity === "daily"
+                        && selectedHeatmapView === "recent"
+                        && cell.isFuture;
+                      if (hideRecentDailyFutureCell) {
                         return (
                           <span
                             key={`${selectedHeatmapViewKey}:${cell.key}`}
-                            className={`data-heatmap-cell ${
-                              canOpenHistoryDate ? "data-heatmap-cell-openable" : ""
-                            } ${
-                              isDailyFutureCell || isWeeklyFutureCell ? "data-heatmap-cell-future" : ""
-                            } ${cell.isOutsideYear ? "data-heatmap-cell-outside" : ""}`}
-                            onDoubleClick={() => {
-                              if (canOpenHistoryDate) {
-                                onOpenHistoryDate?.(cell.date);
-                              }
-                            }}
-                            data-heatmap-tooltip={tooltipDisabled ? undefined : tooltipLabel}
-                            data-history-date={canOpenHistoryDate ? cell.date : undefined}
-                            style={{ "--heatmap-intensity": heatmapIntensity } as CSSProperties}
+                            className="data-heatmap-cell data-heatmap-cell-hidden"
+                            aria-hidden
                           />
                         );
-                      })}
-                    </div>
-                  );
-                })}
+                      }
+
+                      const isDailyFutureCell = granularity === "daily" && cell.isFuture;
+                      const isUnavailable = isDailyFutureCell || cell.isOutsideYear;
+                      const isKeyboardFocusable = !cell.isFuture && !cell.isOutsideYear;
+                      const canOpenHistoryDate = !cell.isFuture
+                        && !cell.isOutsideYear
+                        && Boolean(onOpenHistoryDate);
+                      const tooltipLabel = granularity === "weekly"
+                        ? weeklyCell?.label ?? cell.label
+                        : cell.label;
+                      const isWeeklyFutureCell = granularity === "weekly"
+                        && Boolean(weeklyCell?.isFuture);
+                      const tooltipDisabled = granularity === "weekly"
+                        ? cell.isOutsideYear || isWeeklyFutureCell
+                        : isUnavailable;
+                      const isWeeklyFilledCell = granularity === "weekly"
+                        && !cell.isOutsideYear
+                        && weekdayIndex >= HEATMAP_WEEKDAY_COUNT - (weeklyCell?.activeRows ?? 0);
+                      const heatmapIntensity = granularity === "weekly"
+                        ? isWeeklyFilledCell ? weeklyCell?.intensity ?? 0 : 0
+                        : cell.intensity;
+                      return (
+                        <span
+                          key={`${selectedHeatmapViewKey}:${cell.key}`}
+                          role="gridcell"
+                          aria-colindex={weekIndex + 1}
+                          aria-label={UI_TEXT.accessibility.data.heatmapCell(cell.date, tooltipLabel)}
+                          aria-disabled={isKeyboardFocusable ? undefined : true}
+                          aria-hidden={cell.isOutsideYear ? true : undefined}
+                          aria-keyshortcuts={canOpenHistoryDate ? "Enter Space" : undefined}
+                          tabIndex={isKeyboardFocusable ? (cell.date === initialActiveDate ? 0 : -1) : undefined}
+                          className={`data-heatmap-cell ${
+                            canOpenHistoryDate ? "data-heatmap-cell-openable" : ""
+                          } ${
+                            isDailyFutureCell || isWeeklyFutureCell ? "data-heatmap-cell-future" : ""
+                          } ${cell.isOutsideYear ? "data-heatmap-cell-outside" : ""}`}
+                          data-heatmap-tooltip={tooltipDisabled ? undefined : tooltipLabel}
+                          data-heatmap-date={isKeyboardFocusable ? cell.date : undefined}
+                          data-history-date={canOpenHistoryDate ? cell.date : undefined}
+                          style={{ "--heatmap-intensity": heatmapIntensity } as CSSProperties}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             </div>
           </div>

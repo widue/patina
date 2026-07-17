@@ -98,7 +98,7 @@ export default function DataHeatmapTooltip({
       tooltipRect.height,
     ));
   }, []);
-  const showTooltip = useCallback((event: PointerEvent) => {
+  const showTooltip = useCallback((event: Event) => {
     const container = containerRef.current;
     if (!container) {
       return;
@@ -131,6 +131,14 @@ export default function DataHeatmapTooltip({
 
     hideTooltip();
   }, [containerRef, hideTooltip]);
+  const hideTooltipAfterFocusOut = useCallback((event: FocusEvent) => {
+    const container = containerRef.current;
+    if (container && findHeatmapTooltipAnchor(event.relatedTarget, container)) {
+      return;
+    }
+
+    hideTooltip();
+  }, [containerRef, hideTooltip]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -142,13 +150,17 @@ export default function DataHeatmapTooltip({
     container.addEventListener("pointerout", hideTooltipAfterPointerOut);
     container.addEventListener("pointerdown", hideTooltip, true);
     container.addEventListener("pointerleave", hideTooltip);
+    container.addEventListener("focusin", showTooltip);
+    container.addEventListener("focusout", hideTooltipAfterFocusOut);
     return () => {
       container.removeEventListener("pointerover", showTooltip);
       container.removeEventListener("pointerout", hideTooltipAfterPointerOut);
       container.removeEventListener("pointerdown", hideTooltip, true);
       container.removeEventListener("pointerleave", hideTooltip);
+      container.removeEventListener("focusin", showTooltip);
+      container.removeEventListener("focusout", hideTooltipAfterFocusOut);
     };
-  }, [containerRef, hideTooltip, hideTooltipAfterPointerOut, showTooltip]);
+  }, [containerRef, hideTooltip, hideTooltipAfterFocusOut, hideTooltipAfterPointerOut, showTooltip]);
 
   useLayoutEffect(() => {
     if (!heatmapTooltip) {

@@ -1,7 +1,18 @@
+.data-trend-header .data-trend-range-control {
+  justify-self: end;
+}
+
 .data-trend-range-trigger {
   cursor: pointer;
 }
 
 .data-heatmap-granularity.qp-segmented-filter-compact {
   flex-wrap: nowrap;
+}
+
+@media (max-width: 900px) {
+  .data-heatmap-range-control {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
 }

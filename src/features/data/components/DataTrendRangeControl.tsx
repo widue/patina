@@ -46,7 +46,7 @@ export default function DataTrendRangeControl({ ariaLabel, selection, onChange }
     <>
       <QuietRangeControl
         ref={anchorRef}
-        className="data-heatmap-range-control"
+        className="data-trend-range-control"
         labelClassName="data-trend-range-label data-trend-range-trigger"
         ariaLabel={ariaLabel}
         label={open ? pickerLabel : label}

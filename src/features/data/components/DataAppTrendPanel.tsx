@@ -1,8 +1,8 @@
 import { memo, type MouseEvent, type RefObject } from "react";
-import { Search } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import QuietChartTooltip from "../../../shared/components/QuietChartTooltip";
+import QuietSearchField from "../../../shared/components/QuietSearchField";
 import {
   formatChartHours,
   formatDuration,
@@ -140,15 +140,12 @@ function DataAppTrendPanel({
       ) : (
         <div className="data-app-grid">
           <div className="data-app-sidebar">
-            <label className="data-app-search">
-              <Search size={14} aria-hidden />
-              <input
-                value={appSearchQuery}
-                onChange={(event) => onSearchQueryChange(event.target.value)}
-                placeholder={UI_TEXT.data.appSearchPlaceholder}
-                aria-label={UI_TEXT.data.appSearchPlaceholder}
-              />
-            </label>
+            <QuietSearchField
+              value={appSearchQuery}
+              onChange={(event) => onSearchQueryChange(event.target.value)}
+              placeholder={UI_TEXT.data.appSearchPlaceholder}
+              aria-label={UI_TEXT.data.appSearchPlaceholder}
+            />
             <div
               key={hasAppSearchQuery ? "searching" : "all"}
               ref={appListRef}
