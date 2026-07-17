@@ -150,6 +150,11 @@ export default function QuietSelect<T extends string | number>({
     });
   }, [resolveMenuPosition]);
 
+  const openMenu = useCallback(() => {
+    setMenuPosition(resolveMenuPosition());
+    setOpen(true);
+  }, [resolveMenuPosition]);
+
   useEffect(() => {
     if (!open) return;
     const handleOutside = (event: PointerEvent) => {
@@ -226,12 +231,16 @@ export default function QuietSelect<T extends string | number>({
     if (disabled) return;
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
-      setOpen(true);
+      openMenu();
       return;
     }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
-      setOpen((current) => !current);
+      if (open) {
+        closeMenu();
+      } else {
+        openMenu();
+      }
       return;
     }
     if (event.key === "Escape") {
@@ -394,7 +403,13 @@ export default function QuietSelect<T extends string | number>({
         aria-controls={open ? listboxId : undefined}
         aria-label={selectedOption ? `${ariaLabel}: ${selectedOption.label}` : ariaLabel}
         disabled={disabled}
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          if (open) {
+            closeMenu();
+          } else {
+            openMenu();
+          }
+        }}
         onKeyDown={handleKeyDown}
         className="qp-control qp-select-trigger"
       >
