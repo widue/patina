@@ -87,6 +87,7 @@ export default function QuietSelect<T extends string | number>({
     () => options.find((option) => option.value === value),
     [options, value],
   );
+  const menuReady = open && menuPosition !== null;
 
   const closeMenu = (restoreFocus = false) => {
     setOpen(false);
@@ -215,13 +216,11 @@ export default function QuietSelect<T extends string | number>({
     setHighlightedIndex(selectedIndex >= 0 ? selectedIndex : options.findIndex((option) => !option.disabled));
   }, [open, options, value]);
 
-  useEffect(() => {
-    if (!open) return;
-    requestAnimationFrame(() => {
-      updateMenuPosition(listRef.current?.offsetHeight);
-      listRef.current?.focus();
-    });
-  }, [open, updateMenuPosition]);
+  useLayoutEffect(() => {
+    if (!menuReady) return undefined;
+    listRef.current?.focus();
+    return undefined;
+  }, [menuReady]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (disabled) return;
