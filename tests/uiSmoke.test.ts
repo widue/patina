@@ -363,12 +363,112 @@ await runTest("History regular view avoids visible loading copy", () => {
   const appCss = readUtf8("src/App.css");
 
   assert.doesNotMatch(history, /UI_TEXT\.history\.loading/);
+  assert.doesNotMatch(history, /historyCopy\.loading/);
   assert.doesNotMatch(history, /aria-busy/);
   assert.match(history, /HistoryHorizontalTimeline/);
   assert.match(history, /visibleHistoryTimelineView/);
   assert.match(history, /showEmptyMessage=\{!showQuietPlaceholder\}/);
   assert.doesNotMatch(history, /!\s*loading\s*&&\s*\(\s*<div className="qp-panel p-5 history-overview-timeline-card"/s);
   assert.match(appCss, /styles\/features\/history\.css/);
+});
+
+await runTest("single-date surfaces share QuietCalendar while range rules stay independent", () => {
+  const calendar = readUtf8("src/shared/components/QuietCalendar.tsx");
+  const datePicker = readUtf8("src/shared/components/QuietDatePicker.tsx");
+  const dateRangePicker = readUtf8("src/shared/components/QuietDateRangePicker.tsx");
+  const historyCalendar = readUtf8("src/features/history/components/HistoryCalendarPopover.tsx");
+  const historyDateNavigator = readUtf8("src/features/history/components/HistoryDateNavigator.tsx");
+  const quietProCss = readUtf8("src/styles/quiet-pro.css");
+
+  assert.match(calendar, /export default function QuietCalendar/);
+  assert.match(calendar, /export function QuietCalendarMonthFrame/);
+  assert.match(calendar, /qp-calendar-header/);
+  assert.match(calendar, /qp-calendar-weekdays/);
+  assert.match(calendar, /data-in-range/);
+  assert.match(datePicker, /import QuietCalendar from/);
+  assert.doesNotMatch(datePicker, /QuietCalendarMonthFrame/);
+  assert.match(dateRangePicker, /QuietCalendarMonthFrame/);
+  assert.match(historyCalendar, /import QuietCalendar from/);
+  assert.doesNotMatch(historyCalendar, /QuietCalendarMonthFrame/);
+  assert.doesNotMatch(historyCalendar, /calendarDays|getDay/);
+  assert.match(calendar, /previousMonthIcon/);
+  assert.match(calendar, /nextMonthIcon/);
+  assert.match(datePicker, /minDateValue/);
+  assert.match(calendar, /handleDayKeyDown/);
+  assert.match(dateRangePicker, /selectDraftDate/);
+  assert.match(historyCalendar, /maxDate=\{today\}/);
+  assert.match(historyDateNavigator, /<span\s+role="button"\s+tabIndex=\{0\}/);
+  assert.doesNotMatch(
+    historyDateNavigator,
+    /<button(?:(?!<\/button>)[\s\S])*?className="qp-status history-date-label/,
+  );
+  assert.doesNotMatch(quietProCss, /\.history-calendar-(?:header|title|nav|grid|weekdays|day)/);
+  assert.doesNotMatch(quietProCss, /\.qp-range-picker-(?:month|arrow|grid|weekdays|day)/);
+});
+
+await runTest("color field reuses the segmented control and exposes a native hue range", () => {
+  const colorField = readUtf8("src/shared/components/QuietColorField.tsx");
+  const segmentedFilter = readUtf8("src/shared/components/QuietSegmentedFilter.tsx");
+  const appShellCss = readUtf8("src/styles/app-shell.css");
+
+  assert.match(colorField, /import QuietSegmentedFilter/);
+  assert.match(colorField, /semantics="tabs"/);
+  assert.match(colorField, /className="qp-color-hue-slider"/);
+  assert.match(colorField, /type="range"/);
+  assert.match(segmentedFilter, /role=\{tabs \? "tablist" : undefined\}/);
+  assert.match(segmentedFilter, /role=\{tabs \? "tab" : undefined\}/);
+  assert.doesNotMatch(colorField, /qp-color-format-segment/);
+  assert.doesNotMatch(appShellCss, /\.qp-color-format-segment/);
+});
+
+await runTest("dialog initial focus is semantic instead of DOM-order driven", () => {
+  const quietDialog = readUtf8("src/shared/components/QuietDialog.tsx");
+  const quietButton = readUtf8("src/shared/components/QuietButton.tsx");
+  const quietConfirm = readUtf8("src/shared/components/QuietConfirmDialog.tsx");
+  const quietPrompt = readUtf8("src/shared/components/QuietPromptDialog.tsx");
+  const segmentedFilter = readUtf8("src/shared/components/QuietSegmentedFilter.tsx");
+  const fieldConfig = readUtf8("src/features/settings/components/SettingsDataExportFieldConfigDialog.tsx");
+  const dataSafety = readUtf8("src/features/settings/components/SettingsDataSafetyPanel.tsx");
+  const colorField = readUtf8("src/shared/components/QuietColorField.tsx");
+  const rangePicker = readUtf8("src/shared/components/QuietDateRangePicker.tsx");
+  const historyCalendar = readUtf8("src/features/history/components/HistoryCalendarPopover.tsx");
+
+  assert.doesNotMatch(quietDialog, /initialFocus\??:/);
+  assert.match(quietDialog, /aria-labelledby=\{titleId\}/);
+  assert.match(quietDialog, /ref=\{headingRef\}[\s\S]*?tabIndex=\{-1\}/);
+  assert.match(quietDialog, /isAvailableFocusTarget/);
+  assert.match(quietDialog, /initialFocusRefRef/);
+  assert.match(quietDialog, /restoreAncestors/);
+  assert.doesNotMatch(quietDialog, /"surface"/);
+  assert.match(quietButton, /forwardRef<HTMLButtonElement/);
+  assert.match(quietConfirm, /initialFocusRef=\{cancelButtonRef\}/);
+  assert.match(quietPrompt, /initialFocusRef=\{inputRef\}/);
+  assert.doesNotMatch(quietPrompt, /autoFocus/);
+  assert.match(segmentedFilter, /selectedOptionRef/);
+  assert.doesNotMatch(fieldConfig, /initialFocus="surface"/);
+  assert.doesNotMatch(dataSafety, /initialFocus="surface"/);
+  assert.match(colorField, /aria-labelledby=\{titleId\}/);
+  assert.match(colorField, /titleRef\.current\?\.focus\(\)/);
+  assert.match(colorField, /event\.stopPropagation\(\)/);
+  assert.match(rangePicker, /titleRef\.current\?\.focus\(\)/);
+  assert.match(rangePicker, /event\.stopPropagation\(\)/);
+  assert.match(historyCalendar, /role="dialog"/);
+  assert.match(historyCalendar, /data-calendar-date/);
+  assert.match(historyCalendar, /\.focus\(\)/);
+});
+
+await runTest("Toast separates failure semantics and uses the Quiet Pro radius token", () => {
+  const quietToast = readUtf8("src/shared/components/QuietToast.tsx");
+  const quietToastStack = readUtf8("src/shared/components/QuietToastStack.tsx");
+  const toastTypes = readUtf8("src/shared/types/toast.ts");
+  const appShellCss = readUtf8("src/styles/app-shell.css");
+
+  assert.match(toastTypes, /"success" \| "warning" \| "error" \| "info"/);
+  assert.match(quietToast, /tone === "error" \? "alert" : "status"/);
+  assert.match(quietToast, /aria-atomic="true"/);
+  assert.doesNotMatch(quietToastStack, /role="status"|aria-live=/);
+  assert.match(appShellCss, /\.qp-toast \{[\s\S]*?border-radius: var\(--qp-radius-control\);/);
+  assert.match(appShellCss, /\.qp-toast-error \{/);
 });
 
 await runTest("History separates timeline list dialog from zoom dialog", () => {
@@ -498,14 +598,26 @@ await runTest("History separates timeline list dialog from zoom dialog", () => {
   assert.match(quietProCss, /\.history-activity-popover-item-range/);
 });
 
-await runTest("operation-oriented pages keep explicit busy feedback", () => {
+await runTest("shared hourly chart resolves responsive category density before paint", () => {
+  const hourlyChart = readUtf8("src/shared/charts/HourlyActivityChart.tsx");
+
+  assert.match(hourlyChart, /import \{ useLayoutEffect,/);
+  assert.match(hourlyChart, /useLayoutEffect\(\(\) => \{/);
+  assert.doesNotMatch(hourlyChart, /import \{ useEffect,/);
+});
+
+await runTest("operation-oriented pages keep action feedback without cold-page loading copy", () => {
   const settings = readUtf8("src/features/settings/components/Settings.tsx");
   const mapping = readUtf8("src/features/classification/components/AppMapping.tsx");
+  const mappingState = readUtf8("src/features/classification/hooks/useAppMappingState.ts");
   const dataSafety = readUtf8("src/features/settings/components/SettingsDataSafetyPanel.tsx");
   const updateDialog = readUtf8("src/features/update/components/UpdateConfirmDialog.tsx");
 
   assert.match(settings, /UI_TEXT\.settings\.loading/);
-  assert.match(mapping, /UI_TEXT\.mapping\.loading/);
+  assert.doesNotMatch(mapping, /UI_TEXT\.mapping\.loading/);
+  assert.match(mapping, /data-classification-content-state/);
+  assert.match(mappingState, /setSaveStatus\("saving"\)/);
+  assert.match(mappingState, /setDeletingSessionsExe/);
   assert.match(dataSafety, /backupExporting|backupRestoring/);
   assert.match(updateDialog, /UpdateProgressBar/);
   assert.match(updateDialog, /UI_TEXT\.update\.processing/);
@@ -569,9 +681,34 @@ await runTest("settings appearance keeps dynamic effects as the fourth option", 
   assert.ok(colorSchemeIndex > themeModeIndex);
   assert.ok(languageIndex > colorSchemeIndex);
   assert.ok(dynamicEffectsIndex > languageIndex);
-  assert.match(appearance, /settings-beta-badge/);
-  assert.match(appearance, /settings-beta-badge-small/);
+  assert.match(appearance, /<QuietBadge variant="beta" size="compact">/);
   assert.match(appearance, /UI_TEXT\.settings\.betaLabel/);
+});
+
+await runTest("badges share one Quiet Pro owner and protect long labels", () => {
+  const badge = readUtf8("src/shared/components/QuietBadge.tsx");
+  const quietProStyles = readUtf8("src/styles/quiet-pro.css");
+  const appShellStyles = readUtf8("src/styles/app-shell.css");
+  const settingsStyles = readUtf8("src/styles/features/settings.css");
+  const consumers = [
+    readUtf8("src/features/tools/components/Tools.tsx"),
+    readUtf8("src/features/settings/components/SettingsAppearancePanel.tsx"),
+    readUtf8("src/features/settings/components/SettingsDataSafetyPanel.tsx"),
+  ];
+
+  assert.match(badge, /type QuietBadgeSize = "compact" \| "regular"/);
+  assert.match(badge, /type QuietBadgeVariant = "default" \| "beta"/);
+  assert.match(badge, /className="qp-badge-label"/);
+  assert.match(quietProStyles, /\.qp-badge \{[\s\S]*?border-radius: var\(--qp-radius-chip\);/);
+  assert.match(quietProStyles, /\.qp-badge-label \{[\s\S]*?text-overflow: ellipsis;[\s\S]*?white-space: nowrap;/);
+  assert.match(quietProStyles, /\.qp-badge-compact \{/);
+  assert.match(quietProStyles, /\.qp-badge-regular \{/);
+  assert.match(quietProStyles, /\.qp-badge-beta \{/);
+  assert.doesNotMatch(appShellStyles, /\.qp-badge(?:-|\s|\{)/);
+  assert.doesNotMatch(settingsStyles, /settings-(?:beta-badge|local-paths-beta)/);
+  for (const consumer of consumers) {
+    assert.match(consumer, /<QuietBadge variant="beta"/);
+  }
 });
 
 await runTest("settings leaves web activity connection status to the extension", () => {
@@ -775,6 +912,7 @@ await runTest("app shell uses feature-owned page cache lifecycle exits", () => {
   assert.match(shell, /includeHistory: isHistoryRefreshEnabled/);
   assert.doesNotMatch(cleanupEffect, /clearDashboardSnapshotCache/);
   assert.match(cleanupEffect, /clearHistorySnapshotCache/);
+  assert.doesNotMatch(cleanupEffect, /clearHistoryBootstrapSnapshot/);
   assert.match(cleanupEffect, /clearDataHeavyCaches/);
   assert.match(cleanupEffect, /clearToolsPageCaches/);
   assert.match(cleanupEffect, /appSettings\.backgroundOptimization/);
@@ -799,9 +937,32 @@ await runTest("app shell invalidates Tools page caches after app mapping changes
   );
 
   assert.match(mappingChangedHandler, /clearDashboardSnapshotCache/);
-  assert.match(mappingChangedHandler, /clearHistorySnapshotCache/);
+  assert.match(mappingChangedHandler, /clearHistoryCachesAfterDataChange/);
   assert.match(mappingChangedHandler, /clearToolsPageCaches/);
   assert.match(mappingChangedHandler, /clearDataBootstrapCache/);
+});
+
+await runTest("History bootstrap lifecycle keeps background reuse and invalidates changed data", () => {
+  const shell = readUtf8("src/app/AppShell.tsx");
+  const tracking = readUtf8("src/app/hooks/useWindowTracking.ts");
+  const warmup = readUtf8("src/app/services/startupWarmupService.ts");
+  const store = readUtf8("src/platform/persistence/historyBootstrapSnapshotStore.ts");
+  const history = readUtf8("src/features/history/components/History.tsx");
+  const sessionsDeletedStart = shell.indexOf("onSessionsDeleted={() => {");
+  const sessionsDeletedHandler = shell.slice(
+    sessionsDeletedStart,
+    shell.indexOf("webActivityEnabled={appSettings.webActivityEnabled}", sessionsDeletedStart),
+  );
+
+  assert.match(sessionsDeletedHandler, /clearHistoryCachesAfterDataChange/);
+  assert.match(tracking, /payload\.reason === "backup-restored"[\s\S]*clearHistoryCachesAfterDataChange/);
+  assert.match(warmup, /"history-bootstrap-snapshot-cache"/);
+  assert.match(warmup, /historyBootstrapSnapshotCache: true/);
+  assert.match(warmup, /historyTodaySnapshot: false/);
+  assert.match(store, /SELECT value FROM settings WHERE key = \? LIMIT 1/);
+  assert.match(history, /data-history-content-state=\{contentState\}/);
+  assert.match(history, /contentState === "cold-loading"/);
+  assert.match(history, /activeDurationLabel: DAY_SUMMARY_EMPTY_MARK/);
 });
 
 await runTest("Tools participates in startup warmup and renders from cached runtime snapshot", () => {
@@ -1019,6 +1180,147 @@ await runTest("data export chooses among four explained formats before configuri
   assert.ok(dialog.indexOf("settings-data-export-format-grid") < dialog.indexOf("configFieldsCount"));
   for (const group of ["activity", "apps", "web", "classification", "analysis", "audit"]) {
     assert.match(fields, new RegExp(`id: "${group}"`));
+  }
+});
+
+await runTest("search fields share one visual and accessibility owner", () => {
+  const sharedSearchField = readUtf8("src/shared/components/QuietSearchField.tsx");
+  const consumers = [
+    readUtf8("src/features/classification/components/AppMapping.tsx"),
+    readUtf8("src/features/data/components/DataAppTrendPanel.tsx"),
+    readUtf8("src/features/tools/components/ReminderToolPanel.tsx"),
+  ];
+
+  assert.match(sharedSearchField, /data-app-search qp-search-field/);
+  assert.match(sharedSearchField, /<Search size=\{14\} aria-hidden \/>/);
+  assert.match(sharedSearchField, /type="text"/);
+  for (const consumer of consumers) {
+    assert.match(consumer, /<QuietSearchField/);
+    assert.doesNotMatch(consumer, /<label className="data-app-search/);
+  }
+});
+
+await runTest("tooltips keep one shared visual owner", () => {
+  const tooltip = readUtf8("src/shared/components/QuietTooltip.tsx");
+  const quietProStyles = readUtf8("src/styles/quiet-pro.css");
+  const appShellStyles = readUtf8("src/styles/app-shell.css");
+
+  assert.match(tooltip, /onKeyDownCapture=\{hideTooltipFromKeyboard\}/);
+  assert.match(tooltip, /new ResizeObserver\(updatePosition\)/);
+  assert.match(tooltip, /const POINTER_SHOW_DELAY_MS = 300/);
+  assert.match(tooltip, /"aria-describedby": visible && canShow/);
+  assert.match(quietProStyles, /\.qp-tooltip-anchor \{/);
+  assert.match(quietProStyles, /\.qp-tooltip \{/);
+  assert.doesNotMatch(appShellStyles, /\.qp-tooltip(?:-anchor)? \{/);
+});
+
+await runTest("chart tooltips use Recharts contracts and the Quiet Pro visual owner", () => {
+  const chartTooltip = readUtf8("src/shared/components/QuietChartTooltip.tsx");
+  const appStyles = readUtf8("src/App.css");
+  const chartTooltipStyles = readUtf8("src/styles/components/quiet-chart-tooltip.css");
+  const appShellStyles = readUtf8("src/styles/app-shell.css");
+
+  assert.match(chartTooltip, /type TooltipContentProps/);
+  assert.match(chartTooltip, /type TooltipPayloadEntry/);
+  assert.match(chartTooltip, /type TooltipProps/);
+  assert.match(chartTooltip, /type TooltipValueType/);
+  assert.doesNotMatch(chartTooltip, /cursor as never/);
+  assert.match(chartTooltip, /function isZeroTooltipValue/);
+  assert.match(chartTooltip, /typeof value === "string" && value\.trim\(\) === ""/);
+  assert.match(chartTooltip, /!isZeroTooltipValue\(item\.value\)/);
+  assert.match(chartTooltip, /role="tooltip"/);
+  assert.match(chartTooltip, /className="qp-chart-tooltip-name"/);
+  assert.match(appStyles, /styles\/components\/quiet-chart-tooltip\.css/);
+  assert.match(chartTooltipStyles, /\.qp-chart-tooltip \{/);
+  assert.match(chartTooltipStyles, /max-width: min\(260px, calc\(100vw - 16px\)\)/);
+  assert.match(chartTooltipStyles, /\.qp-chart-tooltip-name \{[\s\S]*?text-overflow: ellipsis/);
+  assert.match(chartTooltipStyles, /border-radius: var\(--qp-radius-control\)/);
+  assert.doesNotMatch(appShellStyles, /\.qp-chart-tooltip(?:-[a-z-]+)? \{/);
+});
+
+await runTest("ordinary inputs share the Quiet Pro CSS contract without a wrapper component", () => {
+  const quietProStyles = readUtf8("src/styles/quiet-pro.css");
+  const consumers = [
+    "src/features/classification/components/AppMappingCandidateCard.tsx",
+    "src/features/classification/components/WebDomainMappingCard.tsx",
+    "src/features/tools/components/TimerToolPanel.tsx",
+    "src/features/tools/components/ToolDurationInput.tsx",
+    "src/features/tools/components/ReminderToolPanel.tsx",
+    "src/features/settings/components/SettingsRemoteBackupPanel.tsx",
+    "src/features/settings/components/SettingsInterfacePanel.tsx",
+    "src/shared/components/QuietPromptDialog.tsx",
+  ].map(readUtf8);
+
+  assert.match(quietProStyles, /\.qp-input \{/);
+  assert.match(quietProStyles, /\.qp-input:focus/);
+  assert.match(quietProStyles, /\.qp-input:disabled/);
+  assert.match(quietProStyles, /\.qp-input\[aria-invalid="true"\]/);
+  for (const consumer of consumers) {
+    assert.match(consumer, /className=(?:"qp-input|\{`qp-input)/);
+    assert.doesNotMatch(consumer, /<QuietInput/);
+  }
+});
+
+await runTest("remaining Quiet Pro component families keep one owner and explicit semantics", () => {
+  const appStyles = readUtf8("src/App.css");
+  const appShellStyles = readUtf8("src/styles/app-shell.css");
+  const actionStyles = readUtf8("src/styles/components/quiet-actions.css");
+  const containerStyles = readUtf8("src/styles/components/quiet-containers.css");
+  const dataStyles = readUtf8("src/styles/features/data.css");
+  const quietProStyles = readUtf8("src/styles/quiet-pro.css");
+  const actionRow = readUtf8("src/shared/components/QuietActionRow.tsx");
+  const subpanel = readUtf8("src/shared/components/QuietSubpanel.tsx");
+  const iconAction = readUtf8("src/shared/components/QuietIconAction.tsx");
+  const inlineAction = readUtf8("src/shared/components/QuietInlineAction.tsx");
+  const rangeControl = readUtf8("src/shared/components/QuietRangeControl.tsx");
+  const stepperSlider = readUtf8("src/shared/components/QuietStepperSlider.tsx");
+  const dataHeatmap = readUtf8("src/features/data/components/DataHeatmapPanel.tsx");
+  const settingsDataSafety = readUtf8("src/features/settings/components/SettingsDataSafetyPanel.tsx");
+  const pageHeaderConsumers = [
+    "src/features/about/components/About.tsx",
+    "src/features/classification/components/AppMapping.tsx",
+    "src/features/dashboard/components/Dashboard.tsx",
+    "src/features/data/components/Data.tsx",
+    "src/features/history/components/History.tsx",
+    "src/features/settings/components/Settings.tsx",
+    "src/features/tools/components/Tools.tsx",
+  ].map(readUtf8);
+
+  assert.match(appStyles, /styles\/components\/quiet-actions\.css/);
+  assert.match(appStyles, /styles\/components\/quiet-containers\.css/);
+  assert.match(actionStyles, /\.qp-inline-action \{/);
+  assert.match(actionStyles, /\.qp-icon-action \{/);
+  assert.match(actionStyles, /:active:not\(:disabled\)/);
+  assert.match(actionStyles, /border-radius: var\(--qp-radius-button\)/);
+  assert.match(containerStyles, /\.qp-subpanel \{[\s\S]*?border-radius: var\(--qp-radius-panel\)/);
+  assert.match(containerStyles, /\.qp-action-row \{[\s\S]*?border-radius: var\(--qp-radius-control\)/);
+  assert.doesNotMatch(appShellStyles, /^\.qp-(?:inline-action|icon-action|subpanel|action-row)\s*\{/m);
+
+  assert.match(actionRow, /<div className=\{`qp-action-row/);
+  assert.match(subpanel, /<div className=\{`qp-subpanel/);
+  assert.doesNotMatch(subpanel, /<section/);
+  assert.doesNotMatch(subpanel, /QuietSubpanelTone|tone\??:/);
+  assert.doesNotMatch(containerStyles, /\.qp-subpanel-danger/);
+  assert.match(iconAction, /aria-pressed=\{pressed\}/);
+  assert.match(inlineAction, /qp-inline-action-\$\{tone\}/);
+
+  assert.match(rangeControl, /role="group"/);
+  assert.match(rangeControl, /onLabelClick \? \(/);
+  assert.match(rangeControl, /aria-haspopup="dialog"/);
+  assert.doesNotMatch(rangeControl, /labelDisabled/);
+  assert.doesNotMatch(dataHeatmap, /labelDisabled/);
+  assert.doesNotMatch(quietProStyles, /\.data-heatmap-range-(?:arrow|label)/);
+  assert.match(dataStyles, /\.data-trend-header \.data-trend-range-control/);
+
+  assert.match(stepperSlider, /displayValue: string/);
+  assert.match(stepperSlider, /aria-valuetext=\{displayValue\}/);
+  assert.doesNotMatch(stepperSlider, /rounded-\[6px\]/);
+  assert.match(quietProStyles, /\.qp-page-header-icon \{[\s\S]*?border-radius: var\(--qp-radius-control\)/);
+  assert.match(settingsDataSafety, /<QuietButton[\s\S]*?tone="danger"/);
+  assert.doesNotMatch(settingsDataSafety, /QuietDangerAction/);
+
+  for (const consumer of pageHeaderConsumers) {
+    assert.match(consumer, /<QuietPageHeader/);
   }
 });
 

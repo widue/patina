@@ -28,6 +28,14 @@ const LAZY_PAGE_CHUNK_BUDGETS = [
   { label: "About", pattern: /^About-.*\.js$/, gzipKiB: 18 },
 ] as const;
 
+// Stable cross-feature UI owners stay lazy and receive their own narrow budget
+// instead of consuming the allowance for unowned support chunks.
+const LAZY_SHARED_UI_CHUNK_BUDGETS = [
+  { label: "QuietBadge", pattern: /^QuietBadge-.*\.js$/, gzipKiB: 0.3 },
+  { label: "QuietCalendar", pattern: /^QuietCalendar-.*\.js$/, gzipKiB: 1.3 },
+  { label: "QuietSegmentedFilter", pattern: /^QuietSegmentedFilter-.*\.js$/, gzipKiB: 0.8 },
+] as const;
+
 // Vite 8/Rolldown creates more granular shared chunks. The support allowance is
 // slightly wider while every aggregate and initial-chunk budget is materially tighter.
 const LAZY_SUPPORT_CHUNKS_GZIP_BUDGET_KI_B = 6.25;
@@ -149,7 +157,10 @@ function main() {
   const initialJsAssets = jsAssets.filter((item) => initialAssetNames.has(item.file));
   const initialCssAssets = cssAssets.filter((item) => initialAssetNames.has(item.file));
   const lazyJsAssets = jsAssets.filter((item) => !initialAssetNames.has(item.file));
-  const lazySupportAssets = lazyJsAssets.filter((item) => !matchesAnyBudget(item.file, LAZY_PAGE_CHUNK_BUDGETS));
+  const lazySupportAssets = lazyJsAssets.filter((item) => (
+    !matchesAnyBudget(item.file, LAZY_PAGE_CHUNK_BUDGETS)
+    && !matchesAnyBudget(item.file, LAZY_SHARED_UI_CHUNK_BUDGETS)
+  ));
 
   const violations: string[] = [];
   const copyDomains = measureCopyDomains();
@@ -177,6 +188,7 @@ function main() {
 
   checkChunkBudgets("initial", jsAssets, INITIAL_CHUNK_BUDGETS, violations);
   checkChunkBudgets("lazy page", lazyJsAssets, LAZY_PAGE_CHUNK_BUDGETS, violations);
+  checkChunkBudgets("lazy shared UI", lazyJsAssets, LAZY_SHARED_UI_CHUNK_BUDGETS, violations);
 
   const lazySupportGzipBytes = sumGzipBytes(lazySupportAssets);
   if (lazySupportGzipBytes > LAZY_SUPPORT_CHUNKS_GZIP_BUDGET_KI_B * KI_B) {
@@ -233,6 +245,13 @@ function main() {
 
   console.log("lazy page chunks:");
   for (const budget of LAZY_PAGE_CHUNK_BUDGETS) {
+    const asset = findBudgetAsset(lazyJsAssets, budget);
+    if (asset) {
+      console.log(`- ${budget.label}: ${formatKiB(asset.gzipBytes)} KiB gzip`);
+    }
+  }
+  console.log("lazy shared UI chunks:");
+  for (const budget of LAZY_SHARED_UI_CHUNK_BUDGETS) {
     const asset = findBudgetAsset(lazyJsAssets, budget);
     if (asset) {
       console.log(`- ${budget.label}: ${formatKiB(asset.gzipBytes)} KiB gzip`);

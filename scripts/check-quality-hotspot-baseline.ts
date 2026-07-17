@@ -9,7 +9,8 @@ interface HotspotBudget {
 const HOTSPOT_BUDGETS: HotspotBudget[] = [
   // Includes shared Quiet Pro controls that previously lived in unowned feature/shared CSS.
   { path: "src/styles/quiet-pro.css", owner: "Quiet Pro design system", maxLines: 2008 },
-  { path: "src/styles/tokens.css", owner: "Quiet Pro design tokens", maxLines: 1472 },
+  // Includes the dedicated button-radius token that keeps button geometry independent from other controls.
+  { path: "src/styles/tokens.css", owner: "Quiet Pro design tokens", maxLines: 1473 },
   { path: "src-tauri/src/data/sqlite_pool.rs", owner: "Rust data/sqlite pool production", maxLines: 850 },
   { path: "src-tauri/src/data/storage_migration.rs", owner: "Rust data/storage migration production", maxLines: 990 },
   { path: "src/features/history/components/History.tsx", owner: "history feature UI", maxLines: 1244 },
