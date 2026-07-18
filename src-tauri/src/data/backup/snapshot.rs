@@ -55,6 +55,9 @@ struct SnapshotRestoreManifest {
 struct SnapshotCounts {
     sessions: usize,
     title_samples: usize,
+    import_batches: usize,
+    import_exact_sessions: usize,
+    import_time_buckets: usize,
     settings: usize,
     icon_cache: usize,
     web_favicon_cache: usize,
@@ -246,6 +249,9 @@ async fn count_table(pool: &Pool<Sqlite>, table: &str) -> Result<usize, String> 
     let query = match table {
         "sessions" => "SELECT COUNT(*) FROM sessions",
         "session_title_samples" => "SELECT COUNT(*) FROM session_title_samples",
+        "import_batches" => "SELECT COUNT(*) FROM import_batches",
+        "import_exact_sessions" => "SELECT COUNT(*) FROM import_exact_sessions",
+        "import_time_buckets" => "SELECT COUNT(*) FROM import_time_buckets",
         "settings" => "SELECT COUNT(*) FROM settings",
         "icon_cache" => "SELECT COUNT(*) FROM icon_cache",
         "web_activity_segments" => "SELECT COUNT(*) FROM web_activity_segments",
@@ -269,6 +275,9 @@ async fn read_counts(pool: &Pool<Sqlite>) -> Result<SnapshotCounts, String> {
     Ok(SnapshotCounts {
         sessions: count_table(pool, "sessions").await?,
         title_samples: count_table(pool, "session_title_samples").await?,
+        import_batches: count_table(pool, "import_batches").await?,
+        import_exact_sessions: count_table(pool, "import_exact_sessions").await?,
+        import_time_buckets: count_table(pool, "import_time_buckets").await?,
         settings: count_table(pool, "settings").await?,
         icon_cache: count_table(pool, "icon_cache").await?,
         web_activity_segments: count_table(pool, "web_activity_segments").await?,
@@ -317,6 +326,9 @@ fn preview_from_manifest(manifest: &SnapshotManifest, supported: bool) -> Backup
         .to_string(),
         session_count: manifest.counts.sessions,
         title_sample_count: manifest.counts.title_samples,
+        import_batch_count: manifest.counts.import_batches,
+        import_exact_session_count: manifest.counts.import_exact_sessions,
+        import_time_bucket_count: manifest.counts.import_time_buckets,
         setting_count: manifest.counts.settings,
         icon_cache_count: manifest.counts.icon_cache + manifest.counts.web_favicon_cache,
         web_activity_segment_count: manifest.counts.web_activity_segments,
@@ -705,12 +717,41 @@ mod tests {
             .execute(&pool)
             .await
             .expect("insert source row");
+        sqlx::query(
+            "INSERT INTO import_batches (
+                id, imported_at, source_name, source_kind, source_fingerprint,
+                exact_session_count, hour_bucket_count
+             ) VALUES ('backup-batch', 1, 'external.csv', 'patina-csv', 'source', 1, 1)",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert import batch");
+        sqlx::query(
+            "INSERT INTO import_exact_sessions (
+                batch_id, fingerprint, app_name, exe_name, window_title,
+                start_time, end_time, duration
+             ) VALUES ('backup-batch', 'exact', 'External', 'external.exe', '', 10, 20, 10)",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert external exact session");
+        sqlx::query(
+            "INSERT INTO import_time_buckets (
+                batch_id, fingerprint, app_name, exe_name, bucket_start_time, duration
+             ) VALUES ('backup-batch', 'bucket', 'External', 'external.exe', 0, 10)",
+        )
+        .execute(&pool)
+        .await
+        .expect("insert external hour bucket");
 
         let preview = write_snapshot_archive(&pool, &archive_path, "test")
             .await
             .expect("write snapshot archive");
         assert_eq!(preview.format_kind, "sqlite_snapshot");
         assert_eq!(preview.setting_count, 1);
+        assert_eq!(preview.import_batch_count, 1);
+        assert_eq!(preview.import_exact_session_count, 1);
+        assert_eq!(preview.import_time_bucket_count, 1);
 
         let extracted = extract_snapshot_archive(&archive_path, true)
             .await
@@ -723,7 +764,17 @@ mod tests {
                 .fetch_one(&restored_pool)
                 .await
                 .expect("read extracted row");
+        let external_counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM import_batches),
+                (SELECT COUNT(*) FROM import_exact_sessions),
+                (SELECT COUNT(*) FROM import_time_buckets)",
+        )
+        .fetch_one(&restored_pool)
+        .await
+        .expect("read extracted external rows");
         assert_eq!(value, "preserved");
+        assert_eq!(external_counts, (1, 1, 1));
         restored_pool.close().await;
         pool.close().await;
         drop(extracted);

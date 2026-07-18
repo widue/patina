@@ -1,7 +1,8 @@
+use super::import_data::clear_external_imports_in_tx;
 use super::RestoreStrategy;
 use crate::data::repositories;
 use crate::domain::backup::BackupPayload;
-use sqlx::{Pool, Sqlite};
+use sqlx::{Pool, Sqlite, Transaction};
 
 pub(super) async fn restore_backup_payload(
     pool: &Pool<Sqlite>,
@@ -12,36 +13,49 @@ pub(super) async fn restore_backup_payload(
         .begin()
         .await
         .map_err(|error| format!("failed to start restore transaction: {error}"))?;
+    restore_backup_payload_in_tx(&mut tx, payload, strategy).await?;
+    tx.commit()
+        .await
+        .map_err(|error| format!("failed to commit restore transaction: {error}"))?;
+    Ok(())
+}
+
+pub(super) async fn restore_backup_payload_in_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    payload: &BackupPayload,
+    strategy: RestoreStrategy,
+) -> Result<(), String> {
     match strategy {
         RestoreStrategy::Replace => {
-            repositories::session_title_samples::clear_for_restore(&mut tx).await?;
-            repositories::sessions::clear_for_restore(&mut tx).await?;
-            repositories::settings::clear_for_restore(&mut tx).await?;
-            repositories::icon_cache::clear_for_restore(&mut tx).await?;
-            repositories::web_activity::clear_for_restore(&mut tx).await?;
-            repositories::tools::clear_for_restore(&mut tx).await?;
+            clear_external_imports_in_tx(tx).await?;
+            repositories::session_title_samples::clear_for_restore(tx).await?;
+            repositories::sessions::clear_for_restore(tx).await?;
+            repositories::settings::clear_for_restore(tx).await?;
+            repositories::icon_cache::clear_for_restore(tx).await?;
+            repositories::web_activity::clear_for_restore(tx).await?;
+            repositories::tools::clear_for_restore(tx).await?;
 
-            repositories::sessions::insert_for_restore(&mut tx, &payload.sessions).await?;
+            repositories::sessions::insert_for_restore(tx, &payload.sessions).await?;
             let session_id_map =
-                repositories::sessions::resolve_restore_session_id_map(&mut tx, &payload.sessions)
+                repositories::sessions::resolve_restore_session_id_map(tx, &payload.sessions)
                     .await?;
             repositories::session_title_samples::insert_for_restore(
-                &mut tx,
+                tx,
                 &payload.title_samples,
                 &session_id_map,
             )
             .await?;
-            repositories::settings::insert_for_restore(&mut tx, &payload.settings).await?;
-            repositories::icon_cache::insert_for_restore(&mut tx, &payload.icon_cache).await?;
-            repositories::web_activity::insert_for_restore(&mut tx, &payload.web_activity_segments)
+            repositories::settings::insert_for_restore(tx, &payload.settings).await?;
+            repositories::icon_cache::insert_for_restore(tx, &payload.icon_cache).await?;
+            repositories::web_activity::insert_for_restore(tx, &payload.web_activity_segments)
                 .await?;
             repositories::web_activity::insert_favicon_cache_for_restore(
-                &mut tx,
+                tx,
                 &payload.web_favicon_cache,
             )
             .await?;
             repositories::tools::insert_for_restore(
-                &mut tx,
+                tx,
                 &payload.tool_reminders,
                 &payload.tool_timers,
                 &payload.tool_timer_laps,
@@ -52,31 +66,30 @@ pub(super) async fn restore_backup_payload(
             .await?;
         }
         RestoreStrategy::Merge => {
-            repositories::sessions::insert_missing_for_restore(&mut tx, &payload.sessions).await?;
+            repositories::sessions::insert_missing_for_restore(tx, &payload.sessions).await?;
             let session_id_map =
-                repositories::sessions::resolve_restore_session_id_map(&mut tx, &payload.sessions)
+                repositories::sessions::resolve_restore_session_id_map(tx, &payload.sessions)
                     .await?;
             repositories::session_title_samples::insert_missing_for_restore(
-                &mut tx,
+                tx,
                 &payload.title_samples,
                 &session_id_map,
             )
             .await?;
-            repositories::settings::insert_missing_for_restore(&mut tx, &payload.settings).await?;
-            repositories::icon_cache::insert_missing_for_restore(&mut tx, &payload.icon_cache)
-                .await?;
+            repositories::settings::insert_missing_for_restore(tx, &payload.settings).await?;
+            repositories::icon_cache::insert_missing_for_restore(tx, &payload.icon_cache).await?;
             repositories::web_activity::insert_missing_for_restore(
-                &mut tx,
+                tx,
                 &payload.web_activity_segments,
             )
             .await?;
             repositories::web_activity::insert_missing_favicon_cache_for_restore(
-                &mut tx,
+                tx,
                 &payload.web_favicon_cache,
             )
             .await?;
             repositories::tools::insert_missing_for_restore(
-                &mut tx,
+                tx,
                 &payload.tool_reminders,
                 &payload.tool_timers,
                 &payload.tool_timer_laps,
@@ -87,9 +100,5 @@ pub(super) async fn restore_backup_payload(
             .await?;
         }
     }
-
-    tx.commit()
-        .await
-        .map_err(|error| format!("failed to commit restore transaction: {error}"))?;
     Ok(())
 }

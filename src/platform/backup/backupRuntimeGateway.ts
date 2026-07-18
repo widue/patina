@@ -13,6 +13,9 @@ interface RawBackupPreview {
   restore_message: string;
   session_count: number;
   title_sample_count: number;
+  import_batch_count?: number;
+  import_exact_session_count?: number;
+  import_time_bucket_count?: number;
   setting_count: number;
   icon_cache_count: number;
   tool_reminder_count?: number;
@@ -36,6 +39,9 @@ export interface BackupPreview {
   restoreMessage: string;
   sessionCount: number;
   titleSampleCount: number;
+  importBatchCount: number;
+  importExactSessionCount: number;
+  importTimeBucketCount: number;
   settingCount: number;
   iconCacheCount: number;
   toolReminderCount: number;
@@ -65,6 +71,9 @@ function isRawBackupPreview(value: unknown): value is RawBackupPreview {
     && typeof record.restore_message === "string"
     && typeof record.session_count === "number"
     && typeof record.title_sample_count === "number"
+    && (record.import_batch_count === undefined || typeof record.import_batch_count === "number")
+    && (record.import_exact_session_count === undefined || typeof record.import_exact_session_count === "number")
+    && (record.import_time_bucket_count === undefined || typeof record.import_time_bucket_count === "number")
     && typeof record.setting_count === "number"
     && typeof record.icon_cache_count === "number"
     && (record.tool_reminder_count === undefined || typeof record.tool_reminder_count === "number")
@@ -89,6 +98,9 @@ function mapRawBackupPreview(raw: RawBackupPreview): BackupPreview {
     restoreMessage: raw.restore_message,
     sessionCount: raw.session_count,
     titleSampleCount: raw.title_sample_count,
+    importBatchCount: raw.import_batch_count ?? 0,
+    importExactSessionCount: raw.import_exact_session_count ?? 0,
+    importTimeBucketCount: raw.import_time_bucket_count ?? 0,
     settingCount: raw.setting_count,
     iconCacheCount: raw.icon_cache_count,
     toolReminderCount: raw.tool_reminder_count ?? 0,

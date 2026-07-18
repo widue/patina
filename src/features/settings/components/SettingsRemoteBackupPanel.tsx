@@ -60,6 +60,17 @@ function RemoteBackupEntryRow({
           <p className="mt-1 text-xs leading-relaxed text-[var(--qp-text-tertiary)]">
             {UI_TEXT.backup.itemCounts(entry.sessionCount, entry.settingCount, entry.iconCacheCount)}
           </p>
+          {(entry.importBatchCount > 0
+            || entry.importExactSessionCount > 0
+            || entry.importTimeBucketCount > 0) && (
+            <p className="mt-1 text-xs leading-relaxed text-[var(--qp-text-tertiary)]">
+              {UI_TEXT.backup.importItemCounts(
+                entry.importBatchCount,
+                entry.importExactSessionCount,
+                entry.importTimeBucketCount,
+              )}
+            </p>
+          )}
         </div>
         <QuietButton
           size="regular"

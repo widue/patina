@@ -19,6 +19,9 @@ interface RawRemoteBackupEntry {
   schemaVersion: number;
   sessionCount: number;
   titleSampleCount: number;
+  importBatchCount?: number;
+  importExactSessionCount?: number;
+  importTimeBucketCount?: number;
   settingCount: number;
   iconCacheCount: number;
 }
@@ -46,6 +49,9 @@ export interface RemoteBackupEntry {
   schemaVersion: number;
   sessionCount: number;
   titleSampleCount: number;
+  importBatchCount: number;
+  importExactSessionCount: number;
+  importTimeBucketCount: number;
   settingCount: number;
   iconCacheCount: number;
 }
@@ -78,6 +84,9 @@ function isRawRemoteBackupEntry(value: unknown): value is RawRemoteBackupEntry {
     && typeof value.schemaVersion === "number"
     && typeof value.sessionCount === "number"
     && typeof value.titleSampleCount === "number"
+    && (value.importBatchCount === undefined || typeof value.importBatchCount === "number")
+    && (value.importExactSessionCount === undefined || typeof value.importExactSessionCount === "number")
+    && (value.importTimeBucketCount === undefined || typeof value.importTimeBucketCount === "number")
     && typeof value.settingCount === "number"
     && typeof value.iconCacheCount === "number";
 }
@@ -95,6 +104,9 @@ function mapRemoteBackupEntry(raw: RawRemoteBackupEntry): RemoteBackupEntry {
     schemaVersion: raw.schemaVersion,
     sessionCount: raw.sessionCount,
     titleSampleCount: raw.titleSampleCount,
+    importBatchCount: raw.importBatchCount ?? 0,
+    importExactSessionCount: raw.importExactSessionCount ?? 0,
+    importTimeBucketCount: raw.importTimeBucketCount ?? 0,
     settingCount: raw.settingCount,
     iconCacheCount: raw.iconCacheCount,
   };

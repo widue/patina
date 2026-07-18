@@ -14,8 +14,12 @@ const ZH_CN_BACKUP_COPY = {
       return fallback;
     },
     itemCounts: (sessionCount: number, settingCount: number, iconCacheCount: number) => (
-      `活动记录：${sessionCount}，设置：${settingCount}，图标缓存：${iconCacheCount}`
+      `Patina 原生活动：${sessionCount}，设置：${settingCount}，图标缓存：${iconCacheCount}`
     ),
+    importItemCounts: (batchCount: number, exactCount: number, bucketCount: number) => (
+      `外部导入：${batchCount} 批，精确记录：${exactCount}，小时汇总：${bucketCount}`
+    ),
+    legacyExternalDataNotice: "此旧版备份不包含外部导入数据。",
   },
 };
 
@@ -29,8 +33,12 @@ const EN_US_BACKUP_COPY = {
     restoreSafety: (message: string) => `Restore status: ${message}`,
     restoreMessage: (_key: string | null, _args: string[], fallback: string) => fallback,
     itemCounts: (sessionCount: number, settingCount: number, iconCacheCount: number) => (
-      `Activity records: ${sessionCount}, settings: ${settingCount}, cached icons: ${iconCacheCount}`
+      `Patina-native activity: ${sessionCount}, settings: ${settingCount}, cached icons: ${iconCacheCount}`
     ),
+    importItemCounts: (batchCount: number, exactCount: number, bucketCount: number) => (
+      `External imports: ${batchCount} batches, ${exactCount} exact records, ${bucketCount} hour summaries`
+    ),
+    legacyExternalDataNotice: "This legacy backup does not contain external import data.",
   },
 };
 

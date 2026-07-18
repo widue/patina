@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type { BackupPreview } from "../src/features/settings/services/settingsRuntimeAdapterService.ts";
+import { parseBackupPreview } from "../src/platform/backup/backupRuntimeGateway.ts";
 import {
   commitSettingsPatchWithDeps,
   prepareBackupRestoreWithDeps,
@@ -163,6 +164,9 @@ function buildPreview(overrides: Partial<BackupPreview> = {}): BackupPreview {
     restoreMessage: "Looks good",
     sessionCount: 42,
     titleSampleCount: 12,
+    importBatchCount: 0,
+    importExactSessionCount: 0,
+    importTimeBucketCount: 0,
     settingCount: 10,
     iconCacheCount: 5,
     toolReminderCount: 0,
@@ -733,8 +737,12 @@ await runTest("runSettingsCleanupFlow reports failures and still clears busy sta
   assert.deepEqual(errors, ["cleanup failed:db busy"]);
 });
 
-await runTest("prepareBackupRestoreWithDeps builds a summary for compatible previews", async () => {
-  const preview = buildPreview();
+await runTest("prepareBackupRestoreWithDeps separates native and external backup counts", async () => {
+  const preview = buildPreview({
+    importBatchCount: 2,
+    importExactSessionCount: 3,
+    importTimeBucketCount: 4,
+  });
   let receivedInitialPath: string | undefined;
 
   const preparation = await prepareBackupRestoreWithDeps("backup.db", {
@@ -750,6 +758,41 @@ await runTest("prepareBackupRestoreWithDeps builds a summary for compatible prev
   assert.equal(preparation?.path, "C:/tmp/backup.db");
   assert.ok(preparation?.previewSummary.includes("SQLite 数据快照"));
   assert.ok(preparation?.previewSummary.includes("42"));
+  assert.ok(preparation?.previewSummary.includes("外部导入：2 批"));
+  assert.ok(preparation?.previewSummary.includes("精确记录：3"));
+  assert.ok(preparation?.previewSummary.includes("小时汇总：4"));
+});
+
+await runTest("backup preview gateway maps external counts and defaults old payloads to zero", () => {
+  const raw = {
+    hash: "sha256",
+    format_kind: "sqlite_snapshot" as const,
+    version: 1,
+    exported_at_ms: 1,
+    schema_version: 8,
+    app_version: "test",
+    restore_supported: true,
+    restore_message: "ok",
+    session_count: 10,
+    title_sample_count: 2,
+    setting_count: 3,
+    icon_cache_count: 4,
+  };
+
+  const oldPreview = parseBackupPreview(raw);
+  assert.equal(oldPreview.importBatchCount, 0);
+  assert.equal(oldPreview.importExactSessionCount, 0);
+  assert.equal(oldPreview.importTimeBucketCount, 0);
+
+  const currentPreview = parseBackupPreview({
+    ...raw,
+    import_batch_count: 5,
+    import_exact_session_count: 6,
+    import_time_bucket_count: 7,
+  });
+  assert.equal(currentPreview.importBatchCount, 5);
+  assert.equal(currentPreview.importExactSessionCount, 6);
+  assert.equal(currentPreview.importTimeBucketCount, 7);
 });
 
 await runTest("runBackupExportFlow normalizes the initial path and stores the exported path", async () => {

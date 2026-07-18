@@ -186,6 +186,9 @@ pub struct BackupPreview {
     pub restore_message: String,
     pub session_count: usize,
     pub title_sample_count: usize,
+    pub import_batch_count: usize,
+    pub import_exact_session_count: usize,
+    pub import_time_bucket_count: usize,
     pub setting_count: usize,
     pub icon_cache_count: usize,
     pub web_activity_segment_count: usize,
@@ -270,6 +273,9 @@ impl BackupPayload {
             restore_message: restore_safety.message,
             session_count: self.sessions.len(),
             title_sample_count: self.title_samples.len(),
+            import_batch_count: 0,
+            import_exact_session_count: 0,
+            import_time_bucket_count: 0,
             setting_count: self.settings.len(),
             icon_cache_count: self.icon_cache.len(),
             web_activity_segment_count: self.web_activity_segments.len(),
@@ -383,6 +389,9 @@ mod tests {
         assert_eq!(preview.title_sample_count, 1);
         assert_eq!(preview.setting_count, 1);
         assert_eq!(preview.icon_cache_count, 1);
+        assert_eq!(preview.import_batch_count, 0);
+        assert_eq!(preview.import_exact_session_count, 0);
+        assert_eq!(preview.import_time_bucket_count, 0);
         assert_eq!(preview.tool_reminder_count, 0);
         assert_eq!(preview.tool_timer_count, 0);
     }

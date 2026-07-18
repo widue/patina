@@ -15,6 +15,7 @@ use tauri::AppHandle;
 mod archive;
 #[cfg(test)]
 mod archive_tests;
+mod import_data;
 mod paths;
 mod payload;
 mod prepared_source;
@@ -24,10 +25,11 @@ mod snapshot;
 #[cfg(test)]
 use archive::encode_backup_archive;
 use archive::read_backup_payload;
+use import_data::{load_external_import_backup_from_pool, merge_external_import_backup_in_tx};
 use paths::resolve_backup_path;
 use payload::load_backup_payload_from_pool;
 use prepared_source::prepare_backup_source;
-use restore_payload::restore_backup_payload;
+use restore_payload::{restore_backup_payload, restore_backup_payload_in_tx};
 
 pub use paths::{pick_backup_file, pick_backup_save_file};
 pub use payload::RestoreStrategy;
@@ -118,10 +120,21 @@ async fn restore_snapshot_backup(
             let payload_result =
                 load_backup_payload_from_pool(&candidate_pool, &extracted.preview.app_version)
                     .await;
+            let import_result = load_external_import_backup_from_pool(&candidate_pool).await;
             candidate_pool.close().await;
             let payload = payload_result?;
+            let import_backup = import_result?;
             let pool = wait_for_sqlite_pool(app).await?;
-            restore_backup_payload(&pool, &payload, RestoreStrategy::Merge).await
+            let mut tx = pool
+                .begin()
+                .await
+                .map_err(|error| format!("failed to start snapshot merge transaction: {error}"))?;
+            restore_backup_payload_in_tx(&mut tx, &payload, RestoreStrategy::Merge).await?;
+            merge_external_import_backup_in_tx(&mut tx, &import_backup).await?;
+            tx.commit()
+                .await
+                .map_err(|error| format!("failed to commit snapshot merge: {error}"))?;
+            Ok(())
         }
     }
 }
@@ -584,6 +597,12 @@ mod tests {
             .await
             .unwrap();
         pool.execute(db_schema::WEB_FAVICON_CACHE_SCHEMA_SQL)
+            .await
+            .unwrap();
+        pool.execute(db_schema::IMPORT_DATA_SCHEMA_SQL)
+            .await
+            .unwrap();
+        pool.execute(db_schema::IMPORT_DATA_ISOLATION_SCHEMA_SQL)
             .await
             .unwrap();
         pool

@@ -49,6 +49,12 @@ pub struct RemoteBackupEntry {
     pub schema_version: u32,
     pub session_count: usize,
     pub title_sample_count: usize,
+    #[serde(default)]
+    pub import_batch_count: usize,
+    #[serde(default)]
+    pub import_exact_session_count: usize,
+    #[serde(default)]
+    pub import_time_bucket_count: usize,
     pub setting_count: usize,
     pub icon_cache_count: usize,
 }
@@ -233,6 +239,9 @@ fn build_entry(
         schema_version: preview.schema_version,
         session_count: preview.session_count,
         title_sample_count: preview.title_sample_count,
+        import_batch_count: preview.import_batch_count,
+        import_exact_session_count: preview.import_exact_session_count,
+        import_time_bucket_count: preview.import_time_bucket_count,
         setting_count: preview.setting_count,
         icon_cache_count: preview.icon_cache_count,
     }
@@ -513,6 +522,35 @@ mod tests {
     fn parse_index_rejects_other_products() {
         let raw = r#"{"version":1,"product":"Other","updatedAtMs":1,"backups":[]}"#;
         assert!(parse_index(raw).is_err());
+    }
+
+    #[test]
+    fn parse_old_index_defaults_external_counts_to_zero() {
+        let raw = r#"{
+            "version": 1,
+            "product": "Patina",
+            "updatedAtMs": 1,
+            "backups": [{
+                "id": "old",
+                "fileName": "Patina-backup-old.zip",
+                "remotePath": "/Patina/Patina-backup-old.zip",
+                "createdAtMs": 1,
+                "sizeBytes": 2,
+                "appVersion": "1.8.3",
+                "backupVersion": 1,
+                "schemaVersion": 6,
+                "sessionCount": 3,
+                "titleSampleCount": 4,
+                "settingCount": 5,
+                "iconCacheCount": 6
+            }]
+        }"#;
+
+        let index = parse_index(raw).unwrap();
+        let entry = &index.backups[0];
+        assert_eq!(entry.import_batch_count, 0);
+        assert_eq!(entry.import_exact_session_count, 0);
+        assert_eq!(entry.import_time_bucket_count, 0);
     }
 
     #[test]
