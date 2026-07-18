@@ -1,8 +1,12 @@
 import { useCallback, useState } from "react";
 import {
+  commitImportWithClassification,
+  deleteImportBatchWithRefresh,
   SettingsImportService,
+  type ImportCategoryCandidate,
   type ImportBatch,
   type ImportPreview,
+  type PreparedImportClassification,
 } from "../services/settingsImportService.ts";
 import type { QuietToastTone } from "../../../shared/types/toast.ts";
 
@@ -10,6 +14,10 @@ type ImportDialogView = "actions" | "preview" | "batches";
 
 export function useSettingsImportState(
   onToast?: (message: string, tone?: QuietToastTone) => void,
+  onPrepareImportCategories?: (
+    candidates: readonly ImportCategoryCandidate[],
+  ) => Promise<PreparedImportClassification>,
+  onImportedDataChanged: () => void = () => {},
 ) {
   const [open, setOpen] = useState(false);
   const [view, setView] = useState<ImportDialogView>("actions");
@@ -61,7 +69,13 @@ export function useSettingsImportState(
     if (busy || !preview || preview.validRecords <= preview.duplicateRecords) return;
     setBusy(true);
     try {
-      const report = await SettingsImportService.commitCanonicalImport(preview);
+      const report = await commitImportWithClassification(preview, {
+        commitImport: SettingsImportService.commitCanonicalImport,
+        prepareClassification: onPrepareImportCategories ?? (async () => ({
+          mutations: [],
+          applyRuntime: () => {},
+        })),
+      });
       await refreshBatches();
       onToast?.(`已导入 ${report.importedRecords} 条记录`, "success");
       setPreview(null);
@@ -71,7 +85,7 @@ export function useSettingsImportState(
     } finally {
       setBusy(false);
     }
-  }, [busy, onToast, preview, refreshBatches]);
+  }, [busy, onPrepareImportCategories, onToast, preview, refreshBatches]);
 
   const destructureExternal = useCallback(async () => {
     if (busy) return;
@@ -96,8 +110,11 @@ export function useSettingsImportState(
     if (busy) return;
     setBusy(true);
     try {
-      const report = await SettingsImportService.deleteImportBatch(batchId);
-      const nextBatches = await refreshBatches();
+      const { report, batches: nextBatches } = await deleteImportBatchWithRefresh(batchId, {
+        deleteImportBatch: SettingsImportService.deleteImportBatch,
+        refreshBatches,
+        onImportedDataChanged,
+      });
       onToast?.(
         `已删除 ${report.deletedExactSessions + report.deletedHourBuckets} 条外部记录`,
         "success",
@@ -108,7 +125,7 @@ export function useSettingsImportState(
     } finally {
       setBusy(false);
     }
-  }, [busy, onToast, refreshBatches]);
+  }, [busy, onImportedDataChanged, onToast, refreshBatches]);
 
   return {
     open,

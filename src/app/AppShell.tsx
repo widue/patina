@@ -45,6 +45,7 @@ import { useAppShellToasts } from "./hooks/useAppShellToasts";
 import { useAppShellUpdateEntry } from "./hooks/useAppShellUpdateEntry";
 import { useAppThemeMode } from "./hooks/useAppThemeMode.ts";
 import { useQuietMotionPreference } from "../shared/motion/useQuietMotionPreference.ts";
+import { useImportClassificationCoordinator } from "./hooks/useImportClassificationCoordinator.ts";
 import {
   saveHourlyActivityChartModeSetting,
   saveMinSessionSecsSetting,
@@ -92,10 +93,7 @@ function getPreloadableNavigationView(view: View): PreloadableView | null {
   }
 }
 
-type HistoryDateRequest = {
-  dateKey: string;
-  requestId: number;
-};
+type HistoryDateRequest = { dateKey: string; requestId: number };
 
 export default function AppShell() {
   return (
@@ -118,6 +116,7 @@ function AppShellContent() {
   } = useAppShellNavigation({ confirm });
   const { toasts, pushToast } = useAppShellToasts();
   const [readModelRefreshState, setReadModelRefreshState] = useState(INITIAL_READ_MODEL_REFRESH_STATE);
+  const { prepareImportCategories, onImportedDataChanged: handleImportedDataChanged } = useImportClassificationCoordinator(setReadModelRefreshState);
   const [isWindowMaximized, setIsWindowMaximized] = useState(false);
   const [settingsThemeModePreview, setSettingsThemeModePreview] = useState<ThemeMode | null>(null);
   const [settingsColorSchemePreview, setSettingsColorSchemePreview] = useState<ColorSchemePreview | null>(null);
@@ -567,6 +566,8 @@ function AppShellContent() {
                   onColorSchemePreview={setSettingsColorSchemePreview}
                   onLanguagePreview={setSettingsLanguagePreview}
                   onToast={pushToast}
+                  onPrepareImportCategories={prepareImportCategories}
+                  onImportedDataChanged={handleImportedDataChanged}
                 />
               )}
               {renderedView === "about" && (

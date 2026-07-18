@@ -28,9 +28,15 @@ export default function Settings({
   onThemeModePreview,
   onColorSchemePreview,
   onLanguagePreview,
+  onPrepareImportCategories,
+  onImportedDataChanged,
 }: SettingsPageProps) {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
-  const importState = useSettingsImportState(onToast);
+  const importState = useSettingsImportState(
+    onToast,
+    onPrepareImportCategories,
+    onImportedDataChanged,
+  );
   const {
     dialogs,
     loading,

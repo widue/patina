@@ -20,6 +20,12 @@ import {
   sanitizeDeletedCategories,
   type ClassificationDraftState,
 } from "./classificationDraftState.ts";
+import {
+  buildImportedClassificationDraft,
+  type ImportedClassificationResult,
+} from "./importedClassification.ts";
+import type { ImportCategoryCandidate } from "../../../platform/persistence/importRuntimeGateway.ts";
+import type { ClassificationSettingMutation } from "../../../platform/persistence/classificationSettingsGateway.ts";
 import { loadClassificationIconsForExecutables } from "./classificationIconService.ts";
 
 export type { AppOverride } from "../../../shared/classification/processMapper.ts";
@@ -57,6 +63,12 @@ export interface ClassificationBootstrapDeps {
   loadAppIconsForExecutables?: typeof loadClassificationIconsForExecutables;
 }
 
+export interface PreparedImportedClassification {
+  mutations: ClassificationSettingMutation[];
+  result: ImportedClassificationResult;
+  applyRuntime: () => void;
+}
+
 export function createClassificationCommitDeps(
   commitChangePlan: ClassificationCommitDeps["commitChangePlan"] = classificationStore.commitDraftChangePlan,
 ): ClassificationCommitDeps {
@@ -85,6 +97,7 @@ const defaultClassificationBootstrapDeps: ClassificationBootstrapDeps = {
 let warnedWebClassificationFallback = false;
 let warnedClassificationIconFallback = false;
 let classificationBootstrapInFlight: Promise<ClassificationBootstrapData> | null = null;
+let classificationBootstrapGeneration = 0;
 
 async function loadOptionalClassificationIconMap(
   deps: ClassificationBootstrapDeps,
@@ -148,6 +161,7 @@ export class ClassificationService {
     }
 
     const cacheAtRequestStart = getClassificationBootstrapCache();
+    const generationAtRequestStart = classificationBootstrapGeneration;
     const request = (async () => {
       const [
         observed,
@@ -182,6 +196,10 @@ export class ClassificationService {
         loadedDeletedCategories: sanitizedDeletedCategories,
       };
 
+      if (classificationBootstrapGeneration !== generationAtRequestStart) {
+        return ClassificationService.loadClassificationBootstrap(deps);
+      }
+
       const latestCache = getClassificationBootstrapCache();
       if (latestCache !== cacheAtRequestStart && latestCache) {
         return latestCache;
@@ -209,6 +227,12 @@ export class ClassificationService {
 
   static getBootstrapCache(): ClassificationBootstrapData | null {
     return getClassificationBootstrapCache();
+  }
+
+  static invalidateBootstrapCache(): void {
+    classificationBootstrapGeneration += 1;
+    classificationBootstrapInFlight = null;
+    setClassificationBootstrapCache(null);
   }
 
   static applyBootstrapToProcessMapper(bootstrap: ClassificationBootstrapData): void {
@@ -266,6 +290,41 @@ export class ClassificationService {
 
   static async commitDraftChanges(saved: ClassificationDraftState, draft: ClassificationDraftState): Promise<void> {
     await commitDraftChangesWithDeps(saved, draft, defaultClassificationCommitDeps);
+  }
+
+  static async prepareImportedCategoryCandidates(
+    candidates: readonly ImportCategoryCandidate[],
+  ): Promise<PreparedImportedClassification> {
+    const bootstrap = await this.loadClassificationBootstrap();
+    const saved: ClassificationDraftState = {
+      overrides: { ...bootstrap.loadedOverrides },
+      webDomainOverrides: { ...bootstrap.loadedWebDomainOverrides },
+      categoryColorOverrides: { ...bootstrap.loadedCategoryColorOverrides },
+      categoryLabelOverrides: { ...bootstrap.loadedCategoryLabelOverrides },
+      persistedCategoryIds: [...bootstrap.loadedPersistedCategoryIds],
+      deletedCategories: [...bootstrap.loadedDeletedCategories],
+    };
+    const result = buildImportedClassificationDraft(saved, candidates);
+    const changePlan = buildClassificationDraftChangePlan(saved, result.draft);
+    return {
+      mutations: classificationStore.buildCommitDraftChangePlanSettingMutations(changePlan),
+      result,
+      applyRuntime: () => {
+        ProcessMapper.setUserOverrides(result.draft.overrides);
+        ProcessMapper.setCategoryColorOverrides(result.draft.categoryColorOverrides);
+        ProcessMapper.setCategoryLabelOverrides(result.draft.categoryLabelOverrides);
+        ProcessMapper.setDeletedCategories(changePlan.sanitizedDeletedCategories);
+        setClassificationBootstrapCache({
+          ...bootstrap,
+          loadedOverrides: { ...result.draft.overrides },
+          loadedWebDomainOverrides: { ...result.draft.webDomainOverrides },
+          loadedCategoryColorOverrides: { ...result.draft.categoryColorOverrides },
+          loadedCategoryLabelOverrides: { ...result.draft.categoryLabelOverrides },
+          loadedPersistedCategoryIds: [...result.draft.persistedCategoryIds],
+          loadedDeletedCategories: [...changePlan.sanitizedDeletedCategories],
+        });
+      },
+    };
   }
 }
 

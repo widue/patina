@@ -1,5 +1,7 @@
 import type { AppLanguage, AppSettings, ColorScheme, ThemeMode } from "../../shared/settings/appSettings";
 import type { QuietToastTone } from "../../shared/types/toast";
+import type { ImportCategoryCandidate } from "../../platform/persistence/importRuntimeGateway.ts";
+import type { PreparedImportClassification } from "./services/settingsImportService.ts";
 import type { UpdateSnapshot } from "../../shared/types/update";
 
 export interface ColorSchemePreview {
@@ -24,6 +26,10 @@ export interface SettingsPageProps {
   onThemeModePreview?: (themeMode: ThemeMode | null) => void;
   onColorSchemePreview?: (colorScheme: ColorSchemePreview | null) => void;
   onLanguagePreview?: (language: AppLanguage | null) => void;
+  onPrepareImportCategories?: (
+    candidates: readonly ImportCategoryCandidate[],
+  ) => Promise<PreparedImportClassification>;
+  onImportedDataChanged?: () => void;
 }
 
 export type CleanupRange = 180 | 90 | 60 | 30 | 15 | 7;

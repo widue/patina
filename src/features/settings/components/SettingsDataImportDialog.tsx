@@ -49,6 +49,8 @@ export default function SettingsDataImportDialog({
   const availableRecords = preview
     ? Math.max(0, preview.validRecords - preview.duplicateRecords)
     : 0;
+  const categorizedApps = preview?.categoryCandidates.filter((candidate) => candidate.categories.length === 1).length ?? 0;
+  const conflictedApps = preview?.categoryCandidates.filter((candidate) => candidate.categories.length > 1).length ?? 0;
   const mainOpen = open && view !== "batches";
   const batchOpen = open && view === "batches";
 
@@ -137,8 +139,15 @@ export default function SettingsDataImportDialog({
               {preview.errorRecords > 0 ? (
                 <div><dt>{importText.errorLabel}</dt><dd>{preview.errorRecords}</dd></div>
               ) : null}
+              {categorizedApps > 0 ? (
+                <div><dt>{importText.categorizedAppsLabel}</dt><dd>{categorizedApps}</dd></div>
+              ) : null}
+              {conflictedApps > 0 ? (
+                <div><dt>{importText.conflictedAppsLabel}</dt><dd>{conflictedApps}</dd></div>
+              ) : null}
             </dl>
             {preview.hourBuckets > 0 ? <p className="settings-import-note">{importText.hourNote}</p> : null}
+            {conflictedApps > 0 ? <p className="settings-import-note">{importText.categoryConflictNote}</p> : null}
             {preview.errors.length > 0 ? (
               <ul className="settings-import-errors">
                 {preview.errors.map((error) => (

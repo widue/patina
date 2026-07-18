@@ -98,6 +98,21 @@ const SEEDED_CATEGORY_IDS: SeededAppCategory[] = [
 ];
 
 const SEEDED_CATEGORY_SET = new Set<string>(SEEDED_CATEGORY_IDS);
+const CATEGORY_NAME_LIMITS = {
+  cjkCharacters: 6,
+  latinWords: 2,
+  latinCharacters: 12,
+} as const;
+const CJK_CHARACTER_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+export function normalizeCategoryLabelInput(input: string): string {
+  const normalized = input.trim().replace(/\s+/g, " ");
+  if (CJK_CHARACTER_PATTERN.test(normalized)) {
+    return Array.from(normalized).slice(0, CATEGORY_NAME_LIMITS.cjkCharacters).join("");
+  }
+  const latinValue = normalized.split(" ").slice(0, CATEGORY_NAME_LIMITS.latinWords).join(" ");
+  return Array.from(latinValue).slice(0, CATEGORY_NAME_LIMITS.latinCharacters).join("").trimEnd();
+}
 
 function getSeededCategoryLabel(category: SeededAppCategory): string {
   if (category === "ai") return UI_TEXT.categories.ai;
