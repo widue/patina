@@ -94,11 +94,11 @@ pub fn convert_text(csv_text: &str) -> Result<TaiCsvConversion, String> {
 
         let raw_duration = cell(&headers, &record, "时长");
         let duration_seconds = match raw_duration.parse::<i64>() {
-            Ok(value) if value > 0 => value,
+            Ok(value) if value > 0 && value <= 3_600 => value,
             _ => {
                 conversion.skipped.push(TaiCsvSkipReason {
                     line: data_line,
-                    reason: format!("non-positive/non-integer 时长: {raw_duration:?}"),
+                    reason: format!("invalid or over-one-hour 时长: {raw_duration:?}"),
                 });
                 continue;
             }
