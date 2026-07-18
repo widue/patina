@@ -24,6 +24,12 @@ pub struct ClassificationSettingMutationDto {
     value: Option<String>,
 }
 
+impl ClassificationSettingMutationDto {
+    pub(crate) fn into_parts(self) -> (String, Option<String>) {
+        (self.key, self.value)
+    }
+}
+
 impl From<AppSettingMutationDto> for AppSettingMutation {
     fn from(value: AppSettingMutationDto) -> Self {
         Self {
