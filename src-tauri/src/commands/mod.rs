@@ -2,6 +2,7 @@ pub mod backup;
 pub mod diagnostics;
 pub mod error;
 pub mod export;
+pub mod import;
 pub mod persistence;
 pub mod settings;
 pub mod storage;
