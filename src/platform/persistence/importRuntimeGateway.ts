@@ -18,22 +18,15 @@ export interface ImportPreview {
 }
 
 export interface ImportCommitReport {
-  batchId: string | null;
   importedRecords: number;
-  duplicateRecords: number;
-  errorRecords: number;
-  exactSessions: number;
-  hourBuckets: number;
 }
 
 export interface ImportBatch {
   id: string;
   importedAt: number;
   sourceName: string;
-  sourceKind: string;
   exactSessions: number;
   hourBuckets: number;
-  totalRecords: number;
 }
 
 export interface ImportDeleteReport {
@@ -42,41 +35,36 @@ export interface ImportDeleteReport {
 }
 
 export interface DestructureReport {
-  sourceKind: string;
   outputPath: string;
   recordsWritten: number;
-  skippedRecords: number;
-  exactSessions: number;
-  hourBuckets: number;
-  warnings: ImportPreviewError[];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function hasNumber(record: Record<string, unknown>, key: string): boolean {
-  return typeof record[key] === "number" && Number.isFinite(record[key]);
-}
-
-function hasString(record: Record<string, unknown>, key: string): boolean {
-  return typeof record[key] === "string";
+function hasFields(
+  value: unknown,
+  stringFields: readonly string[],
+  numberFields: readonly string[],
+): value is Record<string, unknown> {
+  return isRecord(value)
+    && stringFields.every((field) => typeof value[field] === "string")
+    && numberFields.every((field) => (
+      typeof value[field] === "number" && Number.isFinite(value[field])
+    ));
 }
 
 function isPreviewError(value: unknown): value is ImportPreviewError {
-  return isRecord(value) && hasNumber(value, "line") && hasString(value, "message");
+  return hasFields(value, ["message"], ["line"]);
 }
 
 export function parseImportPreview(value: unknown): ImportPreview {
-  if (!isRecord(value)
-    || !hasString(value, "filePath")
-    || !hasString(value, "fileName")
-    || !hasString(value, "fileFingerprint")
-    || !hasNumber(value, "validRecords")
-    || !hasNumber(value, "duplicateRecords")
-    || !hasNumber(value, "errorRecords")
-    || !hasNumber(value, "exactSessions")
-    || !hasNumber(value, "hourBuckets")
+  if (!hasFields(
+    value,
+    ["filePath", "fileName", "fileFingerprint"],
+    ["validRecords", "duplicateRecords", "errorRecords", "exactSessions", "hourBuckets"],
+  )
     || !Array.isArray(value.errors)
     || !value.errors.every(isPreviewError)) {
     throw new Error("Received invalid import preview payload");
@@ -85,51 +73,32 @@ export function parseImportPreview(value: unknown): ImportPreview {
 }
 
 export function parseImportBatches(value: unknown): ImportBatch[] {
-  if (!Array.isArray(value) || !value.every((item) => isRecord(item)
-    && hasString(item, "id")
-    && hasNumber(item, "importedAt")
-    && hasString(item, "sourceName")
-    && hasString(item, "sourceKind")
-    && hasNumber(item, "exactSessions")
-    && hasNumber(item, "hourBuckets")
-    && hasNumber(item, "totalRecords"))) {
+  if (!Array.isArray(value) || !value.every((item) => hasFields(
+    item,
+    ["id", "sourceName"],
+    ["importedAt", "exactSessions", "hourBuckets"],
+  ))) {
     throw new Error("Received invalid import batch payload");
   }
-  return value as ImportBatch[];
+  return value as unknown as ImportBatch[];
 }
 
 function parseCommitReport(value: unknown): ImportCommitReport {
-  if (!isRecord(value)
-    || !(value.batchId === null || typeof value.batchId === "string")
-    || !hasNumber(value, "importedRecords")
-    || !hasNumber(value, "duplicateRecords")
-    || !hasNumber(value, "errorRecords")
-    || !hasNumber(value, "exactSessions")
-    || !hasNumber(value, "hourBuckets")) {
+  if (!hasFields(value, [], ["importedRecords"])) {
     throw new Error("Received invalid import commit payload");
   }
   return value as unknown as ImportCommitReport;
 }
 
 function parseDeleteReport(value: unknown): ImportDeleteReport {
-  if (!isRecord(value)
-    || !hasNumber(value, "deletedExactSessions")
-    || !hasNumber(value, "deletedHourBuckets")) {
+  if (!hasFields(value, [], ["deletedExactSessions", "deletedHourBuckets"])) {
     throw new Error("Received invalid import deletion payload");
   }
   return value as unknown as ImportDeleteReport;
 }
 
 function parseDestructureReport(value: unknown): DestructureReport {
-  if (!isRecord(value)
-    || !hasString(value, "sourceKind")
-    || !hasString(value, "outputPath")
-    || !hasNumber(value, "recordsWritten")
-    || !hasNumber(value, "skippedRecords")
-    || !hasNumber(value, "exactSessions")
-    || !hasNumber(value, "hourBuckets")
-    || !Array.isArray(value.warnings)
-    || !value.warnings.every(isPreviewError)) {
+  if (!hasFields(value, ["outputPath"], ["recordsWritten"])) {
     throw new Error("Received invalid destructure payload");
   }
   return value as unknown as DestructureReport;

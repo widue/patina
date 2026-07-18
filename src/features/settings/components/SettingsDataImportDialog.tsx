@@ -56,7 +56,7 @@ export default function SettingsDataImportDialog({
     <>
       <QuietDialog
         open={mainOpen}
-        title={view === "preview" ? importText.previewTitle : importText.dialogTitle}
+        title={view === "preview" ? importText.previewTitle : UI_TEXT.settings.dataImportAction}
         description={view === "preview" ? importText.previewDescription : importText.dialogDescription}
         onClose={onClose}
         closeOnBackdrop={!busy}
@@ -64,7 +64,7 @@ export default function SettingsDataImportDialog({
         headerAside={view === "actions" && batches.length > 0 ? (
           <QuietIconAction
             icon={<Trash2 size={15} />}
-            title={importText.manageAction}
+            title={importText.batchesTitle}
             tone="danger"
             disabled={busy}
             onClick={onShowBatches}
@@ -79,7 +79,7 @@ export default function SettingsDataImportDialog({
               disabled={availableRecords === 0}
               onClick={onConfirmImport}
             >
-              {importText.importAction}
+              {UI_TEXT.settings.dataImportAction}
             </QuietButton>
           </>
         ) : (

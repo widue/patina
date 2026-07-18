@@ -8,7 +8,9 @@ const COPY_DOMAINS_DIR = "src/shared/copy/domains";
 const KI_B = 1024;
 
 const INITIAL_JS_AND_CSS_GZIP_BUDGET_KI_B = 310;
-const LAZY_JS_GZIP_BUDGET_KI_B = 82;
+// Generic import adds a reviewed Settings workflow and a validated Tauri gateway.
+// Keep the page-specific and total budgets unchanged; only its aggregate lazy allowance grows.
+const LAZY_JS_GZIP_BUDGET_KI_B = 85;
 const TOTAL_JS_AND_CSS_GZIP_BUDGET_KI_B = 390;
 
 const INITIAL_CHUNK_BUDGETS = [
@@ -40,7 +42,8 @@ const LAZY_SHARED_UI_CHUNK_BUDGETS = [
 // slightly wider while every aggregate and initial-chunk budget is materially tighter.
 const LAZY_SUPPORT_CHUNKS_GZIP_BUDGET_KI_B = 6.25;
 const SETTINGS_COPY_GZIP_BUDGET_KI_B = 12;
-const COPY_DOMAINS_GZIP_BUDGET_KI_B = 30;
+// Import preview, destructuring, and batch deletion require matching bilingual copy.
+const COPY_DOMAINS_GZIP_BUDGET_KI_B = 31;
 const NON_SETTINGS_COPY_GZIP_REVIEW_KI_B = 4;
 
 type AssetMeasurement = {
