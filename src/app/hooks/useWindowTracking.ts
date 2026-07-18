@@ -23,9 +23,13 @@ import {
   subscribeAppSettingsChanged,
 } from "../services/appSettingsRuntimeService.ts";
 import { clearDashboardSnapshotCache } from "../../features/dashboard/services/dashboardSnapshotCache.ts";
-import { clearDataBootstrapCache } from "../../features/data/services/dataCacheLifecycle.ts";
+import {
+  clearDataBootstrapCache,
+  clearDataHeavyCaches,
+} from "../../features/data/services/dataCacheLifecycle.ts";
 import { clearHistoryCachesAfterDataChange } from "../../features/history/services/historyCacheLifecycle.ts";
 import { startTrackerHealthPolling } from "../services/trackerHealthPollingService";
+import { shouldInvalidateDataCaches } from "./trackingDataChangedPolicy.ts";
 import { applyTrackingDataChangedPayload } from "./trackingDataChangedRuntime";
 import { useDesktopLaunchBehaviorSync } from "./useDesktopLaunchBehaviorSync";
 
@@ -96,9 +100,10 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
       const trackingDataUnlisten = await subscribeTrackingDataChanged(
         async (payload) => {
           if (cancelled) return;
-          if (payload.reason === "backup-restored") {
+          if (shouldInvalidateDataCaches(payload.reason)) {
             clearDashboardSnapshotCache();
             void clearHistoryCachesAfterDataChange();
+            clearDataHeavyCaches();
             void clearDataBootstrapCache();
           }
           await applyTrackingDataChangedPayload(payload, {

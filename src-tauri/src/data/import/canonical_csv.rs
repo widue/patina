@@ -382,4 +382,28 @@ mod tests {
             .message
             .contains("unsupported patina_version"));
     }
+
+    #[test]
+    fn atomic_writer_preserves_source_and_refuses_existing_output() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("patina-import-writer-{nonce}"));
+        std::fs::create_dir(&directory).unwrap();
+        let source_path = directory.join("tai.csv");
+        let source_bytes = b"source data stays unchanged";
+        std::fs::write(&source_path, source_bytes).unwrap();
+
+        let output_path = write_canonical_csv_atomic(&source_path, &[exact_record()]).unwrap();
+        assert_eq!(std::fs::read(&source_path).unwrap(), source_bytes);
+        assert!(output_path.is_file());
+        let error = write_canonical_csv_atomic(&source_path, &[exact_record()]).unwrap_err();
+        assert!(error.contains("already exists"));
+        assert_eq!(std::fs::read(&source_path).unwrap(), source_bytes);
+
+        std::fs::remove_file(output_path).unwrap();
+        std::fs::remove_file(source_path).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
 }

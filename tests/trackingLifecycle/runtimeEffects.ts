@@ -15,6 +15,7 @@ import {
   resolveSessionStartCleanupCutoffTime,
   resolveTrackerHealth,
   resolveTrackingDataChangedEffects,
+  shouldInvalidateDataCaches,
   runTest,
   shouldDeleteSessionByStartTime,
 } from "./shared.ts";
@@ -200,6 +201,17 @@ export function runRuntimeEffectsTests() {
     const effects = resolveTrackingDataChangedEffects("backup-restored");
     assert.equal(effects.shouldRefresh, true);
     assert.equal(effects.shouldSyncPauseSetting, false);
+  });
+
+  runTest("external imports and deletion invalidate every data cache", () => {
+    for (const reason of [
+      "backup-restored",
+      "external-data-imported",
+      "external-import-deleted",
+    ]) {
+      assert.equal(shouldInvalidateDataCaches(reason), true);
+    }
+    assert.equal(shouldInvalidateDataCaches("tracking-status-changed"), false);
   });
 
   runTest("tracking status changed event refreshes without pause sync", () => {

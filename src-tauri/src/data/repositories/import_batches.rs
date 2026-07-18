@@ -15,7 +15,7 @@ pub async fn list(pool: &Pool<Sqlite>) -> Result<Vec<ImportBatchDto>, String> {
                 (SELECT COUNT(*) FROM import_time_buckets h WHERE h.batch_id = b.id)
                     AS hour_bucket_count
          FROM import_batches b
-         ORDER BY b.imported_at ASC, b.id ASC",
+         ORDER BY b.rowid ASC",
     )
     .fetch_all(pool)
     .await
@@ -218,7 +218,7 @@ async fn insert_exact_record(
     )
     .bind(app_name)
     .bind(&record.exe_name)
-    .bind(&record.title)
+    .bind(record.title.as_deref().unwrap_or(""))
     .bind(record.start_time_ms)
     .bind(end_time)
     .bind(record.duration_ms)
@@ -335,9 +335,11 @@ mod tests {
     fn commit_is_idempotent_and_delete_only_removes_selected_batch() {
         tauri::async_runtime::block_on(async {
             let pool = setup_pool().await;
+            let mut exact_record = record(ImportRecordType::ExactSession, 1_000);
+            exact_record.title = None;
             let first_records = vec![
-                record(ImportRecordType::ExactSession, 1_000),
-                record(ImportRecordType::ExactSession, 1_000),
+                exact_record.clone(),
+                exact_record,
                 record(ImportRecordType::HourBucket, 2_000),
             ];
             let first = commit_records(&pool, "one.csv", "patina-csv", "one", &first_records, 0)
@@ -345,6 +347,12 @@ mod tests {
                 .unwrap();
             assert_eq!(first.imported_records, 2);
             assert_eq!(first.duplicate_records, 1);
+            let imported_title: String =
+                sqlx::query_scalar("SELECT window_title FROM sessions WHERE exe_name = 'code.exe'")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert!(imported_title.is_empty());
             let duplicate =
                 commit_records(&pool, "one.csv", "patina-csv", "one", &first_records, 0)
                     .await

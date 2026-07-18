@@ -3,6 +3,7 @@
 //! Tai exports hourly aggregate facts. This module deliberately preserves that
 //! granularity and never reconstructs ordered sessions inside an hour.
 
+use crate::data::import::model::MAX_EXTERNAL_FILE_BYTES;
 use chrono::{Local, NaiveDate, TimeZone};
 use std::path::Path;
 
@@ -125,9 +126,17 @@ pub fn convert_text(csv_text: &str) -> Result<TaiCsvConversion, String> {
 }
 
 pub fn convert_file(path: &Path) -> Result<TaiCsvConversion, String> {
-    let text = std::fs::read_to_string(path)
+    let bytes = std::fs::read(path)
         .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
-    convert_text(&text)
+    if bytes.len() as u64 > MAX_EXTERNAL_FILE_BYTES {
+        return Err(format!(
+            "external data exceeds the {} MB safety limit",
+            MAX_EXTERNAL_FILE_BYTES / 1024 / 1024
+        ));
+    }
+    let text =
+        std::str::from_utf8(&bytes).map_err(|_| "Tai CSV must be UTF-8 encoded".to_string())?;
+    convert_text(text)
 }
 
 fn cell<'a>(headers: &csv::StringRecord, record: &'a csv::StringRecord, column: &str) -> &'a str {
@@ -153,7 +162,7 @@ fn optional_text(value: &str) -> Option<String> {
 }
 
 fn parse_hour_start_ms(value: &str) -> Option<i64> {
-    let mut parts = value.trim().split_whitespace();
+    let mut parts = value.split_whitespace();
     let date = parts.next()?;
     let time = parts.next()?;
     if parts.next().is_some() {

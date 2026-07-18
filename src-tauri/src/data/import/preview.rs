@@ -50,6 +50,12 @@ pub(crate) async fn load_canonical_file(
     let bytes = tokio::fs::read(path)
         .await
         .map_err(|error| format!("failed to read canonical CSV: {error}"))?;
+    if bytes.len() as u64 > MAX_IMPORT_FILE_BYTES {
+        return Err(format!(
+            "canonical CSV exceeds the {} MB safety limit",
+            MAX_IMPORT_FILE_BYTES / 1024 / 1024
+        ));
+    }
     let file_fingerprint = bytes_fingerprint(&bytes);
     let parsed = parse_canonical_csv(&bytes)?;
     Ok((bytes, file_fingerprint, parsed))

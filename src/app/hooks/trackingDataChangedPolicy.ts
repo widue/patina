@@ -12,6 +12,11 @@ const PAUSE_TOGGLE_REASONS = new Set([
   "tracking-paused",
   "tracking-resumed",
 ]);
+const DATA_CACHE_INVALIDATION_REASONS = new Set([
+  "backup-restored",
+  "external-data-imported",
+  "external-import-deleted",
+]);
 
 export type TrackingDataChangedEffects = {
   shouldRefresh: boolean;
@@ -30,4 +35,8 @@ export function resolveTrackingDataChangedEffects(reason: string): TrackingDataC
     shouldRefresh: true,
     shouldSyncPauseSetting: PAUSE_TOGGLE_REASONS.has(reason),
   };
+}
+
+export function shouldInvalidateDataCaches(reason: string): boolean {
+  return DATA_CACHE_INVALIDATION_REASONS.has(reason);
 }

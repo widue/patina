@@ -41,7 +41,10 @@ import {
   loadDashboardRuntimeSnapshotWithDeps,
   loadHistoryRuntimeSnapshotWithDeps,
 } from "../../src/app/services/readModelRuntimeService.ts";
-import { resolveTrackingDataChangedEffects } from "../../src/app/hooks/trackingDataChangedPolicy.ts";
+import {
+  resolveTrackingDataChangedEffects,
+  shouldInvalidateDataCaches,
+} from "../../src/app/hooks/trackingDataChangedPolicy.ts";
 import { applyTrackingDataChangedPayload } from "../../src/app/hooks/trackingDataChangedRuntime.ts";
 import {
   clearSessionsByRangeWithDeps,
@@ -86,6 +89,7 @@ export {
   resolveStartupSealTime,
   resolveTrackerHealth,
   resolveTrackingDataChangedEffects,
+  shouldInvalidateDataCaches,
   applyTrackingDataChangedPayload,
   shouldDeleteSessionByStartTime,
   getDayRange,

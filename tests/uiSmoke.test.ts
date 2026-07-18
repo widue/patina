@@ -955,7 +955,8 @@ await runTest("History bootstrap lifecycle keeps background reuse and invalidate
   );
 
   assert.match(sessionsDeletedHandler, /clearHistoryCachesAfterDataChange/);
-  assert.match(tracking, /payload\.reason === "backup-restored"[\s\S]*clearHistoryCachesAfterDataChange/);
+  assert.match(tracking, /shouldInvalidateDataCaches\(payload\.reason\)[\s\S]*clearHistoryCachesAfterDataChange/);
+  assert.match(tracking, /shouldInvalidateDataCaches\(payload\.reason\)[\s\S]*clearDataHeavyCaches/);
   assert.match(warmup, /"history-bootstrap-snapshot-cache"/);
   assert.match(warmup, /historyBootstrapSnapshotCache: true/);
   assert.match(warmup, /historyTodaySnapshot: false/);
