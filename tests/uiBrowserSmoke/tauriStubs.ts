@@ -102,10 +102,15 @@ function tauriStubFor(path: string) {
             errorRecords: 0,
             exactSessions: 0,
             hourBuckets: 3,
+            categoryCandidates: [
+              { exeName: "code.exe", categories: ["开发"] },
+              { exeName: "chrome.exe", categories: ["工作", "娱乐"] },
+            ],
             errors: [],
           };
         }
         if (command === "cmd_commit_canonical_import") {
+          globalThis.__PATINA_LAST_IMPORT_PAYLOAD = payload;
           globalThis.__PATINA_IMPORT_BATCHES = [{
             id: "smoke-batch",
             importedAt: 1767225600000,
@@ -385,12 +390,25 @@ function tauriStubFor(path: string) {
               ?? localStorage.getItem("__time_tracker_classification_query_delay_ms")
               ?? 0
           );
+          const isObservedClassificationQuery = (
+            normalizedQuery.includes("max(coalesce(app_name")
+            && normalizedQuery.includes("group by exe_name")
+          ) || (
+            normalizedQuery.includes("select record_id, origin")
+            && normalizedQuery.includes("from import_exact_sessions")
+            && !normalizedQuery.includes("window_title")
+          );
           if (
             classificationQueryDelayMs > 0
-            && normalizedQuery.includes("max(coalesce(app_name")
-            && normalizedQuery.includes("group by exe_name")
+            && isObservedClassificationQuery
           ) {
             await new Promise((resolve) => setTimeout(resolve, classificationQueryDelayMs));
+          }
+          if (
+            localStorage.getItem("__time_tracker_reject_classification_query") === "1"
+            && isObservedClassificationQuery
+          ) {
+            throw new Error("classification query rejected by browser smoke fixture");
           }
           if (normalizedQuery.includes("from settings")) {
             const settings = loadStoredSettings();
@@ -455,7 +473,19 @@ function tauriStubFor(path: string) {
             return historyTitleSampleRows();
           }
           if (normalizedQuery.includes("from sessions")) {
-            return historySessionRows();
+            if (normalizedQuery.includes("effective_end_time")) {
+              return historySessionRows().map((row) => ({
+                record_id: row.id,
+                origin: "native",
+                app_name: row.app_name,
+                exe_name: row.exe_name,
+                window_title: row.window_title,
+                start_time: row.start_time,
+                effective_end_time: row.end_time,
+                capacity_end_time: null,
+              }));
+            }
+            return historySessionRows().map((row) => ({ ...row, origin: "native" }));
           }
           return [];
         }

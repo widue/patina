@@ -370,6 +370,23 @@ await runTest("app mapping interaction helpers keep dirty state correct across e
   assert.equal(deleteResult.deleted, true);
   assert.deepEqual(deleteResult.nextCandidates, []);
   assert.equal(deletedSessions, 2);
+
+  let externalDeleteCalls = 0;
+  const externalOnlyDeleteResult = await deleteObservedCandidateSessionsWithDeps({
+    ...candidate,
+    hasNativeRecords: false,
+  }, {
+    confirmDelete: async () => {
+      externalDeleteCalls += 1;
+      return true;
+    },
+    deleteObservedAppSessions: async () => {
+      externalDeleteCalls += 1;
+    },
+    refreshCandidates: async () => [],
+  });
+  assert.equal(externalOnlyDeleteResult.deleted, true);
+  assert.equal(externalDeleteCalls, 2);
   assert.equal(
     hasClassificationDraftChanges(savedState, reEdited.draftState),
     true,

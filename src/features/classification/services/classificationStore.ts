@@ -49,6 +49,7 @@ export interface ObservedAppCandidate {
   appName: string;
   totalDuration: number;
   lastSeenMs: number;
+  hasNativeRecords?: boolean;
 }
 
 export type { ObservedWebDomainCandidate };
@@ -708,13 +709,16 @@ export async function loadObservedAppCandidates(
         appName,
         totalDuration: duration,
         lastSeenMs,
+        hasNativeRecords: row.hasNativeRecords,
       });
       continue;
     }
 
+    const previousHadNativeRecords = previous.hasNativeRecords === true;
     previous.totalDuration += duration;
     previous.lastSeenMs = Math.max(previous.lastSeenMs, lastSeenMs);
-    if (!previous.appName && appName) {
+    previous.hasNativeRecords ||= row.hasNativeRecords;
+    if ((!previousHadNativeRecords && row.hasNativeRecords) || (!previous.appName && appName)) {
       previous.appName = appName;
     }
   }

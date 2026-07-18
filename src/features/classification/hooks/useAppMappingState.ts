@@ -79,6 +79,8 @@ export function useAppMappingState({
   const initialBootstrap = getClassificationBootstrapCache();
   const initialBootstrapRef = useRef(initialBootstrap);
   const [loading, setLoading] = useState(() => !initialBootstrap);
+  const [loadError, setLoadError] = useState(false);
+  const [loadRequestVersion, setLoadRequestVersion] = useState(0);
   const [candidates, setCandidates] = useState<ObservedAppCandidate[]>(
     () => cloneObservedCandidates(initialBootstrap?.observed ?? []),
   );
@@ -134,6 +136,7 @@ export function useAppMappingState({
       const hadCacheAtStart = Boolean(initialBootstrapRef.current);
       if (!hadCacheAtStart) {
         setLoading(true);
+        setLoadError(false);
       }
       try {
         const bootstrap = await ClassificationService.loadClassificationBootstrap();
@@ -143,6 +146,7 @@ export function useAppMappingState({
         const nextBootstrapIcons = bootstrap.icons ?? {};
         setClassificationBootstrapCache(bootstrap);
         if (cancelled) return;
+        setLoadError(false);
         setCandidates(nextObserved);
         setWebDomainCandidates(nextWebDomainCandidates);
         setBootstrapIcons(nextBootstrapIcons);
@@ -157,7 +161,10 @@ export function useAppMappingState({
           skipNextWebNameBlurDomainRef.current = null;
         }
       } catch (error) {
-        console.error("load app mapping bootstrap failed", error);
+        console.warn("load app mapping bootstrap failed", error);
+        if (!cancelled && !hadCacheAtStart) {
+          setLoadError(true);
+        }
       } finally {
         if (!cancelled && !hadCacheAtStart) {
           setLoading(false);
@@ -168,6 +175,10 @@ export function useAppMappingState({
     return () => {
       cancelled = true;
     };
+  }, [loadRequestVersion]);
+
+  const retryLoading = useCallback(() => {
+    setLoadRequestVersion((current) => current + 1);
   }, []);
 
   const draftOverrides = useMemo(() => draftState?.overrides ?? {}, [draftState?.overrides]);
@@ -801,6 +812,8 @@ export function useAppMappingState({
     dialogs,
     icons: mappingIcons,
     loading,
+    loadError,
+    retryLoading,
     draftState,
     savedState,
     filter,

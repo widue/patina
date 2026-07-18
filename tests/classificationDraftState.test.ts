@@ -1036,6 +1036,41 @@ await runTest("classification bootstrap shares one in-flight read across warmup 
   assert.equal(calls.filter((event) => event === "icons").length, 1);
 });
 
+await runTest("classification bootstrap invalidation rejects an in-flight pre-delete snapshot", async () => {
+  ClassificationService.invalidateBootstrapCache();
+  let observedReads = 0;
+  let releaseStaleObserved!: (value: ObservedAppCandidate[]) => void;
+  const staleObserved = new Promise<ObservedAppCandidate[]>((resolve) => {
+    releaseStaleObserved = resolve;
+  });
+  const deps: ClassificationBootstrapDeps = {
+    loadObservedAppCandidates: async () => {
+      observedReads += 1;
+      return observedReads === 1
+        ? staleObserved
+        : [buildCandidate("fresh.exe", "Fresh")];
+    },
+    loadObservedWebDomainCandidates: async () => [],
+    loadAppOverrides: async () => ({}),
+    loadWebDomainOverrides: async () => ({}),
+    loadCategoryColorOverrides: async () => ({}),
+    loadCategoryLabelOverrides: async () => ({}),
+    loadPersistedCategoryIds: async () => [],
+    loadDeletedCategories: async () => [],
+    loadAppIconsForExecutables: async () => ({}),
+  };
+
+  const staleRequest = ClassificationService.loadClassificationBootstrap(deps);
+  await Promise.resolve();
+  ClassificationService.invalidateBootstrapCache();
+  releaseStaleObserved([buildCandidate("stale.exe", "Stale")]);
+  const resolved = await staleRequest;
+
+  assert.equal(observedReads, 2);
+  assert.equal(resolved.observed[0]?.exeName, "fresh.exe");
+  assert.equal(ClassificationService.getBootstrapCache()?.observed[0]?.exeName, "fresh.exe");
+});
+
 await runTest("late classification refresh cannot overwrite a newer saved bootstrap", async () => {
   const baselineBootstrap: ClassificationBootstrapData = {
     icons: {},

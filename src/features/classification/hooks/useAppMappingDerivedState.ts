@@ -4,6 +4,7 @@ import { useIconThemeColors } from "../../../shared/hooks/useIconThemeColors";
 import { AppClassification } from "../../../shared/classification/appClassification.ts";
 import {
   isExtendedCategory,
+  normalizeCategoryLabelInput,
   USER_ASSIGNABLE_CATEGORIES,
   type AppCategory,
   type UserAssignableAppCategory,
@@ -20,13 +21,6 @@ import {
 } from "./appMappingStateHelpers.ts";
 
 const USER_ASSIGNABLE_CATEGORY_SET = new Set<string>(USER_ASSIGNABLE_CATEGORIES);
-const CATEGORY_NAME_LIMITS = {
-  cjkCharacters: 6,
-  latinWords: 2,
-  latinCharacters: 12,
-} as const;
-const CJK_CHARACTER_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
-
 interface UseAppMappingDerivedStateParams {
   candidates: ObservedAppCandidate[];
   webDomainCandidates: ObservedWebDomainCandidate[];
@@ -47,12 +41,7 @@ interface UseAppMappingDerivedStateParams {
 }
 
 export function normalizeCategoryNameInput(input: string) {
-  const normalized = input.trim().replace(/\s+/g, " ");
-  if (CJK_CHARACTER_PATTERN.test(normalized)) {
-    return Array.from(normalized).slice(0, CATEGORY_NAME_LIMITS.cjkCharacters).join("");
-  }
-  const latinValue = normalized.split(" ").slice(0, CATEGORY_NAME_LIMITS.latinWords).join(" ");
-  return Array.from(latinValue).slice(0, CATEGORY_NAME_LIMITS.latinCharacters).join("").trimEnd();
+  return normalizeCategoryLabelInput(input);
 }
 
 export function cloneObservedWebDomainCandidates(

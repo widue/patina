@@ -684,8 +684,20 @@ export async function runSettingsScenarios(context: BrowserSmokeContext) {
       await evaluate(client!, sessionId, `document.querySelector('.settings-import-preview')?.innerText.includes("精确记录")`),
       false,
     );
+    assert.equal(
+      await evaluate(client!, sessionId, `Array.from(document.querySelectorAll('.settings-import-summary > div')).some((node) => node.querySelector('dt')?.textContent === '单一分类应用' && node.querySelector('dd')?.textContent === '1')`),
+      true,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `Array.from(document.querySelectorAll('.settings-import-summary > div')).some((node) => node.querySelector('dt')?.textContent === '分类冲突应用' && node.querySelector('dd')?.textContent === '1')`),
+      true,
+    );
     await evaluate(client!, sessionId, `Array.from(document.querySelectorAll('.qp-dialog-actions button')).find((node) => node.textContent?.trim() === "导入")?.click()`);
     await waitForExpression(client!, sessionId, `document.querySelector('.settings-import-action-list') !== null && Boolean(document.querySelector('[aria-label="删除外部导入数据"]'))`);
+    assert.equal(
+      await evaluate(client!, sessionId, `globalThis.__PATINA_LAST_IMPORT_PAYLOAD?.classificationMutations?.length > 0`),
+      true,
+    );
     await evaluate(client!, sessionId, `document.querySelector('[aria-label="删除外部导入数据"]')?.click()`);
     await waitForExpression(client!, sessionId, `document.querySelector('.settings-import-batch-list')?.innerText.includes("第 1 次导入")`);
     await evaluate(client!, sessionId, `document.querySelector('[aria-label="删除第 1 次导入"]')?.click()`);

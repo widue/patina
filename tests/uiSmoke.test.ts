@@ -616,6 +616,10 @@ await runTest("operation-oriented pages keep action feedback without cold-page l
   assert.match(settings, /UI_TEXT\.settings\.loading/);
   assert.doesNotMatch(mapping, /UI_TEXT\.mapping\.loading/);
   assert.match(mapping, /data-classification-content-state/);
+  assert.match(mapping, /UI_TEXT\.mapping\.loadFailed/);
+  assert.match(mapping, /UI_TEXT\.mapping\.retry/);
+  assert.match(mappingState, /setLoadError/);
+  assert.match(mappingState, /retryLoading/);
   assert.match(mappingState, /setSaveStatus\("saving"\)/);
   assert.match(mappingState, /setDeletingSessionsExe/);
   assert.match(dataSafety, /backupExporting|backupRestoring/);

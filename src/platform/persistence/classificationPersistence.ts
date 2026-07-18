@@ -4,6 +4,10 @@ import {
   deleteSessionsByExeNamesBetween as deleteSessionsByExeNamesBetweenViaCommand,
 } from "./persistenceWriteRuntimeGateway.ts";
 import { getDB } from "./sqlite.ts";
+import {
+  resolveNativeSessionPrecedence,
+  type TimeRecordOrigin,
+} from "./nativeSessionPrecedence.ts";
 
 export interface SettingKeyValueRow {
   key: string;
@@ -18,11 +22,14 @@ interface RawSessionExeNameRow {
   exe_name: string;
 }
 
-interface RawObservedSessionStatRow {
+export interface RawObservedSessionCandidateRow {
+  record_id: number;
+  origin: TimeRecordOrigin;
   exe_name: string;
   app_name: string;
-  total_duration: number;
-  last_seen_ms: number;
+  start_time: number;
+  effective_end_time: number;
+  capacity_end_time: number | null;
 }
 
 export interface SessionExeNameRow {
@@ -34,6 +41,105 @@ export interface ObservedSessionStatRow {
   appName: string;
   totalDuration: number;
   lastSeenMs: number;
+  hasNativeRecords: boolean;
+}
+
+interface MutableObservedSessionStat extends ObservedSessionStatRow {
+  appNameOriginRank: number;
+  appNameLastSeenMs: number;
+}
+
+const APP_NAME_ORIGIN_RANK: Record<TimeRecordOrigin, number> = {
+  native: 0,
+  import_exact: 1,
+  import_bucket: 2,
+};
+
+function clipObservedCandidate(
+  row: RawObservedSessionCandidateRow,
+  sinceMs: number,
+  nowMs: number,
+) {
+  if (row.origin !== "import_bucket") {
+    return {
+      startTime: Math.max(sinceMs, row.start_time),
+      endTime: Math.min(nowMs, row.effective_end_time),
+      capacityEndTime: undefined,
+    };
+  }
+
+  const originalCapacityEnd = row.capacity_end_time ?? row.effective_end_time;
+  const clippedStart = Math.max(sinceMs, row.start_time);
+  const clippedCapacityEnd = Math.min(nowMs, originalCapacityEnd);
+  const originalCapacity = Math.max(0, originalCapacityEnd - row.start_time);
+  const clippedCapacity = Math.max(0, clippedCapacityEnd - clippedStart);
+  const requestedDuration = Math.max(0, row.effective_end_time - row.start_time);
+  const clippedRequestedDuration = originalCapacity > 0
+    ? Math.round(requestedDuration * clippedCapacity / originalCapacity)
+    : 0;
+  return {
+    startTime: clippedStart,
+    endTime: clippedStart + Math.min(clippedCapacity, clippedRequestedDuration),
+    capacityEndTime: clippedCapacityEnd,
+  };
+}
+
+export function buildObservedSessionStats(
+  candidates: RawObservedSessionCandidateRow[],
+  sinceMs: number,
+  nowMs: number,
+): ObservedSessionStatRow[] {
+  const effectiveRanges = resolveNativeSessionPrecedence(candidates.map((row, index) => {
+    const clipped = clipObservedCandidate(row, sinceMs, nowMs);
+    return {
+      key: `${row.origin}:${row.record_id}:${index}`,
+      origin: row.origin,
+      ...clipped,
+      value: row,
+    };
+  }));
+  const aggregated = new Map<string, MutableObservedSessionStat>();
+
+  for (const range of effectiveRanges) {
+    const row = range.value;
+    if (!row) continue;
+    const duration = Math.max(0, range.endTime - range.startTime);
+    if (duration <= 0) continue;
+    const originRank = APP_NAME_ORIGIN_RANK[row.origin];
+    const previous = aggregated.get(row.exe_name);
+    if (!previous) {
+      aggregated.set(row.exe_name, {
+        exeName: row.exe_name,
+        appName: row.app_name?.trim() || row.exe_name,
+        totalDuration: duration,
+        lastSeenMs: range.startTime,
+        hasNativeRecords: row.origin === "native",
+        appNameOriginRank: originRank,
+        appNameLastSeenMs: range.startTime,
+      });
+      continue;
+    }
+
+    previous.totalDuration += duration;
+    previous.hasNativeRecords ||= row.origin === "native";
+    previous.lastSeenMs = Math.max(previous.lastSeenMs, range.startTime);
+    if (
+      originRank < previous.appNameOriginRank
+      || (originRank === previous.appNameOriginRank && range.startTime > previous.appNameLastSeenMs)
+    ) {
+      previous.appName = row.app_name?.trim() || row.exe_name;
+      previous.appNameOriginRank = originRank;
+      previous.appNameLastSeenMs = range.startTime;
+    }
+  }
+
+  return Array.from(aggregated.values()).map((row) => ({
+    exeName: row.exeName,
+    appName: row.appName,
+    totalDuration: row.totalDuration,
+    lastSeenMs: row.lastSeenMs,
+    hasNativeRecords: row.hasNativeRecords,
+  }));
 }
 
 export async function upsertSettingValue(key: string, value: string): Promise<void> {
@@ -76,6 +182,8 @@ export async function loadDistinctSessionExeNames(): Promise<SessionExeNameRow[]
      FROM (
        SELECT exe_name FROM sessions
        UNION ALL
+       SELECT exe_name FROM import_exact_sessions
+       UNION ALL
        SELECT exe_name FROM import_time_buckets
      )`,
   );
@@ -89,32 +197,34 @@ export async function loadObservedSessionStats(
   nowMs: number,
 ): Promise<ObservedSessionStatRow[]> {
   const db = await getDB();
-  const rows = await db.select<RawObservedSessionStatRow[]>(
-    `SELECT exe_name,
-            MAX(COALESCE(app_name, '')) AS app_name,
-            SUM(total_duration) AS total_duration,
-            MAX(start_time) AS last_seen_ms
+  const candidates = await db.select<RawObservedSessionCandidateRow[]>(
+    `SELECT record_id, origin, exe_name, app_name, start_time,
+            effective_end_time, capacity_end_time
      FROM (
-       SELECT exe_name, app_name, start_time,
-              COALESCE(duration, MAX(0, ? - start_time)) AS total_duration
+       SELECT id AS record_id, 'native' AS origin, exe_name, app_name, start_time,
+              COALESCE(end_time, ?) AS effective_end_time,
+              NULL AS capacity_end_time
        FROM sessions
-       WHERE start_time >= ?
+       WHERE start_time < ? AND COALESCE(end_time, ?) > ?
        UNION ALL
-       SELECT exe_name, COALESCE(app_name, exe_name) AS app_name,
+       SELECT id AS record_id, 'import_exact' AS origin, exe_name, app_name, start_time,
+              end_time AS effective_end_time,
+              NULL AS capacity_end_time
+       FROM import_exact_sessions
+       WHERE start_time < ? AND end_time > ?
+       UNION ALL
+       SELECT id AS record_id, 'import_bucket' AS origin, exe_name,
+              COALESCE(NULLIF(app_name, ''), exe_name) AS app_name,
               bucket_start_time AS start_time,
-              duration AS total_duration
+              bucket_start_time + duration AS effective_end_time,
+              bucket_start_time + 3600000 AS capacity_end_time
        FROM import_time_buckets
-       WHERE bucket_start_time >= ?
+       WHERE bucket_start_time < ? AND bucket_start_time + 3600000 > ?
      )
-     GROUP BY exe_name`,
-    [nowMs, sinceMs, sinceMs],
+     ORDER BY start_time ASC, origin ASC, record_id ASC`,
+    [nowMs, nowMs, nowMs, sinceMs, nowMs, sinceMs, nowMs, sinceMs],
   );
-  return rows.map((row) => ({
-    exeName: row.exe_name,
-    appName: row.app_name,
-    totalDuration: row.total_duration,
-    lastSeenMs: row.last_seen_ms,
-  }));
+  return buildObservedSessionStats(candidates, sinceMs, nowMs);
 }
 
 export async function deleteSessionsByExeNames(exeNames: string[]): Promise<void> {

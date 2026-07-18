@@ -45,6 +45,8 @@ export default function AppMapping(props: Props) {
     dialogs,
     icons,
     loading,
+    loadError,
+    retryLoading,
     draftState,
     savedState,
     filter,
@@ -114,6 +116,7 @@ export default function AppMapping(props: Props) {
   }, [objectMode, webActivityEnabled]);
 
   const bootstrapReady = !loading && draftState !== null && savedState !== null;
+  const contentState = loadError ? "error" : bootstrapReady ? "ready" : "cold";
   const effectiveObjectMode = webActivityEnabled ? objectMode : "app";
   const activeCounts = effectiveObjectMode === "web" ? webDomainCounts : counts;
   const objectModeOptions = [
@@ -132,7 +135,7 @@ export default function AppMapping(props: Props) {
   return (
     <div
       className="flex h-full min-w-0 flex-col gap-4 md:gap-5 overflow-hidden"
-      data-classification-content-state={bootstrapReady ? "ready" : "cold"}
+      data-classification-content-state={contentState}
     >
       <QuietPageHeader
         icon={<Sparkles size={18} />}
@@ -240,7 +243,20 @@ export default function AppMapping(props: Props) {
       </section>
 
       <div className="qp-panel flex-1 min-h-0 p-4">
-        {!bootstrapReady ? (
+        {loadError ? (
+          <div
+            className="flex h-full flex-col items-center justify-center gap-3 text-center"
+            role="alert"
+          >
+            <p className="text-sm font-semibold text-[var(--qp-text-secondary)]">
+              {UI_TEXT.mapping.loadFailed}
+            </p>
+            <QuietButton size="regular" onClick={retryLoading}>
+              <RefreshCw size={14} />
+              {UI_TEXT.mapping.retry}
+            </QuietButton>
+          </div>
+        ) : !bootstrapReady ? (
           <div className="h-full" aria-hidden />
         ) : effectiveObjectMode === "web" ? (
           <div key={contentPaneKey} className="qp-classification-object-pane h-full">

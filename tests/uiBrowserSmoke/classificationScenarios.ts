@@ -118,6 +118,69 @@ export async function runClassificationScenarios(context: BrowserSmokeContext) {
     );
   });
 
+  await runTest("classification cold failure is explicit and retryable", async () => {
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          localStorage.setItem("__time_tracker_reject_classification_query", "1");
+          location.reload();
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `Boolean(document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("分类"))} + ']'))`,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const navigation = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("分类"))} + ']');
+          navigation?.click();
+          return Boolean(navigation);
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelector('[data-classification-content-state]')?.getAttribute('data-classification-content-state') === 'error'`,
+      15_000,
+      "Classification should expose a failed cold bootstrap",
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        document.body.innerText.includes("分类数据加载失败。")
+          && Array.from(document.querySelectorAll("button"))
+            .some((button) => button.textContent?.trim() === "重试")
+      `),
+      true,
+    );
+
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          localStorage.removeItem("__time_tracker_reject_classification_query");
+          const retry = Array.from(document.querySelectorAll("button"))
+            .find((button) => button.textContent?.trim() === "重试");
+          retry?.click();
+          return Boolean(retry);
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelector('[data-classification-content-state]')?.getAttribute('data-classification-content-state') === 'ready'`,
+      15_000,
+      "Classification retry should recover the page",
+    );
+  });
+
   await runTest("classification cold start preserves unknown upgrade settings", async () => {
     assert.equal(
       await evaluate(client!, sessionId, `
@@ -276,6 +339,14 @@ export async function runClassificationScenarios(context: BrowserSmokeContext) {
           && !document.body.innerText.includes("恢复默认识别")
       `),
       true,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        Array.from(document.querySelectorAll("button"))
+          .some((button) => button.textContent?.trim() === "删除应用记录")
+      `),
+      true,
+      "imported and native candidates should expose the same record controls",
     );
     assert.equal(
       await evaluate(client!, sessionId, `
