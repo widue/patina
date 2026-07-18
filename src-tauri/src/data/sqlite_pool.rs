@@ -14,8 +14,11 @@ use tauri_plugin_sql::{DbInstances, DbPool, MigrationKind};
 use tokio::time::{sleep, Duration};
 
 pub const SQLITE_DB_NAME: &str = "sqlite:patina.db";
+const VALIDATED_SCHEMA_MIGRATION_HEAD: i64 = schema::IMPORT_DATA_ISOLATION_MIGRATION_VERSION;
+mod import_schema;
 mod maintenance;
 mod restore;
+use import_schema::{has_import_data_schema, has_import_data_v6_schema};
 pub(crate) use maintenance::{acquire_sqlite_maintenance, checkpoint_sqlite_pool};
 pub(crate) use restore::replace_product_db_from_candidate;
 
@@ -170,27 +173,43 @@ pub async fn initialize_app_sqlite<R: Runtime>(app: &AppHandle<R>) -> Result<(),
 }
 
 pub(crate) async fn prepare_pool_schema(pool: &Pool<Sqlite>, db_path: &Path) -> Result<(), String> {
+    validate_schema_inspection_coverage()?;
+
     if repair_legacy_schema_before_baseline_normalization(pool).await? {
         eprintln!("[sql] repaired legacy sqlite schema before baseline normalization");
     }
 
     if normalize_current_baseline_migration_history_for_pool(pool).await? {
-        eprintln!("[sql] normalized sqlite migration history to the current baseline");
+        eprintln!("[sql] normalized sqlite migration history to the current schema");
     }
 
     run_current_migrations(pool).await?;
 
     if normalize_current_baseline_migration_history_for_pool(pool).await? {
-        eprintln!("[sql] normalized sqlite migration history to the current baseline");
+        eprintln!("[sql] normalized sqlite migration history to the current schema");
     }
 
-    if !has_current_baseline_schema(pool).await? {
+    if !has_current_schema(pool).await? {
         return Err(format!(
             "sqlite schema validation failed for `{}`",
             db_path.display()
         ));
     }
 
+    Ok(())
+}
+
+fn validate_schema_inspection_coverage() -> Result<(), String> {
+    let registered_head = schema::tracker_migrations()
+        .iter()
+        .map(|migration| migration.version)
+        .max()
+        .unwrap_or_default();
+    if registered_head != VALIDATED_SCHEMA_MIGRATION_HEAD {
+        return Err(format!(
+            "sqlite schema inspection covers migration head {VALIDATED_SCHEMA_MIGRATION_HEAD}, but registered head is {registered_head}"
+        ));
+    }
     Ok(())
 }
 
@@ -751,6 +770,15 @@ async fn has_web_favicon_cache_schema(pool: &Pool<Sqlite>) -> Result<bool, Strin
     .await
 }
 
+async fn has_current_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
+    Ok(has_current_baseline_schema(pool).await?
+        && has_base_tools_schema(pool).await?
+        && has_software_reminder_rules_schema(pool).await?
+        && has_web_activity_schema(pool).await?
+        && has_web_favicon_cache_schema(pool).await?
+        && has_import_data_schema(pool).await?)
+}
+
 async fn normalize_current_baseline_migration_history_for_pool(
     pool: &Pool<Sqlite>,
 ) -> Result<bool, String> {
@@ -771,6 +799,12 @@ async fn normalize_current_baseline_migration_history_for_pool(
         expected.truncate(3);
     } else if !has_web_favicon_cache_schema(pool).await? {
         expected.truncate(4);
+    } else if !has_import_data_schema(pool).await? {
+        expected.truncate(if has_import_data_v6_schema(pool).await? {
+            6
+        } else {
+            5
+        });
     }
     if expected.is_empty() {
         return Ok(false);
@@ -958,6 +992,262 @@ mod tests {
             assert_eq!(github, ("data:image/png;base64,github".to_string(), 100));
             assert_eq!(docs, ("https://docs.rs/favicon.ico".to_string(), 300));
         });
+    }
+
+    #[test]
+    fn import_data_schema_creates_complete_tables_and_indexes() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::IMPORT_DATA_SCHEMA_SQL).await.unwrap();
+            pool.execute(schema::IMPORT_DATA_ISOLATION_SCHEMA_SQL)
+                .await
+                .unwrap();
+
+            assert!(has_import_data_schema(&pool).await.unwrap());
+            assert!(!table_exists(&pool, "import_exact_records").await.unwrap());
+        });
+    }
+
+    #[test]
+    fn import_data_schema_rejects_migration_guard_residue() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::IMPORT_DATA_SCHEMA_SQL).await.unwrap();
+            pool.execute(schema::IMPORT_DATA_ISOLATION_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(
+                "CREATE TABLE import_exact_migration_guard (
+                    valid INTEGER NOT NULL CHECK(valid = 1)
+                 )",
+            )
+            .await
+            .unwrap();
+
+            assert!(!has_import_data_schema(&pool).await.unwrap());
+        });
+    }
+
+    #[test]
+    fn import_data_schema_rejects_a_cascade_path_to_native_sessions() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::IMPORT_DATA_SCHEMA_SQL).await.unwrap();
+            pool.execute(schema::IMPORT_DATA_ISOLATION_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(
+                "DROP TABLE import_exact_sessions;
+                 CREATE TABLE import_exact_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id TEXT NOT NULL,
+                    fingerprint TEXT NOT NULL UNIQUE,
+                    app_name TEXT NOT NULL,
+                    exe_name TEXT NOT NULL,
+                    window_title TEXT NOT NULL DEFAULT '',
+                    start_time INTEGER NOT NULL,
+                    end_time INTEGER NOT NULL,
+                    duration INTEGER NOT NULL,
+                    source_category TEXT,
+                    source_path TEXT,
+                    FOREIGN KEY(batch_id) REFERENCES import_batches(id) ON DELETE CASCADE,
+                    FOREIGN KEY(id) REFERENCES sessions(id) ON DELETE CASCADE
+                 );
+                 CREATE INDEX idx_import_exact_sessions_time
+                 ON import_exact_sessions(start_time, end_time);
+                 CREATE INDEX idx_import_exact_sessions_exe_time
+                 ON import_exact_sessions(exe_name COLLATE NOCASE, start_time, end_time);
+                 CREATE INDEX idx_import_exact_sessions_batch
+                 ON import_exact_sessions(batch_id, id);",
+            )
+            .await
+            .unwrap();
+
+            assert!(!has_import_data_schema(&pool).await.unwrap());
+        });
+    }
+
+    #[test]
+    fn import_isolation_migration_moves_only_import_owned_sessions() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute("PRAGMA foreign_keys = ON").await.unwrap();
+            pool.execute(schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::IMPORT_DATA_SCHEMA_SQL).await.unwrap();
+            pool.execute(
+                "INSERT INTO sessions (
+                    app_name, exe_name, window_title, start_time, end_time, duration,
+                    continuity_group_start_time
+                 ) VALUES
+                    ('Native', 'same.exe', 'Native title', 100, 200, 100, 100),
+                    ('External', 'same.exe', 'External title', 300, 500, 200, 300);
+                 INSERT INTO session_title_samples (
+                    session_id, title, start_time, end_time
+                 ) VALUES (2, 'External title', 300, 500);
+                 INSERT INTO import_batches (
+                    id, imported_at, source_name, source_kind, source_fingerprint,
+                    exact_session_count, hour_bucket_count
+                 ) VALUES ('batch-1', 1, 'source.csv', 'patina-csv', 'source', 1, 0);
+                 INSERT INTO import_exact_records (
+                    batch_id, session_id, fingerprint, source_category, source_path
+                 ) VALUES ('batch-1', 2, 'record', 'Work', 'C:\\same.exe');",
+            )
+            .await
+            .unwrap();
+
+            pool.execute(schema::IMPORT_DATA_ISOLATION_SCHEMA_SQL)
+                .await
+                .unwrap();
+
+            let native: (String, String, String, i64, i64, i64) = sqlx::query_as(
+                "SELECT app_name, exe_name, window_title, start_time, end_time, duration
+                 FROM sessions",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                native,
+                (
+                    "Native".to_string(),
+                    "same.exe".to_string(),
+                    "Native title".to_string(),
+                    100,
+                    200,
+                    100,
+                )
+            );
+            let imported: (String, String, String, i64, i64, i64, String, String) = sqlx::query_as(
+                "SELECT app_name, exe_name, window_title, start_time, end_time, duration,
+                            source_category, source_path
+                     FROM import_exact_sessions",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                imported,
+                (
+                    "External".to_string(),
+                    "same.exe".to_string(),
+                    "External title".to_string(),
+                    300,
+                    500,
+                    200,
+                    "Work".to_string(),
+                    "C:\\same.exe".to_string(),
+                )
+            );
+            let title_sample_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM session_title_samples")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(title_sample_count, 0);
+            assert!(!table_exists(&pool, "import_exact_records").await.unwrap());
+        });
+    }
+
+    #[test]
+    fn import_isolation_migration_fails_closed_on_orphaned_ownership() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect("sqlite::memory:")
+                .await
+                .unwrap();
+            pool.execute(schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::IMPORT_DATA_SCHEMA_SQL).await.unwrap();
+            pool.execute("PRAGMA foreign_keys = OFF").await.unwrap();
+            pool.execute(
+                "INSERT INTO import_batches (
+                    id, imported_at, source_name, source_kind, source_fingerprint,
+                    exact_session_count, hour_bucket_count
+                 ) VALUES ('batch-1', 1, 'source.csv', 'patina-csv', 'source', 1, 0);
+                 INSERT INTO import_exact_records (
+                    batch_id, session_id, fingerprint, source_category, source_path
+                 ) VALUES ('batch-1', 999, 'record', NULL, NULL);",
+            )
+            .await
+            .unwrap();
+
+            let mut tx = pool.begin().await.unwrap();
+            let error = tx
+                .execute(schema::IMPORT_DATA_ISOLATION_SCHEMA_SQL)
+                .await
+                .unwrap_err();
+            tx.rollback().await.unwrap();
+
+            assert!(error.to_string().contains("CHECK constraint failed"));
+            let old_record_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM import_exact_records")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(old_record_count, 1);
+            assert!(!table_exists(&pool, "import_exact_sessions").await.unwrap());
+        });
+    }
+
+    #[test]
+    fn current_v6_schema_is_normalized_then_advanced_to_isolated_schema() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::TOOLS_TABLES_SCHEMA_SQL).await.unwrap();
+            pool.execute(schema::SOFTWARE_REMINDER_RULES_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::WEB_ACTIVITY_SCHEMA_SQL).await.unwrap();
+            pool.execute(schema::WEB_FAVICON_CACHE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::IMPORT_DATA_SCHEMA_SQL).await.unwrap();
+            create_sqlx_migrations_table(&pool).await;
+
+            assert!(has_import_data_v6_schema(&pool).await.unwrap());
+            assert!(!has_import_data_schema(&pool).await.unwrap());
+            normalize_current_baseline_migration_history_for_pool(&pool)
+                .await
+                .unwrap();
+            let recorded_versions: Vec<i64> =
+                sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(recorded_versions, vec![1, 2, 3, 4, 5, 6]);
+
+            run_current_migrations(&pool).await.unwrap();
+
+            assert!(has_import_data_schema(&pool).await.unwrap());
+            assert!(!table_exists(&pool, "import_exact_records").await.unwrap());
+            let final_versions: Vec<i64> =
+                sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(final_versions, vec![1, 2, 3, 4, 5, 6, 7]);
+        });
+    }
+
+    #[test]
+    fn schema_inspection_coverage_matches_registered_migration_head() {
+        validate_schema_inspection_coverage().unwrap();
     }
 
     #[test]
@@ -1178,6 +1468,105 @@ mod tests {
 
             run_current_migrations(&pool).await.unwrap();
             assert!(has_web_favicon_cache_schema(&pool).await.unwrap());
+        });
+    }
+
+    #[test]
+    fn current_schema_history_does_not_mark_missing_import_data_schema_as_applied() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            pool.execute(schema::CURRENT_BASELINE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::TOOLS_TABLES_SCHEMA_SQL).await.unwrap();
+            pool.execute(schema::SOFTWARE_REMINDER_RULES_SCHEMA_SQL)
+                .await
+                .unwrap();
+            pool.execute(schema::WEB_ACTIVITY_SCHEMA_SQL).await.unwrap();
+            pool.execute(schema::WEB_FAVICON_CACHE_SCHEMA_SQL)
+                .await
+                .unwrap();
+            create_sqlx_migrations_table(&pool).await;
+            pool.execute(
+                "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+                 VALUES (1, 'old_v1', 1, x'01', 0),
+                        (2, 'old_v2', 1, x'02', 0),
+                        (3, 'old_v3', 1, x'03', 0),
+                        (4, 'old_v4', 1, x'04', 0),
+                        (5, 'old_v5', 1, x'05', 0),
+                        (6, 'old_v6_without_tables', 1, x'06', 0)",
+            )
+            .await
+            .unwrap();
+
+            let normalized = normalize_current_baseline_migration_history_for_pool(&pool)
+                .await
+                .unwrap();
+
+            assert!(normalized);
+            assert!(!table_exists(&pool, "import_batches").await.unwrap());
+            assert!(!table_exists(&pool, "import_exact_records").await.unwrap());
+            assert!(!table_exists(&pool, "import_time_buckets").await.unwrap());
+
+            let rows = sqlx::query("SELECT version, description, checksum FROM _sqlx_migrations")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+            let mut expected = expected_migration_metadata();
+            expected.truncate(5);
+
+            assert_eq!(rows.len(), expected.len());
+            for (version, description, checksum) in expected {
+                assert!(rows.iter().any(|row| {
+                    row.get::<i64, _>("version") == version
+                        && row.get::<String, _>("description") == description
+                        && row.get::<Vec<u8>, _>("checksum") == checksum
+                }));
+            }
+
+            run_current_migrations(&pool).await.unwrap();
+            assert!(table_exists(&pool, "import_batches").await.unwrap());
+            assert!(!table_exists(&pool, "import_exact_records").await.unwrap());
+            assert!(table_exists(&pool, "import_exact_sessions").await.unwrap());
+            assert!(table_exists(&pool, "import_time_buckets").await.unwrap());
+        });
+    }
+
+    #[test]
+    fn missing_import_index_is_repaired_by_the_idempotent_migration() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            run_current_migrations(&pool).await.unwrap();
+            pool.execute("DROP INDEX idx_import_time_buckets_exe_time")
+                .await
+                .unwrap();
+
+            assert!(!has_import_data_schema(&pool).await.unwrap());
+            normalize_current_baseline_migration_history_for_pool(&pool)
+                .await
+                .unwrap();
+            run_current_migrations(&pool).await.unwrap();
+
+            assert!(has_import_data_schema(&pool).await.unwrap());
+            assert!(has_current_schema(&pool).await.unwrap());
+        });
+    }
+
+    #[test]
+    fn partial_import_table_schema_fails_closed() {
+        tauri::async_runtime::block_on(async {
+            let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+            run_current_migrations(&pool).await.unwrap();
+            pool.execute("ALTER TABLE import_time_buckets DROP COLUMN source_path")
+                .await
+                .unwrap();
+
+            let error = prepare_pool_schema(&pool, Path::new("partial-import-schema.db"))
+                .await
+                .unwrap_err();
+
+            assert!(error.contains("sqlite schema validation failed"));
+            assert!(!has_import_data_schema(&pool).await.unwrap());
         });
     }
 

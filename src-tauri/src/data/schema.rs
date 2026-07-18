@@ -12,6 +12,8 @@ pub const WEB_FAVICON_CACHE_MIGRATION_VERSION: i64 = 5;
 pub const WEB_FAVICON_CACHE_MIGRATION_DESCRIPTION: &str = "create_web_favicon_cache";
 pub const IMPORT_DATA_MIGRATION_VERSION: i64 = 6;
 pub const IMPORT_DATA_MIGRATION_DESCRIPTION: &str = "create_import_data_tables";
+pub const IMPORT_DATA_ISOLATION_MIGRATION_VERSION: i64 = 7;
+pub const IMPORT_DATA_ISOLATION_MIGRATION_DESCRIPTION: &str = "isolate_imported_exact_sessions";
 
 pub const CURRENT_BASELINE_SCHEMA_SQL: &str = "
     CREATE TABLE IF NOT EXISTS sessions (
@@ -302,6 +304,75 @@ pub const IMPORT_DATA_SCHEMA_SQL: &str = "
     ON import_time_buckets(batch_id, id);
 ";
 
+pub const IMPORT_DATA_ISOLATION_SCHEMA_SQL: &str = "
+    CREATE TABLE import_exact_migration_guard (
+        valid INTEGER NOT NULL CHECK(valid = 1)
+    );
+
+    INSERT INTO import_exact_migration_guard(valid)
+    SELECT CASE
+        WHEN (
+            SELECT COUNT(*) FROM import_exact_records
+        ) = (
+            SELECT COUNT(*)
+            FROM import_exact_records AS records
+            JOIN sessions ON sessions.id = records.session_id
+        ) THEN 1
+        ELSE 0
+    END;
+
+    CREATE TABLE IF NOT EXISTS import_exact_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_id TEXT NOT NULL,
+        fingerprint TEXT NOT NULL UNIQUE,
+        app_name TEXT NOT NULL,
+        exe_name TEXT NOT NULL,
+        window_title TEXT NOT NULL DEFAULT '',
+        start_time INTEGER NOT NULL,
+        end_time INTEGER NOT NULL,
+        duration INTEGER NOT NULL CHECK(
+            duration > 0
+            AND end_time > start_time
+            AND ABS((end_time - start_time) - duration) <= 1000
+        ),
+        source_category TEXT,
+        source_path TEXT,
+        FOREIGN KEY(batch_id) REFERENCES import_batches(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_import_exact_sessions_time
+    ON import_exact_sessions(start_time, end_time);
+
+    CREATE INDEX IF NOT EXISTS idx_import_exact_sessions_exe_time
+    ON import_exact_sessions(exe_name COLLATE NOCASE, start_time, end_time);
+
+    CREATE INDEX IF NOT EXISTS idx_import_exact_sessions_batch
+    ON import_exact_sessions(batch_id, id);
+
+    INSERT INTO import_exact_sessions (
+        batch_id, fingerprint, app_name, exe_name, window_title,
+        start_time, end_time, duration, source_category, source_path
+    )
+    SELECT records.batch_id,
+           records.fingerprint,
+           sessions.app_name,
+           sessions.exe_name,
+           COALESCE(sessions.window_title, ''),
+           sessions.start_time,
+           sessions.end_time,
+           sessions.duration,
+           records.source_category,
+           records.source_path
+    FROM import_exact_records AS records
+    JOIN sessions ON sessions.id = records.session_id;
+
+    DELETE FROM sessions
+    WHERE id IN (SELECT session_id FROM import_exact_records);
+
+    DROP TABLE import_exact_records;
+    DROP TABLE import_exact_migration_guard;
+";
+
 pub fn tracker_migrations() -> Vec<Migration> {
     vec![
         Migration {
@@ -338,6 +409,12 @@ pub fn tracker_migrations() -> Vec<Migration> {
             version: IMPORT_DATA_MIGRATION_VERSION,
             description: IMPORT_DATA_MIGRATION_DESCRIPTION,
             sql: IMPORT_DATA_SCHEMA_SQL,
+            kind: MigrationKind::Up,
+        },
+        Migration {
+            version: IMPORT_DATA_ISOLATION_MIGRATION_VERSION,
+            description: IMPORT_DATA_ISOLATION_MIGRATION_DESCRIPTION,
+            sql: IMPORT_DATA_ISOLATION_SCHEMA_SQL,
             kind: MigrationKind::Up,
         },
     ]
