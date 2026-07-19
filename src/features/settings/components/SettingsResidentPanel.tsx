@@ -13,7 +13,6 @@ type SettingsResidentPanelProps = {
   launchAtLoginChecked: boolean;
   onLaunchAtLoginChange: (nextChecked: boolean) => void;
   startMinimizedChecked: boolean;
-  startMinimizedDisabled: boolean;
   onStartMinimizedChange: (nextChecked: boolean) => void;
 };
 
@@ -27,7 +26,6 @@ export default function SettingsResidentPanel({
   launchAtLoginChecked,
   onLaunchAtLoginChange,
   startMinimizedChecked,
-  startMinimizedDisabled,
   onStartMinimizedChange,
 }: SettingsResidentPanelProps) {
   return (
@@ -96,7 +94,6 @@ export default function SettingsResidentPanel({
             </p>
             <QuietSwitch
               checked={startMinimizedChecked}
-              disabled={startMinimizedDisabled}
               onChange={onStartMinimizedChange}
               ariaLabel={UI_TEXT.accessibility.settings.toggleStartMinimized}
             />

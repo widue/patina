@@ -76,6 +76,91 @@ export async function runSettingsScenarios(context: BrowserSmokeContext) {
     await waitForExpression(client!, sessionId, "!document.querySelector('.settings-color-scheme-list')");
   });
 
+  await runTest("start minimized stays editable and persists while launch at login is off", async () => {
+    await evaluate(client!, sessionId, `
+      (() => {
+        localStorage.setItem("__time_tracker_smoke_settings", JSON.stringify({
+          "launch_at_login": "0",
+          "start_minimized": "0"
+        }));
+        window.location.reload();
+        return true;
+      })()
+    `);
+    await waitForExpression(client!, sessionId, `Boolean(document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("设置"))} + ']'))`);
+    await evaluate(client!, sessionId, `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("设置"))} + ']')?.click()`);
+    await waitForExpression(client!, sessionId, `document.body.innerText.includes(${jsonString("静默启动")})`);
+
+    const launchBehaviorSyncs = await evaluate(client!, sessionId, `
+        globalThis.__PATINA_INVOKED_COMMANDS
+          .filter((entry) => entry.command === "cmd_set_launch_behavior")
+          .map((entry) => entry.payload)
+      `) as Array<{ launchAtLogin?: boolean; startMinimized?: boolean }>;
+    assert.ok(launchBehaviorSyncs.length > 0, "persisted desktop behavior should sync after loading");
+    assert.equal(
+      launchBehaviorSyncs.every((payload) => payload.launchAtLogin === false),
+      true,
+      "startup must not sync launch-at-login defaults before persisted settings load",
+    );
+
+    assert.deepEqual(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const launch = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("切换开机自启动"))} + ']');
+          const minimized = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("切换静默启动"))} + ']');
+          return {
+            launchChecked: launch?.getAttribute("aria-checked"),
+            launchDisabled: launch?.disabled,
+            minimizedChecked: minimized?.getAttribute("aria-checked"),
+            minimizedDisabled: minimized?.disabled,
+          };
+        })()
+      `),
+      {
+        launchChecked: "false",
+        launchDisabled: false,
+        minimizedChecked: "false",
+        minimizedDisabled: false,
+      },
+    );
+
+    await evaluate(client!, sessionId, `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("切换静默启动"))} + ']')?.click()`);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("切换静默启动"))} + ']')?.getAttribute("aria-checked") === "true"`,
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("切换开机自启动"))} + ']')?.getAttribute("aria-checked")`),
+      "false",
+    );
+    await evaluate(client!, sessionId, `
+      Array.from(document.querySelectorAll("button"))
+        .find((node) => node.textContent?.trim() === "保存" && !node.disabled)?.click()
+    `);
+    await waitForExpression(client!, sessionId, `
+      (() => {
+        const stored = JSON.parse(localStorage.getItem("__time_tracker_smoke_settings") ?? "{}");
+        return stored.launch_at_login === "0" && stored.start_minimized === "1";
+      })()
+    `);
+
+    await evaluate(client!, sessionId, `window.location.reload()`);
+    await waitForExpression(client!, sessionId, `Boolean(document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("设置"))} + ']'))`);
+    await evaluate(client!, sessionId, `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("设置"))} + ']')?.click()`);
+    await waitForExpression(client!, sessionId, `document.body.innerText.includes(${jsonString("静默启动")})`);
+    assert.deepEqual(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const launch = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("切换开机自启动"))} + ']');
+          const minimized = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("切换静默启动"))} + ']');
+          return [launch?.getAttribute("aria-checked"), minimized?.getAttribute("aria-checked"), minimized?.disabled];
+        })()
+      `),
+      ["false", "true", false],
+    );
+  });
+
   await runTest("settings web sync guide appears only while setup is incomplete", async () => {
     await evaluate(client!, sessionId, `
       (() => {

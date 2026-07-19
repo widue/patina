@@ -25,20 +25,15 @@ pub async fn clear_post_install_reopen_main_window(pool: &Pool<Sqlite>) -> Resul
         .await
 }
 
-pub async fn take_post_install_reopen_main_window(
+pub async fn load_post_install_reopen_main_window(
     pool: &Pool<Sqlite>,
 ) -> Result<bool, sqlx::Error> {
-    let should_reopen =
+    Ok(
         tracker_settings::load_setting_value(pool, UPDATE_POST_INSTALL_REOPEN_MAIN_WINDOW_KEY)
             .await?
             .map(|raw| parse_boolean_setting(&raw, false))
-            .unwrap_or(false);
-
-    if should_reopen {
-        clear_post_install_reopen_main_window(pool).await?;
-    }
-
-    Ok(should_reopen)
+            .unwrap_or(false),
+    )
 }
 
 #[cfg(test)]
@@ -74,13 +69,16 @@ mod tests {
         tauri::async_runtime::block_on(async {
             let pool = setup_test_db().await;
 
-            assert!(!take_post_install_reopen_main_window(&pool).await.unwrap());
+            assert!(!load_post_install_reopen_main_window(&pool).await.unwrap());
 
             request_post_install_reopen_main_window(&pool)
                 .await
                 .unwrap();
-            assert!(take_post_install_reopen_main_window(&pool).await.unwrap());
-            assert!(!take_post_install_reopen_main_window(&pool).await.unwrap());
+            assert!(load_post_install_reopen_main_window(&pool).await.unwrap());
+            assert!(load_post_install_reopen_main_window(&pool).await.unwrap());
+
+            clear_post_install_reopen_main_window(&pool).await.unwrap();
+            assert!(!load_post_install_reopen_main_window(&pool).await.unwrap());
         });
     }
 }

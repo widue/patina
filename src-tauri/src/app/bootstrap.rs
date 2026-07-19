@@ -3,11 +3,13 @@ use std::sync::Arc;
 use crate::app::{
     runtime,
     state::{
-        AppExitState, DesktopBehaviorState, MainWindowLifecycleState, WidgetWindowLifecycleState,
+        AppExitState, DesktopBehaviorState, MainWindowLifecycleState, TraySafetyState,
+        WidgetWindowLifecycleState,
     },
     tray,
 };
 use crate::domain::lifecycle::AppRestartState;
+use crate::domain::settings::{DesktopBehaviorSettings, StartupSource};
 use crate::engine::{
     tools::{ToolsRuntimeState, ToolsRuntimeWakeState},
     tracking::{
@@ -59,6 +61,7 @@ fn register_managed_state_and_plugins(
     builder
         .manage(DesktopBehaviorState::default())
         .manage(AppExitState::default())
+        .manage(TraySafetyState::default())
         .manage(AppRestartState::default())
         .manage(MainWindowLifecycleState::default())
         .manage(WidgetWindowLifecycleState::default())
@@ -195,46 +198,127 @@ fn register_runtime_hooks(
             .map_err(std::io::Error::other)?;
             tauri::async_runtime::block_on(data::sqlite_pool::initialize_app_sqlite(app.handle()))
                 .map_err(std::io::Error::other)?;
-            Ok(runtime::setup(
-                app,
-                runtime_health.clone(),
-                effective_autostart_launch(launched_by_autostart, handled_storage_restart),
-                handled_storage_restart,
-            )?)
+            let mut should_clear_update_reopen_intent = false;
+            let startup = match tauri::async_runtime::block_on(
+                data::app_settings_service::load_desktop_behavior_startup_state(app.handle()),
+            ) {
+                Ok(startup_state) => {
+                    should_clear_update_reopen_intent =
+                        startup_state.should_reopen_main_window;
+                    runtime::StartupContext::new(
+                        startup_state.settings,
+                        resolve_startup_source(
+                            launched_by_autostart,
+                            handled_storage_restart,
+                            startup_state.should_reopen_main_window,
+                        ),
+                    )
+                }
+                Err(error) => {
+                    eprintln!(
+                        "[startup] failed to load desktop behavior settings; showing main window: {error}"
+                    );
+                    runtime::StartupContext::new(
+                        DesktopBehaviorSettings::default(),
+                        StartupSource::SettingsRecovery,
+                    )
+                }
+            };
+            runtime::setup(app, runtime_health.clone(), startup)?;
+            if should_clear_update_reopen_intent {
+                if let Err(error) = tauri::async_runtime::block_on(
+                    data::app_settings_service::clear_post_install_reopen_main_window(app.handle()),
+                ) {
+                    eprintln!(
+                        "[startup] main window reopened but update intent could not be cleared: {error}"
+                    );
+                }
+            }
+            Ok(())
         })
 }
 
-fn effective_autostart_launch(launched_by_autostart: bool, handled_storage_restart: bool) -> bool {
-    launched_by_autostart && !handled_storage_restart
+fn resolve_startup_source(
+    launched_by_autostart: bool,
+    handled_storage_restart: bool,
+    should_reopen_after_update: bool,
+) -> StartupSource {
+    if handled_storage_restart {
+        StartupSource::StorageRestart
+    } else if should_reopen_after_update {
+        StartupSource::UpdateRestart
+    } else if launched_by_autostart {
+        StartupSource::Autostart
+    } else {
+        StartupSource::Manual
+    }
 }
 
 pub(crate) fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
     if let tauri::RunEvent::ExitRequested { api, .. } = event {
         let exit_requested = app.state::<AppExitState>().is_exit_requested();
-        let keep_tray_visible = app
-            .state::<DesktopBehaviorState>()
-            .snapshot()
-            .should_keep_tray_visible();
+        let keep_tray_visible = should_keep_app_running_without_windows(
+            app.state::<DesktopBehaviorState>()
+                .snapshot()
+                .should_keep_tray_visible(),
+            app.state::<TraySafetyState>().is_forced_visible(),
+            exit_requested,
+        );
 
-        if keep_tray_visible && !exit_requested {
+        if keep_tray_visible {
             api.prevent_exit();
         }
     }
 }
 
+fn should_keep_app_running_without_windows(
+    configured_tray_residency: bool,
+    safety_tray_forced: bool,
+    exit_requested: bool,
+) -> bool {
+    !exit_requested && (configured_tray_residency || safety_tray_forced)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::effective_autostart_launch;
+    use super::{resolve_startup_source, should_keep_app_running_without_windows};
+    use crate::domain::settings::StartupSource;
 
     #[test]
-    fn user_requested_storage_restart_reopens_the_main_window() {
-        assert!(!effective_autostart_launch(true, true));
-        assert!(!effective_autostart_launch(false, true));
+    fn ordinary_launch_sources_are_distinguished() {
+        assert_eq!(
+            resolve_startup_source(false, false, false),
+            StartupSource::Manual
+        );
+        assert_eq!(
+            resolve_startup_source(true, false, false),
+            StartupSource::Autostart
+        );
     }
 
     #[test]
-    fn ordinary_autostart_remains_silent() {
-        assert!(effective_autostart_launch(true, false));
-        assert!(!effective_autostart_launch(false, false));
+    fn explicit_restarts_override_autostart_arguments() {
+        assert_eq!(
+            resolve_startup_source(true, false, true),
+            StartupSource::UpdateRestart
+        );
+        assert_eq!(
+            resolve_startup_source(true, true, true),
+            StartupSource::StorageRestart
+        );
+        assert_eq!(
+            resolve_startup_source(false, true, false),
+            StartupSource::StorageRestart
+        );
+    }
+
+    #[test]
+    fn forced_startup_tray_keeps_close_to_exit_apps_running() {
+        assert!(should_keep_app_running_without_windows(false, true, false));
+        assert!(should_keep_app_running_without_windows(true, false, false));
+        assert!(!should_keep_app_running_without_windows(
+            false, false, false
+        ));
+        assert!(!should_keep_app_running_without_windows(true, true, true));
     }
 }

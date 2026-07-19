@@ -16,6 +16,7 @@ import {
 const COLD_BUILD_TIMEOUT_MS = 480_000;
 const WEBVIEW_STARTUP_TIMEOUT_MS = 30_000;
 const RUNTIME_TARGET_DIR = join(process.cwd(), "src-tauri", "target", "runtime-smoke");
+const RUNTIME_BINARY_PATH = join(RUNTIME_TARGET_DIR, "debug", "patina.exe");
 async function reservePort() {
   return new Promise<number>((resolve, reject) => {
     const server = createNetServer();
@@ -86,6 +87,39 @@ function stopProcessTree(child: ChildProcess) {
     child.kill("SIGTERM");
   }
   return pid;
+}
+
+function runRuntimeBinaryProcessCommand(command: string) {
+  if (process.platform !== "win32") return null;
+  return spawnSync("powershell.exe", ["-NoProfile", "-Command", command], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      PATINA_RUNTIME_SMOKE_BINARY: RUNTIME_BINARY_PATH,
+    },
+  });
+}
+
+function stopResidualRuntimeBinary() {
+  const result = runRuntimeBinaryProcessCommand(`
+    $target = [IO.Path]::GetFullPath($env:PATINA_RUNTIME_SMOKE_BINARY)
+    Get-Process patina -ErrorAction SilentlyContinue |
+      Where-Object { $_.Path -and [IO.Path]::GetFullPath($_.Path) -eq $target } |
+      Stop-Process -Force
+  `);
+  if (result && result.status !== 0) {
+    throw new Error(`failed to stop residual runtime-smoke binary: ${result.stderr || result.stdout}`);
+  }
+}
+
+function isResidualRuntimeBinaryRunning() {
+  const result = runRuntimeBinaryProcessCommand(`
+    $target = [IO.Path]::GetFullPath($env:PATINA_RUNTIME_SMOKE_BINARY)
+    $running = Get-Process patina -ErrorAction SilentlyContinue |
+      Where-Object { $_.Path -and [IO.Path]::GetFullPath($_.Path) -eq $target }
+    if ($running) { exit 1 }
+  `);
+  return result?.status === 1;
 }
 
 function verifyDatabase(dbPath: string) {
@@ -208,6 +242,23 @@ try {
     30_000,
   );
 
+  const initialMainWindowVisible = await evaluate(
+    client,
+    `window.__TAURI_INTERNALS__.invoke("plugin:window|is_visible", { label: "main" })`,
+  );
+  assert.equal(initialMainWindowVisible, false, "fresh-install start minimized should keep the main window hidden");
+  assert.match(logs.join(""), /\[startup\] source=manual strategy=start-in-tray-optimized/);
+
+  await evaluate(client, `window.__TAURI_INTERNALS__.invoke("cmd_show_main_window")`);
+  await waitFor(
+    "main window recovery from hidden startup",
+    async () => evaluate(
+      client!,
+      `window.__TAURI_INTERNALS__.invoke("plugin:window|is_visible", { label: "main" })`,
+    ),
+    10_000,
+  );
+
   const storage = await evaluate(client, `window.__TAURI_INTERNALS__.invoke("cmd_get_storage_snapshot")`);
   assert.equal(typeof storage, "object");
 
@@ -293,10 +344,26 @@ try {
   } catch (error) {
     cleanupErrors.push(error);
   }
+  try {
+    stopResidualRuntimeBinary();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
   for (const [label, pid] of [["Tauri app", appPid]] as const) {
     if (!pid) continue;
     try {
       await waitFor(`${label} process exit`, () => isProcessRunning(pid) ? null : true, 10_000);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+  if (process.platform === "win32") {
+    try {
+      await waitFor(
+        "runtime-smoke Patina binary exit",
+        () => isResidualRuntimeBinaryRunning() ? null : true,
+        10_000,
+      );
     } catch (error) {
       cleanupErrors.push(error);
     }

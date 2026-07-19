@@ -1,9 +1,8 @@
 use crate::app::main_window;
 use crate::app::state::DesktopBehaviorState;
-use crate::app::tray::{apply_tray_visibility, show_main_window, MAIN_WINDOW_LABEL};
-use crate::app::widget;
+use crate::app::tray::{apply_tray_visibility, ensure_tray_visible, show_main_window};
 use crate::data::app_settings_service;
-use crate::domain::settings::StartupUiStrategy;
+use crate::domain::settings::{DesktopBehaviorSettings, StartupSource, StartupUiStrategy};
 use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 
@@ -66,67 +65,84 @@ pub(crate) fn set_background_optimization(
     let _ = state.update_background_optimization(background_optimization);
 }
 
-pub(crate) async fn sync_desktop_behavior_from_storage<R: Runtime>(
-    app: AppHandle<R>,
-    launched_by_autostart: bool,
-    should_reopen_main_window: bool,
-) -> Result<(), String> {
-    let startup_state = app_settings_service::load_desktop_behavior_startup_state(&app).await?;
-
+fn replace_desktop_behavior_settings<R: Runtime>(
+    app: &AppHandle<R>,
+    settings: DesktopBehaviorSettings,
+) -> DesktopBehaviorSettings {
     let state = app.state::<DesktopBehaviorState>();
-    let next = state.replace(startup_state.settings);
+    state.replace(settings)
+}
 
+pub(crate) fn apply_startup_desktop_behavior<R: Runtime + 'static>(
+    app: &AppHandle<R>,
+    settings: DesktopBehaviorSettings,
+    source: StartupSource,
+) -> bool {
+    let next = replace_desktop_behavior_settings(app, settings);
+    if should_sync_autostart(source) {
+        if let Err(error) = apply_autostart(app, next.launch_at_login) {
+            eprintln!("[tray] failed to apply autostart setting: {error}");
+        }
+    }
+    let strategy = next.startup_ui_strategy(source);
+    eprintln!(
+        "[startup] source={} strategy={}",
+        source.as_str(),
+        strategy.as_str()
+    );
+
+    match strategy {
+        StartupUiStrategy::Show => show_main_window(app),
+        StartupUiStrategy::KeepHidden => start_in_tray(app, false),
+        StartupUiStrategy::OptimizeHidden => start_in_tray(app, true),
+    }
+}
+
+fn should_sync_autostart(source: StartupSource) -> bool {
+    source != StartupSource::SettingsRecovery
+}
+
+fn start_in_tray<R: Runtime + 'static>(
+    app: &AppHandle<R>,
+    optimize_background_resources: bool,
+) -> bool {
+    if let Err(error) = ensure_tray_visible(app) {
+        eprintln!("[startup] failed to expose tray recovery entry: {error}");
+        return show_main_window(app);
+    }
+
+    if !main_window::register_hidden_main_window_startup(app, optimize_background_resources) {
+        eprintln!("[startup] hidden main window registration was rejected; showing main window");
+        return show_main_window(app);
+    }
+
+    true
+}
+
+pub(crate) async fn refresh_desktop_behavior_from_storage<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<(), String> {
+    let settings = app_settings_service::load_desktop_behavior_settings(&app).await?;
+    let next = replace_desktop_behavior_settings(&app, settings);
     if let Err(error) = apply_autostart(&app, next.launch_at_login) {
-        eprintln!("[tray] failed to apply autostart setting: {error}");
+        eprintln!("[tray] failed to apply autostart setting after settings refresh: {error}");
     }
     apply_tray_visibility(&app, next);
-
-    let should_reopen_main_window =
-        should_reopen_main_window || startup_state.should_reopen_main_window;
-
-    match next.startup_ui_strategy(launched_by_autostart, should_reopen_main_window) {
-        StartupUiStrategy::ShowMainWindow => {
-            if launched_by_autostart || should_reopen_main_window {
-                show_main_window(&app);
-            }
-        }
-        StartupUiStrategy::KeepHiddenMainWindow => {
-            let _ = main_window::register_hidden_main_window_startup(&app, false);
-        }
-        StartupUiStrategy::OptimizeHiddenMainWindow => {
-            let _ = main_window::register_hidden_main_window_startup(&app, true);
-        }
-        StartupUiStrategy::ShowWidget {
-            optimize_main_window,
-        } => {
-            if main_window::register_hidden_main_window_startup(&app, optimize_main_window) {
-                let preferred_monitor = app
-                    .get_webview_window(MAIN_WINDOW_LABEL)
-                    .and_then(|window| window.current_monitor().ok().flatten());
-                if let Err(error) = widget::show_widget_window(&app, preferred_monitor).await {
-                    eprintln!("[widget] failed to show startup widget window: {error}");
-                }
-            }
-        }
-    }
 
     Ok(())
 }
 
-pub(crate) fn spawn_sync_from_storage<R: Runtime + 'static>(
-    app: AppHandle<R>,
-    launched_by_autostart: bool,
-    should_reopen_main_window: bool,
-) {
-    tauri::async_runtime::spawn(async move {
-        if let Err(error) = sync_desktop_behavior_from_storage(
-            app,
-            launched_by_autostart,
-            should_reopen_main_window,
-        )
-        .await
-        {
-            eprintln!("[tray] failed to sync desktop behavior from storage: {error}");
-        }
-    });
+#[cfg(test)]
+mod tests {
+    use super::should_sync_autostart;
+    use crate::domain::settings::StartupSource;
+
+    #[test]
+    fn settings_recovery_never_applies_unknown_autostart_values() {
+        assert!(!should_sync_autostart(StartupSource::SettingsRecovery));
+        assert!(should_sync_autostart(StartupSource::Manual));
+        assert!(should_sync_autostart(StartupSource::Autostart));
+        assert!(should_sync_autostart(StartupSource::UpdateRestart));
+        assert!(should_sync_autostart(StartupSource::StorageRestart));
+    }
 }

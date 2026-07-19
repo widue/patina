@@ -30,7 +30,7 @@ export async function removeIsolatedBrowserDataDir(path: string) {
     "browser user data cleanup",
     () => {
       try {
-        rmSync(path, { recursive: true, force: true });
+        rmSync(path, { recursive: true, force: true, maxRetries: 4, retryDelay: 250 });
         return true;
       } catch (error) {
         const errorCode =
@@ -43,7 +43,7 @@ export async function removeIsolatedBrowserDataDir(path: string) {
         throw error;
       }
     },
-    5_000,
+    20_000,
   );
 }
 
@@ -170,7 +170,22 @@ export async function stopBrowser(browser: ChildProcess) {
       encoding: "utf8",
     });
     if ((result.error || result.status !== 0) && isProcessRunning(browser.pid)) {
-      throw new Error(`failed to stop browser process tree ${browser.pid}: ${result.stderr || result.stdout}`);
+      const fallback = spawnSync("powershell.exe", [
+        "-NoProfile",
+        "-Command",
+        "Stop-Process -Id $env:PATINA_BROWSER_SMOKE_PID -Force",
+      ], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          PATINA_BROWSER_SMOKE_PID: String(browser.pid),
+        },
+      });
+      if ((fallback.error || fallback.status !== 0) && isProcessRunning(browser.pid)) {
+        throw new Error(
+          `failed to stop browser process ${browser.pid}: ${fallback.stderr || fallback.stdout || result.stderr || result.stdout}`,
+        );
+      }
     }
   } else {
     browser.kill("SIGTERM");

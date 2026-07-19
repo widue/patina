@@ -8,7 +8,7 @@ use tauri::{App, AppHandle, Listener, Runtime};
 pub(crate) fn register_alert_handler<R: Runtime>(app: &App<R>) {
     let app_handle = app.handle().clone();
     app.listen(crate::engine::tools::TOOLS_ALERT_EVENT, move |_| {
-        crate::app::main_window::show_main_window(&app_handle);
+        let _ = crate::app::tray::show_main_window(&app_handle);
     });
 }
 

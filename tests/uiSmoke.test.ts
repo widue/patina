@@ -307,13 +307,32 @@ await runTest("Chinese and English copy packages keep the same key structure", (
   );
 });
 
-await runTest("settings names hidden autostart as silent launch in both languages", () => {
+await runTest("settings describes silent launch independently in both languages", () => {
   assert.equal(COPY["zh-CN"].settings.startMinimizedLabel, "静默启动");
-  assert.equal(COPY["zh-CN"].settings.startMinimizedHint, "仅随开机自启动生效；启动后隐藏主窗口。");
+  assert.equal(COPY["zh-CN"].settings.startMinimizedHint, "启动后隐藏主窗口进入托盘。");
   assert.equal(COPY["zh-CN"].accessibility.settings.toggleStartMinimized, "切换静默启动");
   assert.equal(COPY["en-US"].settings.startMinimizedLabel, "Launch silently");
-  assert.equal(COPY["en-US"].settings.startMinimizedHint, "Only applies to launch at login. Hide the main window after startup.");
+  assert.equal(COPY["en-US"].settings.startMinimizedHint, "Hide the main window in the system tray after startup.");
   assert.equal(COPY["en-US"].accessibility.settings.toggleStartMinimized, "Toggle silent launch");
+
+  const settings = readUtf8("src/features/settings/components/Settings.tsx");
+  const residentPanel = readUtf8("src/features/settings/components/SettingsResidentPanel.tsx");
+  assert.doesNotMatch(settings, /startMinimizedDisabled/);
+  assert.doesNotMatch(residentPanel, /startMinimizedDisabled|disabled=\{startMinimized/);
+});
+
+await runTest("desktop behavior sync waits for persisted settings", () => {
+  const trackingHook = readUtf8("src/app/hooks/useWindowTracking.ts");
+
+  assert.match(trackingHook, /const \[appSettingsLoaded, setAppSettingsLoaded\] = useState\(false\)/);
+  assert.match(
+    trackingHook,
+    /shouldSyncDesktopLaunchBehavior && appSettingsLoaded/,
+  );
+  assert.match(
+    trackingHook,
+    /setAppSettings\(bootstrap\.settings\);\s*setAppSettingsLoaded\(true\)/,
+  );
 });
 
 await runTest("app shell keeps History and Data snapshot loaders on their owning views", () => {
@@ -643,24 +662,41 @@ await runTest("storage restarts explicitly restore the main window", () => {
 
   assert.match(
     bootstrap,
-    /effective_autostart_launch\(launched_by_autostart, handled_storage_restart\),\s*handled_storage_restart/,
+    /load_desktop_behavior_startup_state[\s\S]*resolve_startup_source\([\s\S]*handled_storage_restart/,
+  );
+  assert.match(
+    bootstrap,
+    /if handled_storage_restart \{\s*StartupSource::StorageRestart/,
   );
   assert.match(
     runtime,
-    /spawn_sync_from_storage\([\s\S]*should_reopen_main_window/,
-  );
-  assert.match(
-    runtime,
-    /else if should_reopen_main_window \{\s*main_window::show_main_window\(&app_handle\)/,
+    /ensure_main_window_with_initial_visibility\(&app_handle, false\)[\s\S]*apply_startup_desktop_behavior/,
   );
   assert.match(
     desktopBehavior,
-    /should_reopen_main_window \|\| startup_state\.should_reopen_main_window/,
+    /StartupUiStrategy::Show => show_main_window\(app\)/,
   );
-  assert.match(
-    desktopBehavior,
-    /if launched_by_autostart \|\| should_reopen_main_window \{\s*show_main_window\(&app\)/,
-  );
+});
+
+await runTest("startup recovery keeps external autostart and tray access safe", () => {
+  const bootstrap = readUtf8("src-tauri/src/app/bootstrap.rs");
+  const desktopBehavior = readUtf8("src-tauri/src/app/desktop_behavior.rs");
+  const tray = readUtf8("src-tauri/src/app/tray.rs");
+  const tools = readUtf8("src-tauri/src/app/tools.rs");
+  const settingsService = readUtf8("src-tauri/src/data/app_settings_service.rs");
+  const updateState = readUtf8("src-tauri/src/data/repositories/update_state.rs");
+
+  assert.match(desktopBehavior, /source != StartupSource::SettingsRecovery/);
+  assert.match(bootstrap, /TraySafetyState/);
+  assert.match(bootstrap, /should_keep_app_running_without_windows/);
+  assert.match(tray, /TraySafetyState/);
+  assert.match(tray, /if shown \{\s*app\.state::<TraySafetyState>\(\)\.clear_forced_visibility\(\)/);
+  assert.match(tools, /crate::app::tray::show_main_window/);
+  assert.match(readUtf8("src-tauri/src/app/main_window.rs"), /crate::app::tray::show_main_window/);
+  assert.match(settingsService, /load_post_install_reopen_main_window/);
+  assert.doesNotMatch(settingsService, /take_post_install_reopen_main_window/);
+  assert.match(updateState, /load_post_install_reopen_main_window/);
+  assert.match(bootstrap, /runtime::setup[\s\S]*clear_post_install_reopen_main_window/);
 });
 
 await runTest("cache directory migration preserves persistent WebView state", () => {

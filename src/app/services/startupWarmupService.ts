@@ -69,7 +69,7 @@ export interface StartupWarmupController {
 }
 
 export type StartupWarmupMode =
-  | "hidden-autostart"
+  | "hidden-start"
   | "visible-start"
   | "foreground-open";
 
@@ -173,7 +173,7 @@ let activeStartupWarmup: StartupWarmupController | null = null;
 let cancelScheduledRefresh: (() => void) | null = null;
 
 function resolveStartupWarmupTaskPolicy(mode: StartupWarmupMode): StartupWarmupTaskPolicy {
-  if (mode === "hidden-autostart") {
+  if (mode === "hidden-start") {
     return {
       aboutBootstrap: false,
       dashboardSnapshot: false,

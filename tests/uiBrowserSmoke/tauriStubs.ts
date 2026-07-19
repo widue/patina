@@ -66,6 +66,7 @@ function tauriStubFor(path: string) {
       const SETTINGS_STORAGE_KEY = "__time_tracker_smoke_settings";
       globalThis.__TIME_TRACKER_CLASSIFICATION_MUTATIONS ??= [];
       globalThis.__PATINA_IMPORT_BATCHES ??= [];
+      globalThis.__PATINA_INVOKED_COMMANDS ??= [];
 
       function loadStoredSettings() {
         try {
@@ -86,6 +87,7 @@ function tauriStubFor(path: string) {
       }
 
       export async function invoke(command, payload = {}) {
+        globalThis.__PATINA_INVOKED_COMMANDS.push({ command, payload });
         if (command === "cmd_list_import_batches") {
           return [...globalThis.__PATINA_IMPORT_BATCHES];
         }

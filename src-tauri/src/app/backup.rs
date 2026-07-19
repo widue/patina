@@ -14,9 +14,7 @@ pub(crate) async fn restore_backup_and_refresh(
     if let Err(error) = remote_backup::cleanup_remote_backup_temp_if_owned(&app, &backup_path) {
         eprintln!("[backup] restore committed but remote temp cleanup failed: {error}");
     }
-    if let Err(error) =
-        desktop_behavior::sync_desktop_behavior_from_storage(app.clone(), false, false).await
-    {
+    if let Err(error) = desktop_behavior::refresh_desktop_behavior_from_storage(app.clone()).await {
         eprintln!("[backup] restore committed but desktop behavior refresh failed: {error}");
     }
     if let Err(error) = app.emit("app-settings-changed", serde_json::json!({})) {

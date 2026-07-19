@@ -101,6 +101,25 @@ impl AppExitState {
 }
 
 #[derive(Debug, Default)]
+pub(crate) struct TraySafetyState {
+    forced_visible: AtomicBool,
+}
+
+impl TraySafetyState {
+    pub(crate) fn force_visible(&self) {
+        self.forced_visible.store(true, Ordering::Relaxed);
+    }
+
+    pub(crate) fn clear_forced_visibility(&self) {
+        self.forced_visible.store(false, Ordering::Relaxed);
+    }
+
+    pub(crate) fn is_forced_visible(&self) -> bool {
+        self.forced_visible.load(Ordering::Relaxed)
+    }
+}
+
+#[derive(Debug, Default)]
 pub(crate) struct MainWindowLifecycleState {
     inner: Mutex<MainWindowLifecycle>,
 }
@@ -308,7 +327,19 @@ impl WidgetWindowLifecycleState {
 
 #[cfg(test)]
 mod tests {
-    use super::{MainWindowLifecycleState, WidgetWindowLifecycleState};
+    use super::{MainWindowLifecycleState, TraySafetyState, WidgetWindowLifecycleState};
+
+    #[test]
+    fn tray_safety_visibility_is_explicit_and_reversible() {
+        let state = TraySafetyState::default();
+        assert!(!state.is_forced_visible());
+
+        state.force_visible();
+        assert!(state.is_forced_visible());
+
+        state.clear_forced_visibility();
+        assert!(!state.is_forced_visible());
+    }
 
     #[test]
     fn main_window_lifecycle_cancels_stale_destroy_after_show() {

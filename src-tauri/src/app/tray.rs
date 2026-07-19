@@ -1,6 +1,6 @@
 use crate::app::main_window;
 use crate::app::runtime::now_ms;
-use crate::app::state::{AppExitState, DesktopBehaviorState};
+use crate::app::state::{AppExitState, DesktopBehaviorState, TraySafetyState};
 use crate::app::widget;
 use crate::data::app_settings_service::{self, AppSettingMutation};
 use crate::data::tracking_pause_service;
@@ -50,8 +50,14 @@ fn should_redirect_close_to_tray(settings: DesktopBehaviorSettings, exit_request
         && settings.should_keep_tray_visible()
 }
 
-pub(crate) fn show_main_window<R: Runtime + 'static>(app: &AppHandle<R>) {
-    main_window::show_main_window(app);
+pub(crate) fn show_main_window<R: Runtime + 'static>(app: &AppHandle<R>) -> bool {
+    let shown = main_window::show_main_window(app);
+    if shown {
+        app.state::<TraySafetyState>().clear_forced_visibility();
+    }
+    let settings = app.state::<DesktopBehaviorState>().snapshot();
+    apply_tray_visibility(app, settings);
+    shown
 }
 
 pub(crate) fn apply_tray_visibility<R: Runtime>(
@@ -59,10 +65,22 @@ pub(crate) fn apply_tray_visibility<R: Runtime>(
     settings: DesktopBehaviorSettings,
 ) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        if let Err(error) = tray.set_visible(settings.should_keep_tray_visible()) {
+        let should_show = settings.should_keep_tray_visible()
+            || app.state::<TraySafetyState>().is_forced_visible();
+        if let Err(error) = tray.set_visible(should_show) {
             eprintln!("[tray] failed to apply visibility: {error}");
         }
     }
+}
+
+pub(crate) fn ensure_tray_visible<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
+    let tray = app
+        .tray_by_id(TRAY_ID)
+        .ok_or_else(|| "main tray is unavailable".to_string())?;
+    tray.set_visible(true)
+        .map_err(|error| format!("failed to show main tray: {error}"))?;
+    app.state::<TraySafetyState>().force_visible();
+    Ok(())
 }
 
 pub(crate) async fn toggle_tracking_paused<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {

@@ -45,12 +45,16 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
   const [trackingStatus, setTrackingStatus] = useState<TrackingStatusSnapshot>(DEFAULT_TRACKING_STATUS);
   const [trackingRuntimeProbeStatus, setTrackingRuntimeProbeStatus] = useState<TrackingRuntimeProbeStatus | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [appSettingsLoaded, setAppSettingsLoaded] = useState(false);
   const [syncTick, setSyncTick] = useState(0);
   const [classificationReady, setClassificationReady] = useState(false);
   const [trackerHealth, setTrackerHealth] = useState<TrackerHealthSnapshot>(() => (
     resolveTrackerHealth(null, Date.now(), TRACKER_HEARTBEAT_STALE_AFTER_MS)
   ));
-  useDesktopLaunchBehaviorSync(appSettings, shouldSyncDesktopLaunchBehavior);
+  useDesktopLaunchBehaviorSync(
+    appSettings,
+    shouldSyncDesktopLaunchBehavior && appSettingsLoaded,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -62,6 +66,7 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
         if (cancelled) return;
 
         setAppSettings(bootstrap.settings);
+        setAppSettingsLoaded(true);
         setActiveWindow(bootstrap.activeWindow);
         setTrackingStatus(bootstrap.trackingStatus);
         setTrackingRuntimeProbeStatus(bootstrap.trackingRuntimeProbeStatus);
@@ -158,6 +163,7 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
         });
         if (!cancelled && nextSettings) {
           setAppSettings(nextSettings);
+          setAppSettingsLoaded(true);
         }
       });
       if (cancelled) {

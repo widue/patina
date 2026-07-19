@@ -229,7 +229,6 @@ export default function Settings({
             launchAtLoginChecked={draftSettings.launchAtLogin}
             onLaunchAtLoginChange={(nextChecked) => handleChange("launchAtLogin", nextChecked)}
             startMinimizedChecked={draftSettings.startMinimized}
-            startMinimizedDisabled={!draftSettings.launchAtLogin}
             onStartMinimizedChange={(nextChecked) => handleChange("startMinimized", nextChecked)}
           />
 

@@ -314,12 +314,12 @@ await runTest("startup warmup waits for runtime readiness before runtime tasks",
   assert.equal(events.includes("history-snapshot"), false);
 });
 
-await runTest("hidden autostart warmup skips chunks and heavy read models", async () => {
+await runTest("hidden startup warmup skips chunks and heavy read models", async () => {
   const events: string[] = [];
   const runtimeReady = createDeferred();
   const controller = startStartupWarmup({
     initialDelayMs: 0,
-    mode: "hidden-autostart",
+    mode: "hidden-start",
     runtimeReady: runtimeReady.promise,
     taskGapMs: 0,
   }, {

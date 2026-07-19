@@ -1,16 +1,27 @@
 use crate::app::desktop_behavior;
 use crate::app::main_window;
 use crate::app::runtime_tasks;
-use crate::app::state::DesktopBehaviorState;
-use crate::app::tray::{apply_tray_visibility, setup_tray, MAIN_WINDOW_LABEL};
+use crate::app::tray::setup_tray;
+use crate::domain::settings::{DesktopBehaviorSettings, StartupSource};
 use crate::engine::tracking::watchdog::RuntimeHealthState;
 use crate::platform::windows::{audio, media, power};
 #[cfg(any(test, all(not(debug_assertions), not(patina_local_build))))]
 use std::path::Path;
 use std::sync::Arc;
-use tauri::Manager;
 
 pub const AUTOSTART_ARG: &str = "--autostart";
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct StartupContext {
+    pub(crate) settings: DesktopBehaviorSettings,
+    pub(crate) source: StartupSource,
+}
+
+impl StartupContext {
+    pub(crate) fn new(settings: DesktopBehaviorSettings, source: StartupSource) -> Self {
+        Self { settings, source }
+    }
+}
 
 pub fn was_launched_by_autostart() -> bool {
     std::env::args().any(|arg| arg == AUTOSTART_ARG)
@@ -48,8 +59,7 @@ pub(crate) fn now_ms() -> u64 {
 pub fn setup(
     app: &mut tauri::App,
     runtime_health: Arc<RuntimeHealthState>,
-    launched_by_autostart: bool,
-    should_reopen_main_window: bool,
+    startup: StartupContext,
 ) -> tauri::Result<()> {
     tauri::async_runtime::block_on(crate::app::remote_status_bridge::ensure_machine_id(
         &app.handle().clone(),
@@ -65,25 +75,16 @@ pub fn setup(
     crate::app::web_activity::spawn_startup_repair(app.handle().clone());
 
     let app_handle = app.handle().clone();
-    main_window::ensure_main_window_with_initial_visibility(&app_handle, !launched_by_autostart)
+    main_window::ensure_main_window_with_initial_visibility(&app_handle, false)
         .map_err(std::io::Error::other)?;
     setup_tray(&app_handle)?;
-    let desktop_behavior = app_handle.state::<DesktopBehaviorState>().snapshot();
-    apply_tray_visibility(&app_handle, desktop_behavior);
-
-    if launched_by_autostart {
-        if let Some(window) = app_handle.get_webview_window(MAIN_WINDOW_LABEL) {
-            let _ = window.hide();
-        }
-    } else if should_reopen_main_window {
-        main_window::show_main_window(&app_handle);
+    if !desktop_behavior::apply_startup_desktop_behavior(
+        &app_handle,
+        startup.settings,
+        startup.source,
+    ) {
+        return Err(std::io::Error::other("failed to establish startup UI recovery path").into());
     }
-
-    desktop_behavior::spawn_sync_from_storage(
-        app.handle().clone(),
-        launched_by_autostart,
-        should_reopen_main_window,
-    );
     runtime_tasks::spawn_updater_startup_auto_check(app.handle().clone());
     runtime_tasks::spawn_tracking_runtime_restart_loop(
         app.handle().clone(),

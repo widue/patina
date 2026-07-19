@@ -35,11 +35,9 @@ pub async fn commit_app_setting_mutations_with_recovery<R: Runtime>(
 pub async fn load_desktop_behavior_startup_state<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<DesktopBehaviorStartupState, String> {
+    let settings = load_desktop_behavior_settings(app).await?;
     let pool = wait_for_sqlite_pool(app).await?;
-    let settings = app_settings::load_desktop_behavior_settings(&pool)
-        .await
-        .map_err(|error| format!("failed to load desktop behavior settings: {error}"))?;
-    let should_reopen_main_window = update_state::take_post_install_reopen_main_window(&pool)
+    let should_reopen_main_window = update_state::load_post_install_reopen_main_window(&pool)
         .await
         .map_err(|error| format!("failed to load post-install reopen intent: {error}"))?;
 
@@ -47,6 +45,24 @@ pub async fn load_desktop_behavior_startup_state<R: Runtime>(
         settings,
         should_reopen_main_window,
     })
+}
+
+pub async fn clear_post_install_reopen_main_window<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<(), String> {
+    let pool = wait_for_sqlite_pool(app).await?;
+    update_state::clear_post_install_reopen_main_window(&pool)
+        .await
+        .map_err(|error| format!("failed to clear post-install reopen intent: {error}"))
+}
+
+pub async fn load_desktop_behavior_settings<R: Runtime>(
+    app: &AppHandle<R>,
+) -> Result<DesktopBehaviorSettings, String> {
+    let pool = wait_for_sqlite_pool(app).await?;
+    app_settings::load_desktop_behavior_settings(&pool)
+        .await
+        .map_err(|error| format!("failed to load desktop behavior settings: {error}"))
 }
 
 pub async fn load_web_activity_settings<R: Runtime>(

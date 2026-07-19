@@ -15,20 +15,23 @@ const MAIN_WINDOW_MIN_WIDTH: f64 = 900.0;
 const MAIN_WINDOW_MIN_HEIGHT: f64 = 636.0;
 const MAIN_WINDOW_DESTROY_AFTER_BACKGROUND_SECS: u64 = 3 * 60;
 
-pub(crate) fn show_main_window<R: Runtime + 'static>(app: &AppHandle<R>) {
+pub(crate) fn show_main_window<R: Runtime + 'static>(app: &AppHandle<R>) -> bool {
     if app.state::<MainWindowLifecycleState>().show() {
-        return;
+        return false;
     }
 
     let window = match ensure_main_window(app) {
         Ok(window) => window,
         Err(error) => {
             eprintln!("[main-window] failed to ensure main window: {error}");
-            return;
+            return false;
         }
     };
 
-    let _ = window.show();
+    if let Err(error) = window.show() {
+        eprintln!("[main-window] failed to show main window: {error}");
+        return false;
+    }
     let _ = window.unminimize();
     // Win+D can leave the HWND outside Tauri's normal minimized/visible path.
     if let Err(error) = window_activation::restore_to_foreground(&window) {
@@ -36,6 +39,7 @@ pub(crate) fn show_main_window<R: Runtime + 'static>(app: &AppHandle<R>) {
     }
     let _ = window.set_focus();
     widget::close_widget_window(app);
+    true
 }
 
 pub(crate) fn minimize_main_window<R: Runtime + 'static>(app: &AppHandle<R>) {
@@ -219,7 +223,7 @@ fn schedule_main_window_destroy_after_background<R: Runtime + 'static>(
 
         let should_reopen = lifecycle.finish_destroy_hidden_window();
         if should_reopen && !app.state::<AppExitState>().is_exit_requested() {
-            show_main_window(&app);
+            let _ = crate::app::tray::show_main_window(&app);
         }
     });
 }

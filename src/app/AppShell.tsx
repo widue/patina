@@ -248,7 +248,7 @@ function AppShellContent() {
       if (!active) return;
 
       const controller = startStartupWarmup({
-        mode: foregroundLike ? "visible-start" : "hidden-autostart",
+        mode: foregroundLike ? "visible-start" : "hidden-start",
         runtimeReady: warmupRuntimeReadyPromiseRef.current ?? Promise.resolve(),
       });
       cancelWarmup = controller.cancel;
