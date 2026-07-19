@@ -5,6 +5,7 @@ use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+const UTF8_BOM: &[u8] = b"\xEF\xBB\xBF";
 const REQUIRED_HEADERS: &[&str] = &[
     "record_type",
     "start_time",
@@ -73,9 +74,13 @@ pub fn encode_canonical_csv(records: &[CanonicalImportRecord]) -> Result<Vec<u8>
             .serialize(to_csv_row(record)?)
             .map_err(|error| format!("failed to encode Patina CSV row: {error}"))?;
     }
-    writer
+    let csv_bytes = writer
         .into_inner()
-        .map_err(|error| format!("failed to finish Patina CSV: {error}"))
+        .map_err(|error| format!("failed to finish Patina CSV: {error}"))?;
+    let mut bytes = Vec::with_capacity(UTF8_BOM.len() + csv_bytes.len());
+    bytes.extend_from_slice(UTF8_BOM);
+    bytes.extend_from_slice(&csv_bytes);
+    Ok(bytes)
 }
 
 pub fn write_canonical_csv_atomic(
@@ -345,7 +350,9 @@ mod tests {
         bucket.end_time_ms = None;
         bucket.title = None;
         let bytes = encode_canonical_csv(&[exact_record(), bucket.clone()]).unwrap();
+        assert!(bytes.starts_with(UTF8_BOM));
         let text = String::from_utf8(bytes.clone()).unwrap();
+        let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
         assert_eq!(
             text.lines().next(),
             Some("record_type,start_time,end_time,duration_ms,exe_name,app_name,title,category")
@@ -427,6 +434,7 @@ mod tests {
         let output_path = write_canonical_csv_atomic(&source_path, &[exact_record()]).unwrap();
         assert_eq!(std::fs::read(&source_path).unwrap(), source_bytes);
         assert!(output_path.is_file());
+        assert!(std::fs::read(&output_path).unwrap().starts_with(UTF8_BOM));
         let error = write_canonical_csv_atomic(&source_path, &[exact_record()]).unwrap_err();
         assert!(error.contains("already exists"));
         assert_eq!(std::fs::read(&source_path).unwrap(), source_bytes);
