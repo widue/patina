@@ -61,8 +61,12 @@ export interface HistorySnapshot {
 }
 
 export interface HistoryReadModel {
+  // Exact-session geometry for the timeline and active span only. Summary UI
+  // must use the aggregate-aware fields below so display thresholds never
+  // change statistical totals and hour buckets remain visible.
   compiledSessions: ReturnType<typeof compileForRange>;
   timelineSessions: TimelineSession[];
+  summaryActiveDurationMs: number;
   appSummary: NormalizedAppSummaryItem[];
   weekly: DailySummary[];
   chartData: HistoryChartPoint[];
@@ -442,6 +446,10 @@ export function buildHistoryReadModel(params: {
     minSessionSecs,
   ).slice().reverse();
   const appSummary = buildAppSummary(buildNormalizedAppStats(summaryCompiledSessions));
+  const summaryActiveDurationMs = summaryCompiledSessions.reduce(
+    (total, session) => total + Math.max(0, session.duration ?? 0),
+    0,
+  );
   const hourlyActivity = buildHourlyActivity(summaryCompiledSessions);
   const hourlyCategoryActivity = buildHourlyCategoryActivity(summaryCompiledSessions);
   const weekly = buildDailySummaries(
@@ -461,6 +469,7 @@ export function buildHistoryReadModel(params: {
   return {
     compiledSessions,
     timelineSessions,
+    summaryActiveDurationMs,
     appSummary,
     weekly,
     chartData,

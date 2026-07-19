@@ -9,6 +9,7 @@ import {
   loadHistoryWebFaviconsForSegments,
   resetHistoryWebFaviconRuntimeCacheForTests,
 } from "../src/features/history/services/historyReadModel.ts";
+import { buildHistoryCategoryDistribution } from "../src/features/history/services/historyFormatting.ts";
 import {
   clearHistorySnapshotCache,
   getHistorySnapshotCache,
@@ -171,8 +172,18 @@ await runTest("hour buckets feed History summaries without becoming timeline ses
   assert.equal(snapshot.dayAggregateSessions?.length, 1);
   assert.equal(readModel.timelineSessions.length, 0);
   assert.equal(readModel.compiledSessions.length, 0);
+  assert.equal(readModel.summaryActiveDurationMs, 30 * 60_000);
   assert.equal(readModel.appSummary[0]?.exeName, "music.exe");
   assert.equal(readModel.appSummary[0]?.duration, 30 * 60_000);
+  const categoryDistribution = buildHistoryCategoryDistribution(readModel.appSummary, () => ({
+    category: "music",
+    label: "音乐",
+    color: "#123456",
+  }));
+  assert.equal(categoryDistribution.length, 1);
+  assert.equal(categoryDistribution[0]?.category, "music");
+  assert.equal(categoryDistribution[0]?.duration, 30 * 60_000);
+  assert.equal(categoryDistribution[0]?.percentage, 100);
   assert.equal(readModel.hourlyActivity[10]?.minutes, 30);
   assert.equal(readModel.weekly.reduce((total, day) => total + day.totalDuration, 0), 30 * 60_000);
 });

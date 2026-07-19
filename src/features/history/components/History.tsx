@@ -10,6 +10,7 @@ import type { CSSProperties } from "react";
 import { Clock, Expand, Minus, Plus, Tags, X, ZoomIn } from "lucide-react";
 import { UI_TEXT } from "../../../shared/copy/index.ts";
 import {
+  buildHistoryCategoryDistribution,
   formatDuration,
   formatTime,
 } from "../services/historyFormatting";
@@ -585,6 +586,7 @@ export default function History({
   const {
     compiledSessions,
     timelineSessions,
+    summaryActiveDurationMs,
     appSummary,
     hourlyActivity,
     hourlyCategoryActivity,
@@ -662,40 +664,15 @@ export default function History({
     [appSummary, historyIcons, iconThemeColors],
   );
   const categoryDistributionItems = useMemo<HistoryDayDistributionItem[]>(() => {
-    const summaries = new Map<string, Omit<HistoryDayDistributionItem, "key" | "percentage">>();
-    let totalDuration = 0;
-
-    for (const session of compiledSessions) {
-      const duration = Math.max(0, session.duration ?? 0);
-      if (duration <= 0) continue;
-
-      const mapped = AppClassification.mapApp(session.appKey, { appName: session.displayName });
-      const category = mapped.category;
-      const current = summaries.get(category);
-      totalDuration += duration;
-
-      if (current) {
-        current.duration += duration;
-        continue;
-      }
-
-      summaries.set(category, {
-        label: AppClassification.getCategoryLabel(category),
-        duration,
-        color: AppClassification.getCategoryColor(category),
-        category,
-        kind: "category",
-      });
-    }
-
-    return Array.from(summaries.entries())
-      .map(([category, summary]) => ({
-        ...summary,
-        key: category,
-        percentage: totalDuration > 0 ? (summary.duration / totalDuration) * 100 : 0,
-      }))
-      .sort((left, right) => right.duration - left.duration || left.label.localeCompare(right.label));
-  }, [compiledSessions]);
+    return buildHistoryCategoryDistribution(appSummary, (app) => {
+      const mapped = AppClassification.mapApp(app.exeName, { appName: app.appName });
+      return {
+        category: mapped.category,
+        label: AppClassification.getCategoryLabel(mapped.category),
+        color: AppClassification.getCategoryColor(mapped.category),
+      };
+    });
+  }, [appSummary]);
   const webDistributionItems = useMemo<HistoryDayDistributionItem[]>(
     () => {
       if (!webActivityEnabled) return [];
@@ -776,10 +753,6 @@ export default function History({
       ? categoryDistributionItems
       : appDistributionItems;
   const daySummaryView = useMemo<HistoryDaySummaryView>(() => {
-    const activeDurationMs = compiledSessions.reduce(
-      (total, session) => total + Math.max(0, session.duration ?? 0),
-      0,
-    );
     const activeSessions = compiledSessions.filter((session) => (session.duration ?? 0) > 0);
     const significantSessions = activeSessions.filter((session) => (
       (session.duration ?? 0) >= DAY_SUMMARY_MIN_SPAN_SESSION_MS
@@ -813,7 +786,9 @@ export default function History({
     }, { hour: "", minutes: 0, surroundingMinutes: -1 });
 
     return {
-      activeDurationLabel: activeDurationMs > 0 ? formatDuration(activeDurationMs) : "0m",
+      activeDurationLabel: summaryActiveDurationMs > 0
+        ? formatDuration(summaryActiveDurationMs)
+        : "0m",
       activeSpanLabel: firstStartTime !== null && lastEndTime !== null
         ? `${formatTime(firstStartTime)} - ${formatTime(lastEndTime)}`
         : DAY_SUMMARY_EMPTY_MARK,
@@ -821,7 +796,7 @@ export default function History({
         ? `${peakHour.hour} · ${formatDuration(peakHour.minutes * 60_000)}`
         : DAY_SUMMARY_EMPTY_MARK,
     };
-  }, [compiledSessions, hourlyActivity]);
+  }, [compiledSessions, hourlyActivity, summaryActiveDurationMs]);
   const visibleDaySummaryView = showQuietPlaceholder
     ? {
       activeDurationLabel: DAY_SUMMARY_EMPTY_MARK,
