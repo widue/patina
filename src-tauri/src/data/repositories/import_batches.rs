@@ -5,6 +5,7 @@ use crate::data::import::model::{
 };
 use crate::data::repositories::classification_settings::{
     apply_classification_setting_mutations_in_tx, ClassificationSettingMutation,
+    APP_OVERRIDE_KEY_PREFIX,
 };
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Row, Sqlite, Transaction};
@@ -66,6 +67,19 @@ pub async fn delete(pool: &Pool<Sqlite>, batch_id: &str) -> Result<ImportDeleteR
     .ok_or_else(|| "import batch no longer exists".to_string())?;
     let deleted_exact_sessions = row.get::<i64, _>("exact_session_count");
     let deleted_hour_buckets = row.get::<i64, _>("hour_bucket_count");
+    let affected_executables = sqlx::query(
+        "SELECT exe_name FROM import_exact_sessions WHERE batch_id = ?
+         UNION
+         SELECT exe_name FROM import_time_buckets WHERE batch_id = ?",
+    )
+    .bind(batch_id)
+    .bind(batch_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|error| format!("failed to inspect imported applications: {error}"))?
+    .into_iter()
+    .filter_map(|row| normalize_exe_name(row.get::<String, _>("exe_name").as_str()))
+    .collect::<HashSet<_>>();
 
     let deleted = sqlx::query("DELETE FROM import_batches WHERE id = ?")
         .bind(batch_id)
@@ -75,6 +89,51 @@ pub async fn delete(pool: &Pool<Sqlite>, batch_id: &str) -> Result<ImportDeleteR
     if deleted.rows_affected() != 1 {
         return Err("import batch changed during deletion".to_string());
     }
+
+    for exe_name in affected_executables {
+        let has_native_records = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM sessions
+                WHERE LOWER(TRIM(exe_name)) = ?
+            )",
+        )
+        .bind(&exe_name)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|error| format!("failed to inspect native application records: {error}"))?;
+        if has_native_records {
+            continue;
+        }
+
+        let has_remaining_external_records = sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS(
+                SELECT 1 FROM import_exact_sessions
+                WHERE LOWER(TRIM(exe_name)) = ?
+                UNION ALL
+                SELECT 1 FROM import_time_buckets
+                WHERE LOWER(TRIM(exe_name)) = ?
+            )",
+        )
+        .bind(&exe_name)
+        .bind(&exe_name)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|error| {
+            format!("failed to inspect remaining imported application records: {error}")
+        })?;
+        if has_remaining_external_records {
+            continue;
+        }
+
+        let override_key = format!("{APP_OVERRIDE_KEY_PREFIX}{exe_name}");
+        sqlx::query("DELETE FROM settings WHERE key = ?")
+            .bind(override_key)
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| {
+                format!("failed to remove orphaned imported classification: {error}")
+            })?;
+    }
     tx.commit()
         .await
         .map_err(|error| format!("failed to commit import batch deletion: {error}"))?;
@@ -83,6 +142,19 @@ pub async fn delete(pool: &Pool<Sqlite>, batch_id: &str) -> Result<ImportDeleteR
         deleted_exact_sessions,
         deleted_hour_buckets,
     })
+}
+
+fn normalize_exe_name(value: &str) -> Option<String> {
+    let trimmed = value.trim().trim_matches('"');
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut normalized = trimmed.to_ascii_lowercase();
+    if !normalized.ends_with(".exe") {
+        normalized.push_str(".exe");
+    }
+    Some(normalized)
 }
 
 pub async fn load_fingerprints(pool: &Pool<Sqlite>) -> Result<HashSet<String>, String> {
@@ -426,6 +498,7 @@ mod tests {
     fn deleting_one_import_batch_preserves_other_external_batches() {
         tauri::async_runtime::block_on(async {
             let pool = setup_pool().await;
+            let override_key = "__app_override::code.exe";
             let first = commit_records(
                 &pool,
                 "one.csv",
@@ -433,7 +506,10 @@ mod tests {
                 "source-one",
                 &[record(ImportRecordType::ExactSession, 1_000)],
                 0,
-                &[],
+                &[ClassificationSettingMutation {
+                    key: override_key.to_string(),
+                    value: Some(r#"{"category":"development","enabled":true}"#.to_string()),
+                }],
             )
             .await
             .unwrap();
@@ -468,6 +544,115 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(native_count, 0);
+            let override_value: Option<String> =
+                sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+                    .bind(override_key)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            assert!(override_value.is_some());
+        });
+    }
+
+    #[test]
+    fn deleting_the_last_external_records_removes_an_import_only_app_override() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_pool().await;
+            let override_key = "__app_override::code.exe";
+            let category_key = "__custom_category::custom:category_focus";
+            let report = commit_records(
+                &pool,
+                "one.csv",
+                "patina-csv",
+                "import-only-source",
+                &[record(ImportRecordType::ExactSession, 1_000)],
+                0,
+                &[
+                    ClassificationSettingMutation {
+                        key: override_key.to_string(),
+                        value: Some(
+                            r#"{"category":"custom:category_focus","enabled":true}"#.to_string(),
+                        ),
+                    },
+                    ClassificationSettingMutation {
+                        key: category_key.to_string(),
+                        value: Some("1".to_string()),
+                    },
+                ],
+            )
+            .await
+            .unwrap();
+
+            delete(&pool, report.batch_id.as_deref().unwrap())
+                .await
+                .unwrap();
+
+            let remaining_external_records: i64 = sqlx::query_scalar(
+                "SELECT
+                    (SELECT COUNT(*) FROM import_exact_sessions) +
+                    (SELECT COUNT(*) FROM import_time_buckets)",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            let override_value: Option<String> =
+                sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+                    .bind(override_key)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            let category_value: Option<String> =
+                sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+                    .bind(category_key)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(remaining_external_records, 0);
+            assert_eq!(override_value, None);
+            assert_eq!(category_value.as_deref(), Some("1"));
+        });
+    }
+
+    #[test]
+    fn deleting_external_records_preserves_the_override_for_a_native_app() {
+        tauri::async_runtime::block_on(async {
+            let pool = setup_pool().await;
+            let override_key = "__app_override::code.exe";
+            let report = commit_records(
+                &pool,
+                "one.csv",
+                "patina-csv",
+                "mixed-source",
+                &[record(ImportRecordType::ExactSession, 1_000)],
+                0,
+                &[ClassificationSettingMutation {
+                    key: override_key.to_string(),
+                    value: Some(r#"{"category":"development","enabled":true}"#.to_string()),
+                }],
+            )
+            .await
+            .unwrap();
+            sqlx::query(
+                "INSERT INTO sessions (
+                    app_name, exe_name, window_title, start_time, end_time, duration,
+                    continuity_group_start_time
+                 ) VALUES ('Native Code', 'code.exe', '', 3000, 4000, 1000, 3000)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            delete(&pool, report.batch_id.as_deref().unwrap())
+                .await
+                .unwrap();
+
+            let override_value: Option<String> =
+                sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+                    .bind(override_key)
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            assert!(override_value.is_some());
         });
     }
 

@@ -1,3 +1,4 @@
+use crate::data::repositories::classification_settings::APP_OVERRIDE_KEY_PREFIX;
 use crate::data::sqlite_error::SqliteOperationError;
 use crate::data::sqlite_pool::run_recoverable_sqlite_write;
 use sqlx::{Pool, Sqlite};
@@ -125,6 +126,19 @@ fn in_clause_placeholders(value_count: usize) -> String {
         .join(", ")
 }
 
+fn canonical_override_executable(value: &str) -> Option<String> {
+    let trimmed = value.trim().trim_matches('"');
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let mut normalized = trimmed.to_ascii_lowercase();
+    if !normalized.ends_with(".exe") {
+        normalized.push_str(".exe");
+    }
+    Some(normalized)
+}
+
 async fn delete_sessions_before_in_pool(
     pool: &Pool<Sqlite>,
     cutoff_time: i64,
@@ -245,6 +259,26 @@ async fn delete_sessions_by_exe_names_in_pool(
             .execute(&mut *tx)
             .await
             .map_err(|error| SqliteOperationError::from_sqlx(operation, error))?;
+    }
+
+    for exe_name in exe_names {
+        let Some(canonical_exe) = canonical_override_executable(exe_name) else {
+            continue;
+        };
+        sqlx::query("DELETE FROM icon_cache WHERE LOWER(exe_name) = ?")
+            .bind(&canonical_exe)
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| {
+                SqliteOperationError::from_sqlx("delete app icon cache by executable", error)
+            })?;
+        sqlx::query("DELETE FROM settings WHERE key = ?")
+            .bind(format!("{APP_OVERRIDE_KEY_PREFIX}{canonical_exe}"))
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| {
+                SqliteOperationError::from_sqlx("delete app classification by executable", error)
+            })?;
     }
 
     refresh_import_batch_counts(&mut tx).await?;
@@ -474,6 +508,25 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+            sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)")
+                .bind("__app_override::browser.exe")
+                .bind(r#"{"category":"browsing","enabled":true}"#)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)")
+                .bind("__app_override::editor.exe")
+                .bind(r#"{"category":"development","enabled":true}"#)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO icon_cache (exe_name, icon_base64, last_updated)
+                 VALUES ('browser.exe', 'browser-icon', 1000), ('editor.exe', 'editor-icon', 1000)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
 
             delete_sessions_by_exe_names_in_pool(&pool, &[String::from("browser.exe")])
                 .await
@@ -504,8 +557,36 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap();
+            let browser_override: Option<String> =
+                sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+                    .bind("__app_override::browser.exe")
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            let editor_override: Option<String> =
+                sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+                    .bind("__app_override::editor.exe")
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            let browser_icon: Option<String> =
+                sqlx::query_scalar("SELECT icon_base64 FROM icon_cache WHERE exe_name = ?")
+                    .bind("browser.exe")
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            let editor_icon: Option<String> =
+                sqlx::query_scalar("SELECT icon_base64 FROM icon_cache WHERE exe_name = ?")
+                    .bind("editor.exe")
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
             assert_eq!(browser_count, 0);
             assert_eq!(editor_native_count, 1);
+            assert!(browser_override.is_none());
+            assert!(editor_override.is_some());
+            assert!(browser_icon.is_none());
+            assert!(editor_icon.is_some());
             assert_eq!(batch_row.get::<i64, _>("exact_session_count"), 0);
             assert_eq!(batch_row.get::<i64, _>("hour_bucket_count"), 1);
         });
@@ -617,6 +698,19 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
+            sqlx::query("INSERT INTO settings (key, value) VALUES (?, ?)")
+                .bind("__app_override::editor.exe")
+                .bind(r#"{"category":"development","enabled":true}"#)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO icon_cache (exe_name, icon_base64, last_updated)
+                 VALUES ('editor.exe', 'editor-icon', 1000)",
+            )
+            .execute(&pool)
+            .await
+            .unwrap();
             sqlx::query(
                 "CREATE TRIGGER fail_external_app_delete
                  BEFORE DELETE ON import_exact_sessions
@@ -645,8 +739,22 @@ mod tests {
             .await
             .unwrap()
             .get("count");
+            let app_override: Option<String> =
+                sqlx::query_scalar("SELECT value FROM settings WHERE key = ?")
+                    .bind("__app_override::editor.exe")
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
+            let app_icon: Option<String> =
+                sqlx::query_scalar("SELECT icon_base64 FROM icon_cache WHERE exe_name = ?")
+                    .bind("editor.exe")
+                    .fetch_optional(&pool)
+                    .await
+                    .unwrap();
             assert_eq!(native_count, 1);
             assert_eq!(external_count, 1);
+            assert!(app_override.is_some());
+            assert!(app_icon.is_some());
         });
     }
 
