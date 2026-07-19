@@ -9,6 +9,7 @@ const BENCHMARKS = [
   "data-history-browser-benchmark.ts",
   "sqlite-query-plan-benchmark.ts",
   "startup-bootstrap-benchmark.ts",
+  "classification-app-catalog-benchmark.ts",
 ] as const;
 
 interface Measurement {

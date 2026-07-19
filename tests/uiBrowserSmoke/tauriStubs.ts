@@ -376,6 +376,42 @@ function tauriStubFor(path: string) {
         ].filter((row) => requestedDomains.size === 0 || requestedDomains.has(row.normalized_domain));
       }
 
+      function classificationCatalogRows(params) {
+        const enabled = globalThis.__TIME_TRACKER_ENABLE_CLASSIFICATION_CATALOG_FIXTURE
+          || localStorage.getItem("__time_tracker_enable_classification_catalog_fixture") === "1";
+        const timing = smokeSessionTiming();
+        const baseRows = enabled
+          ? Array.from({ length: 130 }, (_, index) => ({
+              exe_name: "catalog-" + String(index).padStart(3, "0") + ".exe",
+              app_name: index === 129 ? "一年以前的应用" : "Catalog App " + index,
+              last_seen_ms: timing.end - index * 24 * 60 * 60 * 1000,
+              has_native_records: index % 2 === 0 ? 1 : 0,
+            }))
+          : historySessionRows().map((row) => ({
+              exe_name: row.exe_name,
+              app_name: row.app_name,
+              last_seen_ms: row.start_time,
+              has_native_records: 1,
+            }));
+        const hasSearch = Number(params[0] ?? 0) === 1;
+        const escapedPattern = String(params[1] ?? "");
+        const search = escapedPattern
+          .replace(/^%|%$/g, "")
+          .replace(/\\\\([\\\\%_])/g, "$1")
+          .toLowerCase();
+        const hasCursor = Number(params[3] ?? 0) === 1;
+        const cursorTime = Number(params[4] ?? 0);
+        const cursorExe = String(params[6] ?? "");
+        const limit = Math.max(1, Number(params[7] ?? 120));
+        return baseRows
+          .filter((row) => !hasSearch || (row.exe_name + " " + row.app_name).toLowerCase().includes(search))
+          .filter((row) => !hasCursor
+            || row.last_seen_ms < cursorTime
+            || (row.last_seen_ms === cursorTime && row.exe_name > cursorExe))
+          .sort((left, right) => right.last_seen_ms - left.last_seen_ms || left.exe_name.localeCompare(right.exe_name))
+          .slice(0, limit);
+      }
+
       export default class Database {
         static get() {
           return new Database();
@@ -400,15 +436,25 @@ function tauriStubFor(path: string) {
             && normalizedQuery.includes("from import_exact_sessions")
             && !normalizedQuery.includes("window_title")
           );
+          const isRecordedCatalogQuery = normalizedQuery.includes("raw_observed_apps as")
+            && normalizedQuery.includes("grouped_apps");
+          const classificationCatalogQueryDelayMs = Number(
+            globalThis.__TIME_TRACKER_CLASSIFICATION_CATALOG_QUERY_DELAY_MS
+              ?? localStorage.getItem("__time_tracker_classification_catalog_query_delay_ms")
+              ?? 0
+          );
           if (
             classificationQueryDelayMs > 0
-            && isObservedClassificationQuery
+            && (isObservedClassificationQuery || isRecordedCatalogQuery)
           ) {
             await new Promise((resolve) => setTimeout(resolve, classificationQueryDelayMs));
           }
+          if (classificationCatalogQueryDelayMs > 0 && isRecordedCatalogQuery) {
+            await new Promise((resolve) => setTimeout(resolve, classificationCatalogQueryDelayMs));
+          }
           if (
             localStorage.getItem("__time_tracker_reject_classification_query") === "1"
-            && isObservedClassificationQuery
+            && (isObservedClassificationQuery || isRecordedCatalogQuery)
           ) {
             throw new Error("classification query rejected by browser smoke fixture");
           }
@@ -440,6 +486,9 @@ function tauriStubFor(path: string) {
             ].filter((row) => (
               requestedExecutables.size === 0 || requestedExecutables.has(row.exe_name)
             ));
+          }
+          if (isRecordedCatalogQuery) {
+            return classificationCatalogRows(params);
           }
           const historyQueryDelayMs = Number(
             globalThis.__TIME_TRACKER_HISTORY_QUERY_DELAY_MS

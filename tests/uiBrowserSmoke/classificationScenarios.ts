@@ -116,6 +116,43 @@ export async function runClassificationScenarios(context: BrowserSmokeContext) {
       sessionId,
       `localStorage.removeItem("__time_tracker_classification_query_delay_ms")`,
     );
+
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const today = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("今天"))} + ']');
+          today?.click();
+          return Boolean(today);
+        })()
+      `),
+      true,
+    );
+    await delay(50);
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          localStorage.setItem("__time_tracker_classification_catalog_query_delay_ms", "900");
+          const classification = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("分类"))} + ']');
+          classification?.click();
+          return Boolean(classification);
+        })()
+      `),
+      true,
+    );
+    await delay(150);
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        document.body.innerText.includes("Cursor")
+          && !document.body.innerText.includes("全部 (0)")
+      `),
+      true,
+      "Classification should keep cached record-backed apps visible while the full catalog refreshes",
+    );
+    await evaluate(
+      client!,
+      sessionId,
+      `localStorage.removeItem("__time_tracker_classification_catalog_query_delay_ms")`,
+    );
   });
 
   await runTest("classification cold failure is explicit and retryable", async () => {
@@ -719,5 +756,189 @@ export async function runClassificationScenarios(context: BrowserSmokeContext) {
       undefined,
       "category dialog opener focus restoration",
     );
+  });
+
+  await runTest("classification catalog searches all history and pages beyond the old limit", async () => {
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          localStorage.setItem("__time_tracker_enable_classification_catalog_fixture", "1");
+          const storageKey = "__time_tracker_smoke_settings";
+          const settings = JSON.parse(localStorage.getItem(storageKey) ?? "{}");
+          settings["__app_override::mapped-only.exe"] = JSON.stringify({
+            displayName: "只保留映射的应用",
+            category: "development",
+            track: true,
+            captureTitle: true,
+            enabled: true,
+            updatedAt: Date.now(),
+          });
+          localStorage.setItem(storageKey, JSON.stringify(settings));
+          location.reload();
+          return true;
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `Boolean(document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("分类"))} + ']'))`,
+    );
+    await evaluate(client!, sessionId, `
+      localStorage.setItem("__time_tracker_reject_classification_query", "1");
+      localStorage.setItem("__time_tracker_classification_catalog_query_delay_ms", "900");
+    `);
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const navigation = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("分类"))} + ']');
+          navigation?.click();
+          return Boolean(navigation);
+        })()
+      `),
+      true,
+    );
+    await delay(150);
+    assert.equal(
+      await evaluate(
+        client!,
+        sessionId,
+        `!/全部 \\(\\d+\\)/.test(document.body.innerText)`,
+      ),
+      true,
+      "Classification must not publish bootstrap counts as complete catalog totals",
+    );
+    await evaluate(
+      client!,
+      sessionId,
+      `localStorage.removeItem("__time_tracker_classification_catalog_query_delay_ms")`,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.body.innerText.includes("分类数据加载失败。")`,
+      15_000,
+      "Classification should expose a recoverable full-catalog load error",
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          localStorage.removeItem("__time_tracker_reject_classification_query");
+          const retry = Array.from(document.querySelectorAll("button"))
+            .find((node) => node.textContent?.trim() === "重试");
+          retry?.click();
+          return Boolean(retry);
+        })()
+      `),
+      true,
+    );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.body.innerText.includes("Catalog App 0")
+        && document.body.innerText.includes("一年以前的应用")
+        && !document.body.innerText.includes("只保留映射的应用")
+        && /全部 \\(\\d+\\)/.test(document.body.innerText)`,
+      15_000,
+      "Retrying should automatically load the complete application catalog",
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const match = document.body.innerText.match(/全部 \\((\\d+)\\)/);
+          const hasLoadMore = Array.from(document.querySelectorAll("button"))
+            .some((node) => node.textContent?.trim() === "加载更多应用");
+          return !hasLoadMore
+            && !document.body.innerText.includes("已显示")
+            && Number(match?.[1] ?? 0) === 130;
+        })()
+      `),
+      true,
+    );
+
+    const setSearch = async (value: string) => {
+      assert.equal(
+        await evaluate(client!, sessionId, `
+          (() => {
+            const input = document.querySelector('input[placeholder="搜索应用或分类"]');
+            if (!(input instanceof HTMLInputElement)) return false;
+            const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+            setter?.call(input, ${jsonString(value)});
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            return true;
+          })()
+        `),
+        true,
+      );
+    };
+
+    await setSearch("一年以前");
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.body.innerText.includes("一年以前的应用")`,
+      15_000,
+      "Search should reach an app beyond the former 120-item limit",
+    );
+    await setSearch("只保留映射");
+    await waitForExpression(
+      client!,
+      sessionId,
+      `!document.body.innerText.includes("只保留映射的应用")
+        && document.body.innerText.includes("没有找到匹配的应用")
+        && document.body.innerText.includes("全部 (130)")`,
+      15_000,
+      "Search must not revive an application from a stale mapping",
+    );
+
+    await setSearch("");
+    await waitForExpression(
+      client!,
+      sessionId,
+      `document.body.innerText.includes("一年以前的应用")
+        && !document.body.innerText.includes("只保留映射的应用")
+        && /全部 \\(\\d+\\)/.test(document.body.innerText)`,
+      15_000,
+      "Clearing search should restore the complete application catalog",
+    );
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          const today = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("今天"))} + ']');
+          today?.click();
+          return Boolean(today);
+        })()
+      `),
+      true,
+    );
+    await delay(50);
+    assert.equal(
+      await evaluate(client!, sessionId, `
+        (() => {
+          localStorage.setItem("__time_tracker_classification_catalog_query_delay_ms", "900");
+          const classification = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("分类"))} + ']');
+          classification?.click();
+          return Boolean(classification);
+        })()
+      `),
+      true,
+    );
+    await delay(150);
+    assert.equal(
+      await evaluate(
+        client!,
+        sessionId,
+        `document.body.innerText.includes("全部 (130)")`,
+      ),
+      true,
+      "Classification should retain the last complete total during a background refresh",
+    );
+    await delay(800);
+    await evaluate(client!, sessionId, `
+      localStorage.removeItem("__time_tracker_enable_classification_catalog_fixture");
+      localStorage.removeItem("__time_tracker_classification_catalog_query_delay_ms");
+      globalThis.__TIME_TRACKER_ENABLE_CLASSIFICATION_CATALOG_FIXTURE = false;
+    `);
   });
 }

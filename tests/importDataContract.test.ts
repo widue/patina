@@ -206,7 +206,10 @@ test("deleting an import batch invalidates read models after the delete and befo
       events.push("delete");
       return { deletedExactSessions: 2, deletedHourBuckets: 3 };
     },
-    onImportedDataChanged: () => events.push("invalidate"),
+    onImportedDataChanged: async () => {
+      await Promise.resolve();
+      events.push("invalidate");
+    },
     refreshBatches: async () => {
       events.push("refresh");
       return [];
@@ -302,7 +305,7 @@ test("hourly imports feed aggregates but never the exact history query", () => {
   assert.match(aggregateFunction, /origin === "import_bucket"/);
 });
 
-test("exact external sessions are read without letting batch deletion touch native sessions", () => {
+test("batch deletion removes only orphaned imported app mappings and never native sessions", () => {
   const readRepository = readFileSync("src/platform/persistence/sessionReadRepository.ts", "utf8");
   const historyFunction = readRepository.slice(
     readRepository.indexOf("export async function getSessionsInRange("),
@@ -316,7 +319,10 @@ test("exact external sessions are read without letting batch deletion touch nati
   assert.match(historyFunction, /import_exact_sessions/);
   assert.doesNotMatch(historyFunction, /import_time_buckets/);
   assert.doesNotMatch(importRepository, /DELETE FROM sessions/i);
-  assert.doesNotMatch(importRepository, /DELETE FROM settings/i);
+  assert.match(importRepository, /has_native_records/);
+  assert.match(importRepository, /has_remaining_external_records/);
+  assert.match(importRepository, /APP_OVERRIDE_KEY_PREFIX/);
+  assert.match(importRepository, /DELETE FROM settings WHERE key = \?/i);
 });
 
 test("external backup owner cannot write or delete native sessions", () => {

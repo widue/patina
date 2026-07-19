@@ -11,7 +11,6 @@ import {
   buildAppMappingOverride,
   createCategoryInDraftState,
   createAppMappingDraftState,
-  filterAndSortCandidates,
   mergeCategoryIntoDraftState,
   updateCategoryLabelInDraftState,
 } from "../src/features/classification/hooks/appMappingStateHelpers.ts";
@@ -19,6 +18,7 @@ import {
   buildAppOverrideTransition,
   buildLegacyAutoClassificationMigrationMutations,
   parsePersistedDeletedCategories,
+  removeOrphanedAppOverrides,
   type ObservedAppCandidate,
 } from "../src/features/classification/services/classificationStore.ts";
 import {
@@ -27,6 +27,7 @@ import {
 } from "../src/features/classification/services/legacyAutoClassificationMigration.ts";
 import {
   ClassificationService,
+  filterAndSortCandidates,
   type ClassificationBootstrapData,
   type ClassificationBootstrapDeps,
   type ClassificationCommitDeps,
@@ -516,6 +517,21 @@ await runTest("app override transition leaves unknown truncated modern category 
     JSON.parse(transition.mutations[0].value ?? "{}").category,
     truncatedCategory,
   );
+});
+
+await runTest("orphaned app overrides are removed while record-backed classifications remain", () => {
+  const cleanup = removeOrphanedAppOverrides({
+    "kept.exe": { category: "development", enabled: true },
+    "deleted.exe": { category: "communication", displayName: "Deleted", enabled: true },
+  }, ["KEPT.EXE"]);
+
+  assert.deepEqual(cleanup.overrides, {
+    "kept.exe": { category: "development", enabled: true },
+  });
+  assert.deepEqual(cleanup.mutations, [{
+    key: "__app_override::deleted.exe",
+    value: null,
+  }]);
 });
 
 await runTest("hasClassificationDraftChanges ignores unsupported deleted categories", () => {
