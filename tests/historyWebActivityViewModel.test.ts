@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildWebDomainDistribution,
   buildWebTimelineItems,
+  filterWebActivitySegmentsForStatistics,
 } from "../src/features/history/services/historyWebActivityViewModel.ts";
 import type { WebActivitySegment } from "../src/shared/types/webActivity.ts";
 
@@ -77,6 +78,99 @@ runTest("web domain distribution clips segments and applies domain overrides", (
   assert.equal("title" in items[0], false);
   assert.equal(items[1].key, "example.com");
   assert.equal(items[1].duration, 2_000);
+});
+
+runTest("excluded web domains are removed from the effective segment set", () => {
+  const included = makeSegment({
+    id: 1,
+    domain: "github.com",
+    normalizedDomain: "github.com",
+  });
+  const excluded = makeSegment({
+    id: 2,
+    domain: "private.example",
+    normalizedDomain: "private.example",
+  });
+
+  const effective = filterWebActivitySegmentsForStatistics(
+    [included, excluded],
+    {
+      "github.com": { enabled: true },
+      "private.example": { enabled: false },
+    },
+  );
+
+  assert.deepEqual(effective.map((segment) => segment.normalizedDomain), ["github.com"]);
+  assert.equal(excluded.normalizedDomain, "private.example");
+});
+
+runTest("excluded web domains disappear from distribution and recompute percentages", () => {
+  const segments = [
+    makeSegment({
+      id: 1,
+      domain: "github.com",
+      normalizedDomain: "github.com",
+      startTime: 0,
+      endTime: 10_000,
+    }),
+    makeSegment({
+      id: 2,
+      domain: "private.example",
+      normalizedDomain: "private.example",
+      startTime: 10_000,
+      endTime: 30_000,
+    }),
+  ];
+
+  const items = buildWebDomainDistribution(
+    segments,
+    { startMs: 0, endMs: 30_000 },
+    30_000,
+    { "private.example": { enabled: false } },
+  );
+
+  assert.deepEqual(items.map((item) => item.key), ["github.com"]);
+  assert.equal(items[0]?.duration, 10_000);
+  assert.equal(items[0]?.percentage, 100);
+  assert.equal(segments.length, 2);
+});
+
+runTest("excluded web domains disappear from timeline and return after restore", () => {
+  const segments = [
+    makeSegment({
+      id: 1,
+      domain: "github.com",
+      normalizedDomain: "github.com",
+      startTime: 0,
+      endTime: 10_000,
+    }),
+    makeSegment({
+      id: 2,
+      domain: "private.example",
+      normalizedDomain: "private.example",
+      startTime: 12_000,
+      endTime: 20_000,
+    }),
+  ];
+
+  const excludedItems = buildWebTimelineItems(
+    segments,
+    { startMs: 0, endMs: 20_000 },
+    20_000,
+    { "private.example": { enabled: false } },
+  );
+  const restoredItems = buildWebTimelineItems(
+    segments,
+    { startMs: 0, endMs: 20_000 },
+    20_000,
+    { "private.example": { enabled: true } },
+  );
+
+  assert.deepEqual(excludedItems.map((item) => item.normalizedDomain), ["github.com"]);
+  assert.deepEqual(
+    restoredItems.map((item) => item.normalizedDomain),
+    ["private.example", "github.com"],
+  );
 });
 
 runTest("web colors prefer favicon theme colors before category colors", () => {

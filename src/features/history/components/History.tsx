@@ -217,7 +217,7 @@ export default function History({
     nowMs,
     rawDaySessions,
     rawDayAggregateSessions,
-    rawDayWebSegments,
+    visibleDayWebSegments,
     rawWeeklySessions,
     rawWeeklyAggregateSessions,
     setNowMs,
@@ -272,7 +272,7 @@ export default function History({
     if (!webActivityEnabled) return {};
 
     const next: Record<string, string> = { ...webDomainFavicons };
-    for (const segment of rawDayWebSegments) {
+    for (const segment of visibleDayWebSegments) {
       const faviconUrl = segment.faviconUrl?.trim();
       if (!faviconUrl) continue;
 
@@ -282,9 +282,9 @@ export default function History({
       }
     }
     return next;
-  }, [rawDayWebSegments, webActivityEnabled, webDomainFavicons]);
+  }, [visibleDayWebSegments, webActivityEnabled, webDomainFavicons]);
   const webDomainIconThemeColors = useIconThemeColors(webDomainIcons);
-  const webSnapshotReady = rawDayWebSegments.length > 0
+  const webSnapshotReady = visibleDayWebSegments.length > 0
     || contentState === "ready"
     || contentState === "empty"
     || contentState === "error";
@@ -445,7 +445,7 @@ export default function History({
 
   useEffect(() => {
     const hasLiveWebSegment = webActivityEnabled
-      && rawDayWebSegments.some((segment) => segment.endTime === null);
+      && visibleDayWebSegments.some((segment) => segment.endTime === null);
     const hasLiveSession = rawDaySessions.some((session) => session.endTime === null)
       || rawWeeklySessions.some((session) => session.endTime === null)
       || hasLiveWebSegment;
@@ -463,7 +463,7 @@ export default function History({
     return () => {
       window.clearInterval(timer);
     };
-  }, [rawDaySessions, rawWeeklySessions, rawDayWebSegments, refreshEnabled, refreshIntervalSecs, setNowMs, trackerHealth.status, webActivityEnabled]);
+  }, [rawDaySessions, rawWeeklySessions, refreshEnabled, refreshIntervalSecs, setNowMs, trackerHealth.status, visibleDayWebSegments, webActivityEnabled]);
 
   const changeDate = (delta: number) => {
     const nextDate = addLocalDays(selectedDate, delta);
@@ -678,7 +678,7 @@ export default function History({
       if (!webActivityEnabled) return [];
 
       return buildWebDomainDistribution(
-        rawDayWebSegments,
+        visibleDayWebSegments,
         selectedDayRange,
         nowMs,
         webDomainOverrides,
@@ -698,7 +698,7 @@ export default function History({
     },
     [
       nowMs,
-      rawDayWebSegments,
+      visibleDayWebSegments,
       selectedDayRange,
       webActivityEnabled,
       webDomainFavicons,
@@ -711,7 +711,7 @@ export default function History({
       if (!webActivityEnabled) return [];
 
       return buildWebTimelineItems(
-        rawDayWebSegments,
+        visibleDayWebSegments,
         selectedDayRange,
         nowMs,
         webDomainOverrides,
@@ -725,7 +725,7 @@ export default function History({
       mergeThresholdSecs,
       minSessionSecs,
       nowMs,
-      rawDayWebSegments,
+      visibleDayWebSegments,
       selectedDayRange,
       webActivityEnabled,
       webDomainFavicons,

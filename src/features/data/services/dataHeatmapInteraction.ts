@@ -1,4 +1,4 @@
-import type { HeatmapWeek } from "./dataReadModel.ts";
+import type { HeatmapWeek } from "./dataHeatmapReadModel.ts";
 
 export type HeatmapNavigationKey =
   | "ArrowUp"

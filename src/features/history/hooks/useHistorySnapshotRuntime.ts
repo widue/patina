@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { HistorySession } from "../../../shared/types/sessions.ts";
 import type {
   WebActivitySegment,
@@ -24,6 +24,7 @@ import {
   getHistorySnapshotCache,
   setHistorySnapshotCache,
 } from "../services/historySnapshotCache.ts";
+import { filterWebActivitySegmentsForStatistics } from "../services/historyWebActivityViewModel.ts";
 
 export type HistoryContentState =
   | "bootstrap"
@@ -54,17 +55,26 @@ function formatHistoryDateCacheKey(date: Date): string {
 
 function resolveSnapshotWebFavicons(snapshot: HistorySnapshot | null): Record<string, string> {
   if (!snapshot) return {};
+  const visibleSegments = filterWebActivitySegmentsForStatistics(
+    snapshot.dayWebSegments,
+    snapshot.webDomainOverrides,
+  );
   return {
-    ...getCachedHistoryWebFaviconsForSegments(snapshot.dayWebSegments),
+    ...getCachedHistoryWebFaviconsForSegments(visibleSegments),
     ...snapshot.webDomainFavicons,
   };
 }
 
 function hasResolvedSnapshotWebFavicons(snapshot: HistorySnapshot | null): boolean {
-  if (!snapshot || snapshot.dayWebSegments.length === 0) return true;
-  if (areHistoryWebFaviconsResolvedForSegments(snapshot.dayWebSegments)) return true;
+  if (!snapshot) return true;
+  const visibleSegments = filterWebActivitySegmentsForStatistics(
+    snapshot.dayWebSegments,
+    snapshot.webDomainOverrides,
+  );
+  if (visibleSegments.length === 0) return true;
+  if (areHistoryWebFaviconsResolvedForSegments(visibleSegments)) return true;
 
-  return snapshot.dayWebSegments.every((segment) => (
+  return visibleSegments.every((segment) => (
     Boolean(snapshot.webDomainFavicons[segment.normalizedDomain]?.trim())
   ));
 }
@@ -143,7 +153,13 @@ export function useHistorySnapshotRuntime({
   const visibleDateKeyRef = useRef<string | null>(
     initialVisibleSnapshot ? formatHistoryDateCacheKey(selectedDate) : null,
   );
+  const visibleMappingVersionRef = useRef<number | null>(
+    initialVisibleSnapshot ? mappingVersion : null,
+  );
   const requestGenerationRef = useRef(0);
+  const visibleDayWebSegments = useMemo(() => (
+    filterWebActivitySegmentsForStatistics(rawDayWebSegments, webDomainOverrides)
+  ), [rawDayWebSegments, webDomainOverrides]);
 
   const applyVisibleSnapshot = useCallback((
     snapshot: HistorySnapshot,
@@ -166,6 +182,7 @@ export function useHistorySnapshotRuntime({
       setWebDomainOverrides(snapshot.webDomainOverrides);
       setNowMs(snapshot.fetchedAtMs);
       visibleDateKeyRef.current = dateKey;
+      visibleMappingVersionRef.current = mappingVersion;
       setContentState(nextState);
     };
 
@@ -174,7 +191,7 @@ export function useHistorySnapshotRuntime({
       return;
     }
     apply();
-  }, [webActivityEnabled]);
+  }, [mappingVersion, webActivityEnabled]);
 
   const clearVisibleSnapshot = useCallback(() => {
     setRawDaySessions([]);
@@ -187,6 +204,7 @@ export function useHistorySnapshotRuntime({
     setWebFaviconsReady(true);
     setWebDomainOverrides({});
     visibleDateKeyRef.current = null;
+    visibleMappingVersionRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -215,7 +233,10 @@ export function useHistorySnapshotRuntime({
     } else if (seedSnapshot) {
       hasUsableSnapshot = true;
       applyVisibleSnapshot(seedSnapshot, requestDateKey, "bootstrap");
-    } else if (visibleDateKeyRef.current === requestDateKey) {
+    } else if (
+      visibleDateKeyRef.current === requestDateKey
+      && visibleMappingVersionRef.current === mappingVersion
+    ) {
       hasUsableSnapshot = true;
       setContentState("refreshing");
     } else {
@@ -303,14 +324,14 @@ export function useHistorySnapshotRuntime({
   ]);
 
   useEffect(() => {
-    if (!webActivityEnabled || rawDayWebSegments.length === 0) {
+    if (!webActivityEnabled || visibleDayWebSegments.length === 0) {
       setWebDomainFavicons({});
       setWebFaviconsReady(true);
       return undefined;
     }
 
     let cancelled = false;
-    void loadHistoryWebFaviconsForSegments(rawDayWebSegments).then((favicons) => {
+    void loadHistoryWebFaviconsForSegments(visibleDayWebSegments).then((favicons) => {
       if (cancelled) return;
       startTransition(() => {
         setWebDomainFavicons((current) => recordsMatch(current, favicons) ? current : favicons);
@@ -321,7 +342,7 @@ export function useHistorySnapshotRuntime({
     return () => {
       cancelled = true;
     };
-  }, [rawDayWebSegments, webActivityEnabled]);
+  }, [visibleDayWebSegments, webActivityEnabled]);
 
   return {
     contentState,
@@ -329,6 +350,7 @@ export function useHistorySnapshotRuntime({
     rawDaySessions,
     rawDayAggregateSessions,
     rawDayWebSegments,
+    visibleDayWebSegments,
     rawWeeklySessions,
     rawWeeklyAggregateSessions,
     setNowMs,

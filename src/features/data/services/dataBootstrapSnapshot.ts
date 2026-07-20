@@ -7,9 +7,8 @@ import {
 import type {
   DataAppTrendViewModel,
   DataTrendViewModel,
-  HeatmapSelection,
-  HeatmapWeek,
 } from "./dataReadModel.ts";
+import type { HeatmapSelection, HeatmapWeek } from "./dataHeatmapReadModel.ts";
 
 const DATA_BOOTSTRAP_SNAPSHOT_MAX_BYTES = 256 * 1024;
 

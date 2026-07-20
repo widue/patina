@@ -508,6 +508,7 @@ function tauriStubFor(path: string) {
           if (normalizedQuery.includes("from web_favicon_cache")) {
             globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_COUNT =
               (globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_COUNT ?? 0) + 1;
+            globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_DOMAINS = params.map((value) => String(value));
             const faviconDelayMs = Number(globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_DELAY_MS ?? 0);
             if (faviconDelayMs > 0) {
               await new Promise((resolve) => setTimeout(resolve, faviconDelayMs));

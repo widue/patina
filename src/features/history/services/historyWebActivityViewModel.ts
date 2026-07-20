@@ -38,6 +38,22 @@ export interface WebTimelineItem {
   }>;
 }
 
+export function isWebDomainIncludedInStatistics(
+  normalizedDomain: string,
+  overrides: Record<string, WebDomainOverride>,
+): boolean {
+  return overrides[normalizedDomain]?.enabled !== false;
+}
+
+export function filterWebActivitySegmentsForStatistics(
+  segments: WebActivitySegment[],
+  overrides: Record<string, WebDomainOverride>,
+): WebActivitySegment[] {
+  return segments.filter((segment) => (
+    isWebDomainIncludedInStatistics(segment.normalizedDomain, overrides)
+  ));
+}
+
 function stableDomainColor(normalizedDomain: string) {
   const palette = [
     "#36AC7E",
@@ -254,6 +270,8 @@ export function buildWebDomainDistribution(
   let totalDuration = 0;
 
   for (const segment of segments) {
+    if (!isWebDomainIncludedInStatistics(segment.normalizedDomain, overrides)) continue;
+
     const clipped = clampSegmentToRange(segment, range.startMs, range.endMs, nowMs);
     if (clipped.duration <= 0) continue;
 
@@ -302,7 +320,7 @@ export function buildWebTimelineItems(
   minSessionSecs: number = 0,
   webDomainFavicons: Record<string, string> = {},
 ): WebTimelineItem[] {
-  const items = segments
+  const items = filterWebActivitySegmentsForStatistics(segments, overrides)
     .map((segment) => {
       const clipped = clampSegmentToRange(segment, range.startMs, range.endMs, nowMs);
       if (clipped.duration <= 0) return null;

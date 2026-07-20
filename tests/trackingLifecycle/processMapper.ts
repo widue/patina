@@ -1,6 +1,7 @@
 import {
   assert,
   buildNormalizedAppStats,
+  buildDashboardReadModel,
   compileSessions,
   buildHistoryReadModel,
   makeSession,
@@ -379,6 +380,78 @@ export function runProcessMapperTests() {
     assert.equal(historyView.timelineSessions.length, 1);
     assert.equal(historyView.timelineSessions[0].exeName.toLowerCase(), "chrome.exe");
     ProcessMapper.clearUserOverrides();
+  });
+
+  runTest("dashboard recomputes every derived metric after an app is excluded", () => {
+    ProcessMapper.clearUserOverrides();
+    ProcessMapper.setUserOverride("qq.exe", {
+      track: false,
+      enabled: true,
+      updatedAt: Date.now(),
+    });
+
+    try {
+      const nowMs = new Date(2026, 4, 8, 12, 0, 0).getTime();
+      const todayStart = new Date(2026, 4, 8, 0, 0, 0).getTime();
+      const yesterdayStart = new Date(2026, 4, 7, 0, 0, 0).getTime();
+      const trackerHealth = resolveTrackerHealth(nowMs, nowMs, 8_000);
+      const dashboard = buildDashboardReadModel(
+        [
+          makeSession({
+            id: 1,
+            exeName: "QQ.exe",
+            appName: "QQ",
+            startTime: todayStart + 9 * 60 * 60_000,
+            endTime: todayStart + 10 * 60 * 60_000,
+            duration: 60 * 60_000,
+          }),
+          makeSession({
+            id: 2,
+            exeName: "chrome.exe",
+            appName: "Google Chrome",
+            startTime: todayStart + 10 * 60 * 60_000,
+            endTime: todayStart + 10.5 * 60 * 60_000,
+            duration: 30 * 60_000,
+          }),
+        ],
+        trackerHealth,
+        nowMs,
+        [
+          makeSession({
+            id: 3,
+            exeName: "QQ.exe",
+            appName: "QQ",
+            startTime: yesterdayStart + 9 * 60 * 60_000,
+            endTime: yesterdayStart + 10 * 60 * 60_000,
+            duration: 60 * 60_000,
+          }),
+          makeSession({
+            id: 4,
+            exeName: "chrome.exe",
+            appName: "Google Chrome",
+            startTime: yesterdayStart + 10 * 60 * 60_000,
+            endTime: yesterdayStart + 10.25 * 60 * 60_000,
+            duration: 15 * 60_000,
+          }),
+        ],
+      );
+
+      assert.equal(dashboard.totalTrackedTime, 30 * 60_000);
+      assert.equal(dashboard.yesterdayTrackedTime, 15 * 60_000);
+      assert.deepEqual(dashboard.topApplications.map((item) => item.exeName), ["chrome.exe"]);
+      assert.equal(dashboard.topApplications[0]?.percentage, 100);
+      assert.equal(dashboard.categoryDist.length, 1);
+      assert.equal(dashboard.categoryDist[0]?.value, 30 * 60_000);
+      assert.equal(dashboard.hourlyActivity[9]?.minutes ?? 0, 0);
+      assert.equal(dashboard.hourlyActivity[10]?.minutes, 30);
+      assert.equal(
+        Object.values(dashboard.hourlyCategoryActivity[9] ?? {})
+          .reduce<number>((sum, minutes) => sum + Number(minutes), 0),
+        0,
+      );
+    } finally {
+      ProcessMapper.clearUserOverrides();
+    }
   });
 
   runTest("process mapper color output stays stable for same app key", () => {

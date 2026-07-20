@@ -14,7 +14,7 @@ import { UI_TEXT } from "../../../shared/copy/index.ts";
 import QuietSegmentedFilter from "../../../shared/components/QuietSegmentedFilter";
 import { formatDuration } from "../../history/services/historyFormatting";
 import { formatLocalDateKey } from "../../../shared/lib/localDate.ts";
-import type { HeatmapSelection, HeatmapWeek } from "../services/dataReadModel.ts";
+import type { HeatmapSelection, HeatmapWeek } from "../services/dataHeatmapReadModel.ts";
 import {
   buildDataHeatmapKeyboardModel,
   isHeatmapNavigationKey,

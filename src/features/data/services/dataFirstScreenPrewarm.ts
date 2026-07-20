@@ -1,11 +1,11 @@
 import type { AppLanguage } from "../../../shared/settings/appSettings.ts";
 import {
-  buildActivityHeatmap,
   buildDataAppTrendViewModelFromAggregate,
   buildDataTrendAggregateContext,
   buildDataTrendViewModelFromAggregate,
   prewarmRecentDataHeatmapCache,
 } from "./dataReadModel.ts";
+import { buildActivityHeatmap } from "./dataHeatmapReadModel.ts";
 import {
   loadDataTrendSnapshot,
   type DataTrendSnapshot,

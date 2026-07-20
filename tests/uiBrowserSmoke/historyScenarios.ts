@@ -1427,4 +1427,106 @@ export async function runHistoryScenarios(context: BrowserSmokeContext) {
       })()
     `);
   });
+
+  await runTest("history excludes hidden domains from rows and favicon requests, then restores retained history", async () => {
+    const navigateTo = async (label: string) => {
+      assert.equal(
+        await evaluate(client!, sessionId, `
+          (() => {
+            const node = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify(label))} + ']');
+            node?.click();
+            return Boolean(node);
+          })()
+        `),
+        true,
+      );
+      await waitForExpression(
+        client!,
+        sessionId,
+        `document.querySelector('[aria-label=' + ${jsonString(JSON.stringify(label))} + ']')?.className.includes("qp-nav-item-active")`,
+      );
+    };
+    const webOverrideKey = "__web_domain_override::docs.example";
+
+    await navigateTo("数据");
+    await evaluate(client!, sessionId, `
+      (() => {
+        const settings = JSON.parse(localStorage.getItem("__time_tracker_smoke_settings") ?? "{}");
+        settings.web_activity_enabled = "1";
+        settings[${jsonString(webOverrideKey)}] = JSON.stringify({ enabled: false, updatedAt: Date.now() });
+        localStorage.setItem("__time_tracker_smoke_settings", JSON.stringify(settings));
+        localStorage.setItem("patina:history-day-distribution-mode", "web");
+        location.reload();
+      })()
+    `);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `Boolean(document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("数据"))} + ']'))`,
+      15_000,
+    );
+    await evaluate(client!, sessionId, `
+      (() => {
+        globalThis.__TIME_TRACKER_ENABLE_WEB_FIXTURE = true;
+        globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_COUNT = 0;
+        globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_DOMAINS = [];
+      })()
+    `);
+    await navigateTo("历史");
+    await waitForExpression(
+      client!,
+      sessionId,
+      `
+        document.querySelectorAll(".history-app-distribution-card img").length === 1
+        && document.querySelector(".history-app-distribution-card")?.textContent?.includes("stable.example")
+        && !document.querySelector(".history-app-distribution-card")?.textContent?.includes("docs.example")
+      `,
+      15_000,
+      "Excluded web domain should be absent from History",
+    );
+    assert.deepEqual(
+      await evaluate(client!, sessionId, `globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_DOMAINS`),
+      ["stable.example"],
+    );
+
+    await navigateTo("数据");
+    await evaluate(client!, sessionId, `
+      (() => {
+        const settings = JSON.parse(localStorage.getItem("__time_tracker_smoke_settings") ?? "{}");
+        settings[${jsonString(webOverrideKey)}] = JSON.stringify({ enabled: true, updatedAt: Date.now() });
+        localStorage.setItem("__time_tracker_smoke_settings", JSON.stringify(settings));
+        location.reload();
+      })()
+    `);
+    await waitForExpression(
+      client!,
+      sessionId,
+      `Boolean(document.querySelector('[aria-label=' + ${jsonString(JSON.stringify("数据"))} + ']'))`,
+      15_000,
+    );
+    await evaluate(client!, sessionId, `globalThis.__TIME_TRACKER_ENABLE_WEB_FIXTURE = true`);
+    await navigateTo("历史");
+    await waitForExpression(
+      client!,
+      sessionId,
+      `
+        document.querySelectorAll(".history-app-distribution-card img").length === 2
+        && document.querySelector(".history-app-distribution-card")?.textContent?.includes("stable.example")
+        && document.querySelector(".history-app-distribution-card")?.textContent?.includes("docs.example")
+      `,
+      15_000,
+      "Restored web domain should reuse retained History",
+    );
+
+    await evaluate(client!, sessionId, `
+      (() => {
+        const settings = JSON.parse(localStorage.getItem("__time_tracker_smoke_settings") ?? "{}");
+        delete settings[${jsonString(webOverrideKey)}];
+        localStorage.setItem("__time_tracker_smoke_settings", JSON.stringify(settings));
+        localStorage.setItem("patina:history-day-distribution-mode", "app");
+        delete globalThis.__TIME_TRACKER_ENABLE_WEB_FIXTURE;
+        delete globalThis.__TIME_TRACKER_WEB_FAVICON_QUERY_DOMAINS;
+      })()
+    `);
+  });
 }

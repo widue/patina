@@ -20,8 +20,25 @@ import {
   startOfLocalDay,
   startOfLocalMonth,
 } from "../../../shared/lib/localDate.ts";
-import { formatDuration } from "../../../shared/lib/durationFormatting.ts";
 import { pickPreferredAppName } from "../../../shared/lib/displayNameScoring.ts";
+import {
+  getHeatmapRange,
+  getHeatmapSelectionKey,
+  resolveStatisticalDataAppKey,
+  type HeatmapRange,
+  type HeatmapSelection,
+} from "./dataHeatmapReadModel.ts";
+
+export {
+  buildActivityHeatmap,
+  buildYearOptions,
+  getHeatmapRange,
+  getHeatmapSelectionKey,
+  type HeatmapCell,
+  type HeatmapRange,
+  type HeatmapSelection,
+  type HeatmapWeek,
+} from "./dataHeatmapReadModel.ts";
 
 export type { AggregateSessionRecord };
 
@@ -91,30 +108,6 @@ export interface DataAppTrendViewModel {
   peakDay: DataAppDayRow | null;
 }
 
-export interface HeatmapCell {
-  key: string;
-  date: string;
-  duration: number;
-  intensity: number;
-  isFuture: boolean;
-  isOutsideYear: boolean;
-  label: string;
-}
-
-export interface HeatmapWeek {
-  key: string;
-  monthLabel: string;
-  cells: HeatmapCell[];
-}
-
-export type HeatmapSelection = "recent" | number;
-
-export interface HeatmapRange {
-  start: Date;
-  end: Date;
-  weekCount: number;
-}
-
 export interface DataHeatmapSnapshot {
   earliestStartTime: number | null;
   sessions: AggregateSessionRecord[];
@@ -127,11 +120,11 @@ export interface DataHeatmapDependencies {
   getSessionsInRange: (startMs: number, endMs: number) => Promise<AggregateSessionRecord[]>;
 }
 
-const RECENT_HEATMAP_WEEK_COUNT = 53;
 const HEATMAP_SESSION_CACHE_LIMIT = 2;
 const heatmapSessionCache = new Map<string, AggregateSessionRecord[]>();
 const heatmapSnapshotPromises = new Map<string, Promise<DataHeatmapSnapshot>>();
 let earliestSessionStartTimeCache: number | null | undefined;
+let dataReadModelCacheEpoch = 0;
 
 interface CompiledDataSession extends AggregateSessionRecord {
   appKey: string;
@@ -167,15 +160,6 @@ export interface DataTrendAggregateContext {
 
 interface MergedDataAppDurationBucket extends DataAppDurationBucket {
   sourceAppKeys: string[];
-}
-
-function formatHeatmapDateLabel(dateKey: string) {
-  const date = new Date(`${dateKey}T00:00:00`);
-  return date.toLocaleDateString(getUiLocale(), { month: "2-digit", day: "2-digit" });
-}
-
-function formatHeatmapMonthLabel(date: Date) {
-  return UI_TEXT.date.monthLabel(date.getMonth() + 1);
 }
 
 function buildChartAxis(points: DataTrendPoint[]) {
@@ -217,6 +201,7 @@ function resolveDataDisplayNameRank(session: AggregateSessionRecord, appKey: str
   return AppClassification.getUserOverride(appKey)?.displayName?.trim()
     ? 3 : (isCanonicalExecutable ? (session.appName.trim() ? 2 : 1) : 0);
 }
+
 function compileDataSessions(
   sessions: AggregateSessionRecord[],
   range: SessionRange,
@@ -224,14 +209,8 @@ function compileDataSessions(
   const compiledSessions: CompiledDataSession[] = [];
 
   for (const session of sessions) {
-    if (!AppClassification.shouldTrackProcess(session.exeName, { appName: session.appName })) {
-      continue;
-    }
-
-    const appKey = AppClassification.resolveCanonicalExecutable(session.exeName);
-    if (!appKey || !AppClassification.isAppTrackingEnabledByUser(appKey)) {
-      continue;
-    }
+    const appKey = resolveStatisticalDataAppKey(session);
+    if (!appKey) continue;
 
     const startTime = Math.max(session.startTime, range.startMs);
     const endTime = Math.min(session.endTime, range.endMs);
@@ -692,12 +671,14 @@ async function resolveDefaultDataHeatmapDependencies(): Promise<DataHeatmapDepen
 }
 
 export function resetDataReadModelCacheForTests() {
+  dataReadModelCacheEpoch += 1;
   heatmapSessionCache.clear();
   heatmapSnapshotPromises.clear();
   earliestSessionStartTimeCache = undefined;
 }
 
 export function clearDataReadModelCache() {
+  dataReadModelCacheEpoch += 1;
   heatmapSessionCache.clear();
   heatmapSnapshotPromises.clear();
   earliestSessionStartTimeCache = undefined;
@@ -705,38 +686,6 @@ export function clearDataReadModelCache() {
 
 export function getCachedEarliestSessionStartTime() {
   return earliestSessionStartTimeCache;
-}
-
-export function getHeatmapRange(selection: HeatmapSelection, nowMs: number): HeatmapRange {
-  if (selection === "recent") {
-    const todayStart = startOfLocalDay(new Date(nowMs));
-    const mondayOffset = (todayStart.getDay() + 6) % 7;
-    const currentWeekStart = addDays(todayStart, -mondayOffset);
-    return {
-      start: addDays(currentWeekStart, -(RECENT_HEATMAP_WEEK_COUNT - 1) * 7),
-      end: addDays(currentWeekStart, 7),
-      weekCount: RECENT_HEATMAP_WEEK_COUNT,
-    };
-  }
-
-  const yearStart = new Date(selection, 0, 1);
-  const nextYearStart = new Date(selection + 1, 0, 1);
-  const mondayOffset = (yearStart.getDay() + 6) % 7;
-  const heatmapStart = addDays(yearStart, -mondayOffset);
-  const lastYearDay = addDays(nextYearStart, -1);
-  const lastWeekEndOffset = 6 - ((lastYearDay.getDay() + 6) % 7);
-  const heatmapEnd = addDays(lastYearDay, lastWeekEndOffset + 1);
-
-  return {
-    start: heatmapStart,
-    end: heatmapEnd,
-    weekCount: Math.ceil((heatmapEnd.getTime() - heatmapStart.getTime()) / (7 * 24 * 60 * 60 * 1000)),
-  };
-}
-
-export function getHeatmapSelectionKey(selection: HeatmapSelection, nowMs: number) {
-  const range = getHeatmapRange(selection, nowMs);
-  return `${selection}:${toDateKey(range.start)}:${toDateKey(range.end)}`;
 }
 
 function setHeatmapSessionCache(cacheKey: string, sessions: AggregateSessionRecord[]) {
@@ -759,79 +708,6 @@ export function getCachedDataHeatmapSessions(selection: HeatmapSelection, nowMs:
   return sessions;
 }
 
-export function buildYearOptions(earliestStartTime: number | null, currentYear: number) {
-  const earliestYear = earliestStartTime ? new Date(earliestStartTime).getFullYear() : currentYear;
-  const firstYear = Math.min(earliestYear, currentYear);
-  return Array.from(
-    { length: currentYear - firstYear + 1 },
-    (_, index) => currentYear - index,
-  );
-}
-
-export function buildActivityHeatmap(
-  sessions: AggregateSessionRecord[],
-  selection: HeatmapSelection,
-  nowMs: number,
-): HeatmapWeek[] {
-  const { start: heatmapStart, weekCount } = getHeatmapRange(selection, nowMs);
-  const todayStart = startOfLocalDay(new Date(nowMs));
-  const dayBuckets = new Map<string, number>();
-
-  for (let dayIndex = 0; dayIndex < weekCount * 7; dayIndex += 1) {
-    dayBuckets.set(toDateKey(addDays(heatmapStart, dayIndex)), 0);
-  }
-
-  for (const session of sessions) {
-    const sessionStart = session.startTime;
-    const sessionEnd = session.endTime ?? nowMs;
-    if (sessionEnd <= sessionStart) continue;
-
-    let cursor = startOfLocalDay(new Date(sessionStart));
-    while (cursor.getTime() < sessionEnd) {
-      const dayStart = cursor.getTime();
-      const dayEnd = dayStart + 24 * 60 * 60 * 1000;
-      const clippedStart = Math.max(sessionStart, dayStart);
-      const clippedEnd = Math.min(sessionEnd, dayEnd);
-      const key = toDateKey(cursor);
-      const previous = dayBuckets.get(key);
-
-      if (previous !== undefined && clippedEnd > clippedStart) {
-        dayBuckets.set(key, previous + clippedEnd - clippedStart);
-      }
-
-      cursor = addDays(cursor, 1);
-    }
-  }
-
-  const maxDuration = Math.max(1, ...Array.from(dayBuckets.values()));
-
-  return Array.from({ length: weekCount }, (_, weekIndex) => {
-    const weekStart = addDays(heatmapStart, weekIndex * 7);
-    const monthStartInWeek = Array.from({ length: 7 }, (_, weekdayIndex) => addDays(weekStart, weekdayIndex))
-      .find((date) => (selection === "recent" || date.getFullYear() === selection) && date.getDate() === 1);
-    return {
-      key: toDateKey(weekStart),
-      monthLabel: monthStartInWeek ? formatHeatmapMonthLabel(monthStartInWeek) : "",
-      cells: Array.from({ length: 7 }, (_, weekdayIndex) => {
-        const date = addDays(weekStart, weekdayIndex);
-        const dateKey = toDateKey(date);
-        const duration = dayBuckets.get(dateKey) ?? 0;
-        const isFuture = date.getTime() > todayStart.getTime();
-        const isOutsideYear = selection !== "recent" && date.getFullYear() !== selection;
-        return {
-          key: dateKey,
-          date: dateKey,
-          duration,
-          isFuture,
-          isOutsideYear,
-          intensity: duration <= 0 || isFuture || isOutsideYear ? 0 : Math.max(0.16, duration / maxDuration),
-          label: `${formatHeatmapDateLabel(dateKey)} · ${isFuture ? UI_TEXT.data.notStarted : formatDuration(duration)}`,
-        };
-      }),
-    };
-  });
-}
-
 export async function loadDataHeatmapSnapshot(
   selection: HeatmapSelection,
   nowMs: number = Date.now(),
@@ -842,6 +718,7 @@ export async function loadDataHeatmapSnapshot(
   const cacheKey = getHeatmapSelectionKey(selection, nowMs);
   const pending = heatmapSnapshotPromises.get(cacheKey);
   if (pending) return pending;
+  const loadStartedAtEpoch = dataReadModelCacheEpoch;
 
   const snapshotPromise = (async () => {
     const earliestStartTimePromise = earliestSessionStartTimeCache === undefined
@@ -853,8 +730,10 @@ export async function loadDataHeatmapSnapshot(
       resolvedDeps.getSessionsInRange(range.start.getTime(), range.end.getTime()),
     ]);
 
-    earliestSessionStartTimeCache = earliestStartTime;
-    setHeatmapSessionCache(cacheKey, sessions);
+    if (dataReadModelCacheEpoch === loadStartedAtEpoch) {
+      earliestSessionStartTimeCache = earliestStartTime;
+      setHeatmapSessionCache(cacheKey, sessions);
+    }
 
     return {
       earliestStartTime,
@@ -863,7 +742,9 @@ export async function loadDataHeatmapSnapshot(
       cacheKey,
     };
   })().finally(() => {
-    heatmapSnapshotPromises.delete(cacheKey);
+    if (heatmapSnapshotPromises.get(cacheKey) === snapshotPromise) {
+      heatmapSnapshotPromises.delete(cacheKey);
+    }
   });
 
   heatmapSnapshotPromises.set(cacheKey, snapshotPromise);

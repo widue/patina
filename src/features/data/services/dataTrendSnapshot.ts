@@ -21,6 +21,7 @@ export interface DataTrendSnapshotDependencies {
 const snapshotCache = new Map<string, DataTrendSnapshot>();
 const sessionPromises = new Map<string, Promise<AggregateSessionRecord[]>>();
 const DATA_TREND_SNAPSHOT_CACHE_LIMIT = 2;
+let dataTrendSnapshotCacheEpoch = 0;
 
 function collectDataIconExecutables(sessions: AggregateSessionRecord[]): string[] {
   const seen = new Set<string>();
@@ -69,6 +70,7 @@ export function setDataTrendSnapshotCache(snapshot: DataTrendSnapshot): void {
 }
 
 export function clearDataTrendSnapshotCache(): void {
+  dataTrendSnapshotCacheEpoch += 1;
   snapshotCache.clear();
   sessionPromises.clear();
 }
@@ -80,14 +82,22 @@ export async function loadDataTrendSnapshot(
 ): Promise<DataTrendSnapshot> {
   const range = resolveDataTrendRange(selection, nowMs);
   const pending = sessionPromises.get(range.cacheKey);
-  const sessionPromise = pending ?? deps.getSessionSummariesInRange(range.startMs, range.endMs).finally(() => {
-    sessionPromises.delete(range.cacheKey);
-  });
-  if (!pending) sessionPromises.set(range.cacheKey, sessionPromise);
+  const loadStartedAtEpoch = dataTrendSnapshotCacheEpoch;
+  const sessionPromise = pending ?? (() => {
+    const nextPromise = deps.getSessionSummariesInRange(range.startMs, range.endMs).finally(() => {
+      if (sessionPromises.get(range.cacheKey) === nextPromise) {
+        sessionPromises.delete(range.cacheKey);
+      }
+    });
+    sessionPromises.set(range.cacheKey, nextPromise);
+    return nextPromise;
+  })();
   return sessionPromise.then((sessions) => {
     const icons = getCachedDataIconMap(sessions);
     const snapshot = { fetchedAtMs: nowMs, icons, range, sessions };
-    setDataTrendSnapshotCache(snapshot);
+    if (dataTrendSnapshotCacheEpoch === loadStartedAtEpoch) {
+      setDataTrendSnapshotCache(snapshot);
+    }
     return snapshot;
   });
 }

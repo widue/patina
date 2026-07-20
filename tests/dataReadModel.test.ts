@@ -10,6 +10,7 @@ import {
   buildDataAppTrendViewModel,
   buildYearOptions,
   getDataHeatmapSessionCacheSizeForTests,
+  getCachedEarliestSessionStartTime,
   getCachedDataHeatmapSessions,
   getHeatmapRange,
   loadDataHeatmapSnapshot,
@@ -429,6 +430,41 @@ await runTest("app trend respects user exclusions after aggregate DTO tightening
   }
 });
 
+await runTest("activity heatmap excludes currently disabled apps and restores retained history", () => {
+  const nowMs = new Date(2026, 4, 8, 12, 0, 0).getTime();
+  const sessions = [
+    makeSession({
+      appName: "Cursor",
+      exeName: "cursor.exe",
+      startTime: new Date(2026, 4, 8, 9, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 8, 10, 0, 0).getTime(),
+    }),
+    makeSession({
+      appName: "Blender",
+      exeName: "blender.exe",
+      startTime: new Date(2026, 4, 8, 10, 0, 0).getTime(),
+      endTime: new Date(2026, 4, 8, 11, 0, 0).getTime(),
+    }),
+  ];
+
+  ProcessMapper.setUserOverride("cursor.exe", { track: false });
+  try {
+    const excludedRows = buildActivityHeatmap(sessions, "recent", nowMs);
+    const excludedCell = excludedRows
+      .flatMap((week) => week.cells)
+      .find((cell) => cell.date === "2026-05-08");
+    assert.equal(excludedCell?.duration, 60 * 60_000);
+  } finally {
+    ProcessMapper.clearUserOverrides();
+  }
+
+  const restoredRows = buildActivityHeatmap(sessions, "recent", nowMs);
+  const restoredCell = restoredRows
+    .flatMap((week) => week.cells)
+    .find((cell) => cell.date === "2026-05-08");
+  assert.equal(restoredCell?.duration, 2 * 60 * 60_000);
+});
+
 await runTest("recent heatmap range is aligned to whole local weeks", () => {
   const nowMs = new Date(2026, 4, 8, 12, 0, 0).getTime();
   const range = getHeatmapRange("recent", nowMs);
@@ -728,6 +764,41 @@ await runTest("data heavy cache cleanup clears trend and heatmap caches without 
     loadPayload: async () => JSON.stringify(makeBootstrapSnapshot()),
     savePayload: async () => undefined,
   }))?.overviewRangeCacheKey, "rolling:7:2026-05-02:2026-05-08");
+});
+
+await runTest("data heavy cache cleanup prevents late in-flight snapshots from repopulating caches", async () => {
+  resetDataReadModelCacheForTests();
+  clearDataTrendSnapshotCache();
+  const nowMs = new Date(2026, 0, 3, 12, 0, 0).getTime();
+  let releaseHeatmap: (() => void) | null = null;
+  let releaseTrend: (() => void) | null = null;
+
+  const heatmapPromise = loadDataHeatmapSnapshot("recent", nowMs, {
+    getEarliestSessionStartTime: async () => nowMs - 60_000,
+    getSessionsInRange: async () => {
+      await new Promise<void>((resolve) => {
+        releaseHeatmap = resolve;
+      });
+      return [];
+    },
+  });
+  const trendPromise = loadDataTrendSnapshot({ kind: "rolling", days: 7 }, nowMs, {
+    getSessionSummariesInRange: async () => {
+      await new Promise<void>((resolve) => {
+        releaseTrend = resolve;
+      });
+      return [];
+    },
+  });
+
+  clearDataHeavyCaches();
+  releaseHeatmap?.();
+  releaseTrend?.();
+  await Promise.all([heatmapPromise, trendPromise]);
+
+  assert.equal(getDataHeatmapSessionCacheSizeForTests(), 0);
+  assert.equal(getCachedEarliestSessionStartTime(), undefined);
+  assert.equal(getDataTrendSnapshotCacheSizeForTests(), 0);
 });
 
 console.log(`Passed ${passed} data read model tests`);

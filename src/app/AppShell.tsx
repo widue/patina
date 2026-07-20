@@ -587,6 +587,7 @@ function AppShellContent() {
                     clearDashboardSnapshotCache();
                     void clearHistoryCachesAfterDataChange();
                     clearToolsPageCaches();
+                    clearDataHeavyCaches();
                     void clearDataBootstrapCache();
                     setReadModelRefreshState(applyMappingOverridesReadModelRefresh);
                     pushToast(uiText.app.mappingUpdated, "success");

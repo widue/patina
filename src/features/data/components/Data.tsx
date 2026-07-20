@@ -9,16 +9,18 @@ import {
   buildDataTrendAggregateContext,
   buildDataTrendViewModelFromAggregate,
   buildDataTrendViewModel,
-  buildActivityHeatmap,
-  buildYearOptions,
   getCachedDataHeatmapSessions,
   getCachedEarliestSessionStartTime,
   type DataAppTrendViewModel,
   type DataTrendViewModel,
   type AggregateSessionRecord,
-  type HeatmapSelection,
   loadDataHeatmapSnapshot,
 } from "../services/dataReadModel.ts";
+import {
+  buildActivityHeatmap,
+  buildYearOptions,
+  type HeatmapSelection,
+} from "../services/dataHeatmapReadModel.ts";
 import {
   getCachedDataBootstrapSnapshot,
   loadPersistedDataBootstrapSnapshot,
