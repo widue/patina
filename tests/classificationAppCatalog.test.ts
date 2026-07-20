@@ -11,6 +11,8 @@ import {
   ClassificationAppCatalogController,
   loadClassificationAppCatalogBatch,
 } from "../src/features/classification/services/classificationAppCatalog.ts";
+import { ProcessMapper } from "../src/shared/classification/processMapper.ts";
+import type { ObservedAppCandidate } from "../src/features/classification/services/classificationStore.ts";
 
 let passed = 0;
 
@@ -93,6 +95,32 @@ await runTest("recorded catalog reaches native and imported applications older t
   db.close();
 });
 
+await runTest("recorded catalog preserves missing runtime names for executable formatting", () => {
+  const db = createCatalogFixture();
+  db.exec("INSERT INTO sessions VALUES (1, 'new-editor.exe', '', 1000, 1100)");
+
+  const page = selectRecordedPage(db, null, "", 10);
+  assert.equal(page.rows[0].appName, "");
+  db.close();
+});
+
+await runTest("catalog formats executable names only after missing runtime facts stay empty", async () => {
+  const db = createCatalogFixture();
+  db.exec("INSERT INTO sessions VALUES (1, 'new-editor.exe', '', 1000, 1100)");
+  const result = await loadClassificationAppCatalogBatch({
+    cursor: null,
+    searchQuery: "",
+    seenExeNames: [],
+  }, {
+    loadRecordedPage: async ({ cursor, searchQuery, limit }) => (
+      selectRecordedPage(db, cursor, searchQuery, limit)
+    ),
+  });
+
+  assert.equal(result.candidates[0].appName, "New Editor");
+  db.close();
+});
+
 await runTest("recorded catalog keyset cursor is stable for equal last-seen values", () => {
   const db = createCatalogFixture();
   db.exec(`
@@ -162,6 +190,89 @@ await runTest("catalog batch canonicalizes duplicates across raw pages", async (
   assert.deepEqual(result.candidates.map((candidate) => candidate.exeName), ["code.exe", "notes.exe"]);
   assert.equal(result.candidates[0].hasNativeRecords, true);
   assert.equal(call, 2);
+});
+
+await runTest("catalog uses the canonical executable fallback for alias-only components", async () => {
+  const result = await loadClassificationAppCatalogBatch({
+    cursor: null,
+    searchQuery: "",
+    seenExeNames: [],
+  }, {
+    loadRecordedPage: async () => ({
+      rows: [{
+        rawExeName: "Douyin_tray.exe",
+        appName: "Douyin_tray",
+        lastSeenMs: 100,
+        hasNativeRecords: true,
+      }],
+      nextCursor: { lastSeenMs: 100, rawExeName: "Douyin_tray.exe" },
+      hasMore: false,
+    }),
+  });
+
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].exeName, "douyin.exe");
+  assert.equal(result.candidates[0].appName, "Douyin");
+});
+
+await runTest("catalog prefers a later canonical runtime name over a newer alias fallback", async () => {
+  const result = await loadClassificationAppCatalogBatch({
+    cursor: null,
+    searchQuery: "",
+    seenExeNames: [],
+  }, {
+    loadRecordedPage: async () => ({
+      rows: [
+        {
+          rawExeName: "Douyin_tray.exe",
+          appName: "Douyin_tray",
+          lastSeenMs: 200,
+          hasNativeRecords: true,
+        },
+        {
+          rawExeName: "douyin.exe",
+          appName: "抖音",
+          lastSeenMs: 100,
+          hasNativeRecords: true,
+        },
+      ],
+      nextCursor: { lastSeenMs: 100, rawExeName: "douyin.exe" },
+      hasMore: false,
+    }),
+  });
+
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].exeName, "douyin.exe");
+  assert.equal(result.candidates[0].appName, "抖音");
+});
+
+await runTest("catalog candidates keep runtime names separate from saved display overrides", async () => {
+  ProcessMapper.setUserOverride("new-editor.exe", {
+    displayName: "My Editor",
+    enabled: true,
+  });
+  try {
+    const result = await loadClassificationAppCatalogBatch({
+      cursor: null,
+      searchQuery: "",
+      seenExeNames: [],
+    }, {
+      loadRecordedPage: async () => ({
+        rows: [{
+          rawExeName: "new-editor.exe",
+          appName: "Runtime Editor",
+          lastSeenMs: 100,
+          hasNativeRecords: true,
+        }],
+        nextCursor: { lastSeenMs: 100, rawExeName: "new-editor.exe" },
+        hasMore: false,
+      }),
+    });
+
+    assert.equal(result.candidates[0].appName, "Runtime Editor");
+  } finally {
+    ProcessMapper.clearUserOverrides();
+  }
 });
 
 await runTest("catalog batch stops after the bounded raw-page scan budget", async () => {
@@ -256,6 +367,56 @@ await runTest("catalog controller automatically exhausts every internal batch", 
   assert.equal(new Set(collected).size, 130);
   assert.ok(batches >= 3);
   db.close();
+});
+
+await runTest("catalog controller upgrades alias fallbacks across batch boundaries", async () => {
+  const firstRows = [
+    {
+      rawExeName: "Douyin_tray.exe",
+      appName: "Douyin_tray",
+      lastSeenMs: 1_000,
+      hasNativeRecords: true,
+    },
+    ...Array.from({ length: 59 }, (_, index) => ({
+      rawExeName: `filler-${index}.exe`,
+      appName: `Filler ${index}`,
+      lastSeenMs: 999 - index,
+      hasNativeRecords: true,
+    })),
+  ];
+  let page = 0;
+  const controller = new ClassificationAppCatalogController({
+    loadRecordedPage: async () => {
+      page += 1;
+      if (page === 1) {
+        return {
+          rows: firstRows,
+          nextCursor: { lastSeenMs: 940, rawExeName: "filler-58.exe" },
+          hasMore: true,
+        };
+      }
+      return {
+        rows: [{
+          rawExeName: "douyin.exe",
+          appName: "抖音",
+          lastSeenMs: 100,
+          hasNativeRecords: true,
+        }],
+        nextCursor: { lastSeenMs: 100, rawExeName: "douyin.exe" },
+        hasMore: false,
+      };
+    },
+  });
+  const collected = new Map<string, ObservedAppCandidate>();
+  await controller.loadAll({
+    onBatch: (candidates) => {
+      for (const candidate of candidates) {
+        collected.set(candidate.exeName, candidate);
+      }
+    },
+  });
+
+  assert.equal(collected.get("douyin.exe")?.appName, "抖音");
 });
 
 await runTest("only the latest catalog generation may update visible state", () => {

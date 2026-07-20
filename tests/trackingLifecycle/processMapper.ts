@@ -5,13 +5,11 @@ import {
   buildHistoryReadModel,
   makeSession,
   ProcessMapper,
-  resolveCanonicalDisplayName,
   resolveCanonicalExecutable,
   resolveTrackerHealth,
   runTest,
   shouldTrackProcess,
 } from "./shared.ts";
-import { setUiTextLanguage } from "../../src/shared/copy/index.ts";
 
 export function runProcessMapperTests() {
   runTest("system windows processes are excluded from tracking", () => {
@@ -42,6 +40,11 @@ export function runProcessMapperTests() {
       "wuauclt.exe",
       "UsoClient.exe",
       "sihost.exe",
+      "taskmgr.exe",
+      "regedit.exe",
+      "mmc.exe",
+      "control.exe",
+      "shellhost.exe",
     ];
 
     for (const exeName of blockedProcesses) {
@@ -76,22 +79,20 @@ export function runProcessMapperTests() {
     assert.equal(ProcessMapper.shouldTrack("explorer.exe"), true);
     assert.equal(ProcessMapper.map("explorer.exe").category, "other");
 
-    setUiTextLanguage("zh-CN");
-    assert.equal(ProcessMapper.map("explorer.exe").name, "文件资源管理器");
-
-    setUiTextLanguage("en-US");
-    assert.equal(ProcessMapper.map("explorer.exe").name, "File Explorer");
+    assert.equal(
+      ProcessMapper.map("explorer.exe", { appName: "文件资源管理器" }).name,
+      "文件资源管理器",
+    );
+    assert.equal(ProcessMapper.map("explorer.exe").name, "Explorer");
 
     ProcessMapper.setUserOverride("explorer.exe", {
       displayName: "Files",
       enabled: true,
       updatedAt: Date.now(),
     });
-    setUiTextLanguage("zh-CN");
-    assert.equal(ProcessMapper.map("explorer.exe").name, "Files");
+    assert.equal(ProcessMapper.map("explorer.exe", { appName: "文件资源管理器" }).name, "Files");
 
     ProcessMapper.clearUserOverrides();
-    setUiTextLanguage("zh-CN");
   });
 
   runTest("wallpaper engine app windows remain trackable but unclassified", () => {
@@ -121,7 +122,7 @@ export function runProcessMapperTests() {
     ) {
       assert.equal(shouldTrackProcess(exeName), true);
       assert.equal(ProcessMapper.shouldTrack(exeName), true);
-      assert.equal(ProcessMapper.map(exeName).name, "Patina");
+      assert.equal(ProcessMapper.map(exeName, { appName: "Patina" }).name, "Patina");
       assert.equal(ProcessMapper.map(exeName).category, "other");
     }
   });
@@ -168,7 +169,7 @@ export function runProcessMapperTests() {
   runTest("process mapper resolves known alias executables to canonical app identity", () => {
     const mapped = ProcessMapper.map("DouYin_Tray.exe");
 
-    assert.equal(mapped.name, "\u6296\u97f3");
+    assert.equal(mapped.name, "Douyin");
     assert.equal(mapped.category, "other");
   });
 
@@ -185,7 +186,6 @@ export function runProcessMapperTests() {
 
     const after = ProcessMapper.map("atlas.exe");
     assert.equal(after.category, "utility");
-    assert.equal(after.source, "override");
 
     ProcessMapper.clearUserOverrides();
   });
@@ -242,7 +242,6 @@ export function runProcessMapperTests() {
 
     const mapped = ProcessMapper.map("atlas.exe");
     assert.equal(mapped.category, "custom:%E4%B8%93%E6%B3%A8");
-    assert.equal(mapped.source, "override");
     assert.equal(
       ProcessMapper.getCategoryLabel("custom:\u4e13\u6ce8"),
       "\u4e13\u6ce8",
@@ -268,11 +267,11 @@ export function runProcessMapperTests() {
     }
   });
 
-  runTest("known default apps prefer stable display names over raw metadata names", () => {
+  runTest("runtime application names are not replaced by a static software catalog", () => {
     ProcessMapper.clearUserOverrides();
     const mapped = ProcessMapper.map("windowsterminal.exe", { appName: "WindowsTerminal" });
 
-    assert.equal(mapped.name, "Windows Terminal");
+    assert.equal(mapped.name, "WindowsTerminal");
     assert.equal(mapped.category, "other");
   });
 
@@ -396,8 +395,11 @@ export function runProcessMapperTests() {
     assert.equal(resolveCanonicalExecutable("alma-0.0.750-win-x64.exe"), "alma.exe");
     assert.equal(resolveCanonicalExecutable("cursor-updater.exe"), "cursor.exe");
     assert.equal(resolveCanonicalExecutable("setup-notion.exe"), "notion.exe");
+    assert.equal(resolveCanonicalExecutable("setup-notion-beta.exe"), "notion.exe");
+    assert.equal(resolveCanonicalExecutable("beta-setup-notion.exe"), "beta-setup-notion.exe");
     assert.equal(resolveCanonicalExecutable("obsidian-uninstall.exe"), "obsidian.exe");
-    assert.equal(resolveCanonicalDisplayName("douyin.exe"), "\u6296\u97f3");
+    assert.equal(resolveCanonicalExecutable("unknownhelper.exe"), "unknownhelper.exe");
+    assert.equal(resolveCanonicalExecutable("product-updater.exe"), "product-updater.exe");
     assert.equal(shouldTrackProcess("PickerHost.exe"), false);
     assert.equal(shouldTrackProcess("pickerhost"), false);
     assert.equal(shouldTrackProcess("uninstall.exe"), false);
@@ -409,6 +411,7 @@ export function runProcessMapperTests() {
     assert.equal(shouldTrackProcess("obsidian-setup.exe"), false);
     assert.equal(shouldTrackProcess("cursor-installer.exe"), false);
     assert.equal(shouldTrackProcess("cursor-updater.exe"), false);
+    assert.equal(ProcessMapper.shouldTrack("cursor-updater.exe"), false);
     assert.equal(shouldTrackProcess("hrupdate.exe"), false);
     assert.equal(shouldTrackProcess("weixinupdate.exe", { appName: "WeChatUpdate" }), false);
     assert.equal(shouldTrackProcess("microsoftedgeupdate.exe", { appName: "Microsoft Edge Update" }), false);

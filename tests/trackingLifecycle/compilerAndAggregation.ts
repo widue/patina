@@ -7,7 +7,6 @@ import {
   getDayRange,
   getRollingDayRanges,
   makeSession,
-  resolveCanonicalDisplayName,
   runTest,
 } from "./shared.ts";
 import type { HistorySession } from "./shared.ts";
@@ -41,16 +40,16 @@ export function runCompilerAndAggregationTests() {
     const compiled = compileSessions(sessions, {
       startMs: 0,
       endMs: 300_000,
-      minSessionSecs: 0,
+      minSessionSecs: 30,
     });
     const stats = buildNormalizedAppStats(compiled);
     assert.equal(stats.length, 1);
     assert.equal(stats[0].exeName.toLowerCase(), "douyin.exe");
-    assert.equal(stats[0].appName, resolveCanonicalDisplayName("douyin.exe"));
+    assert.equal(stats[0].appName, "\u6296\u97f3");
     assert.equal(stats[0].totalDuration, 180_000);
   });
 
-  runTest("alias-first sessions still use canonical display name", () => {
+  runTest("alias-first sessions still prefer the recorded owner display name", () => {
     const sessions: HistorySession[] = [
       makeSession({ id: 1, exeName: "DouYin_Tray.exe", appName: "Douyin_tray", startTime: 0, endTime: 60_000, duration: 60_000 }),
       makeSession({ id: 2, exeName: "douyin.exe", appName: "\u6296\u97f3", startTime: 65_000, endTime: 125_000, duration: 60_000 }),
@@ -63,7 +62,27 @@ export function runCompilerAndAggregationTests() {
     const stats = buildNormalizedAppStats(compiled);
     assert.equal(stats.length, 1);
     assert.equal(stats[0].exeName.toLowerCase(), "douyin.exe");
-    assert.equal(stats[0].appName, resolveCanonicalDisplayName("douyin.exe"));
+    assert.equal(stats[0].appName, "\u6296\u97f3");
+  });
+
+  runTest("alias-first ASCII sessions prefer the recorded owner runtime name", () => {
+    const sessions: HistorySession[] = [
+      makeSession({ id: 1, exeName: "steamwebhelper.exe", appName: "SteamWebHelper", startTime: 0, endTime: 60_000, duration: 60_000 }),
+      makeSession({ id: 2, exeName: "steam.exe", appName: "Steam Client", startTime: 65_000, endTime: 125_000, duration: 60_000 }),
+    ];
+    const compiled = compileSessions(sessions, {
+      startMs: 0,
+      endMs: 300_000,
+      minSessionSecs: 30,
+    });
+    const stats = buildNormalizedAppStats(compiled);
+
+    assert.equal(stats.length, 1);
+    assert.equal(stats[0].exeName.toLowerCase(), "steam.exe");
+    assert.equal(stats[0].appName, "Steam Client");
+    assert.equal(compiled.length, 1);
+    assert.equal(compiled[0].mergedCount, 2);
+    assert.equal(compiled[0].displayName, "Steam Client");
   });
 
   runTest("installer windows are filtered instead of collapsing into the owning app", () => {

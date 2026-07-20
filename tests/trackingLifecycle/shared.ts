@@ -102,7 +102,6 @@ export type {
 };
 
 export const shouldTrack = (exeName: string) => AppClassification.shouldTrackApp(exeName);
-export const resolveCanonicalDisplayName = AppClassification.resolveCanonicalDisplayName;
 export const resolveCanonicalExecutable = AppClassification.resolveCanonicalExecutable;
 export const shouldTrackProcess = AppClassification.shouldTrackProcess;
 

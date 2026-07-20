@@ -15,6 +15,7 @@ import {
   updateCategoryLabelInDraftState,
 } from "../src/features/classification/hooks/appMappingStateHelpers.ts";
 import {
+  buildObservedAppCandidates,
   buildAppOverrideTransition,
   buildLegacyAutoClassificationMigrationMutations,
   parsePersistedDeletedCategories,
@@ -141,7 +142,7 @@ await runTest("first install assignable categories match the lean default set", 
   );
 });
 
-await runTest("default app mapping ignores saved runtime overrides", () => {
+await runTest("mapping without override ignores saved user overrides", () => {
   ProcessMapper.clearUserOverrides();
   ProcessMapper.setUserOverride("chrome.exe", {
     enabled: true,
@@ -149,25 +150,67 @@ await runTest("default app mapping ignores saved runtime overrides", () => {
     category: "other",
   });
 
-  const mapped = ProcessMapper.map("chrome.exe");
-  const defaults = ProcessMapper.mapDefault("chrome.exe");
+  const mapped = ProcessMapper.map("chrome.exe", { appName: "Google Chrome" });
+  const withoutOverride = ProcessMapper.mapWithoutOverride("chrome.exe", { appName: "Google Chrome" });
 
   assert.equal(mapped.name, "Work Browser");
   assert.equal(mapped.category, "other");
-  assert.equal(defaults.name, "Google Chrome");
-  assert.equal(defaults.category, "other");
+  assert.equal(withoutOverride.name, "Google Chrome");
+  assert.equal(withoutOverride.category, "other");
 
   ProcessMapper.clearUserOverrides();
 });
 
-await runTest("default app mapping names supported browser family candidates", () => {
-  assert.equal(ProcessMapper.mapDefault("360chromex.exe").name, "360 极速浏览器 X");
-  assert.equal(ProcessMapper.mapDefault("thorium.exe").name, "Thorium");
-  assert.equal(ProcessMapper.mapDefault("centbrowser.exe").name, "Cent Browser");
-  assert.equal(ProcessMapper.mapDefault("catsxp.exe").name, "Catsxp");
-  assert.equal(ProcessMapper.mapDefault("zen.exe").name, "Zen");
-  assert.equal(ProcessMapper.mapDefault("floorp.exe").name, "Floorp");
-  assert.equal(ProcessMapper.mapDefault("iceweasel.exe").name, "Iceweasel");
+await runTest("unknown apps use runtime names and executable fallbacks without a catalog entry", () => {
+  assert.equal(
+    ProcessMapper.mapWithoutOverride("new-editor.exe", { appName: "New Editor Runtime" }).name,
+    "New Editor Runtime",
+  );
+  assert.equal(ProcessMapper.mapWithoutOverride("new-editor.exe").name, "New Editor");
+  assert.equal(ProcessMapper.shouldTrack("new-editor.exe"), true);
+});
+
+await runTest("observed candidate facts never reuse saved display overrides as runtime names", () => {
+  ProcessMapper.setUserOverride("new-editor.exe", {
+    displayName: "My Editor",
+    enabled: true,
+  });
+  try {
+    const [candidate] = buildObservedAppCandidates([{
+      exeName: "new-editor.exe",
+      appName: "",
+      totalDuration: 1_000,
+      lastSeenMs: 2_000,
+      hasNativeRecords: true,
+    }]);
+
+    assert.equal(candidate.exeName, "new-editor.exe");
+    assert.equal(candidate.appName, "New Editor");
+  } finally {
+    ProcessMapper.clearUserOverrides();
+  }
+});
+
+await runTest("observed candidates prefer canonical runtime names over alias process metadata", () => {
+  const [candidate] = buildObservedAppCandidates([
+    {
+      exeName: "Douyin_tray.exe",
+      appName: "Douyin_tray",
+      totalDuration: 1_000,
+      lastSeenMs: 3_000,
+      hasNativeRecords: true,
+    },
+    {
+      exeName: "douyin.exe",
+      appName: "抖音",
+      totalDuration: 1_000,
+      lastSeenMs: 2_000,
+      hasNativeRecords: true,
+    },
+  ]);
+
+  assert.equal(candidate.exeName, "douyin.exe");
+  assert.equal(candidate.appName, "抖音");
 });
 
 await runTest("historical other category overrides remain safely readable as unclassified", () => {
@@ -273,6 +316,21 @@ await runTest("unsupported historical classification overrides are ignored", () 
   assert.equal(transition.canonicalExe, "zoom.exe");
   assert.equal(transition.override, null);
   assert.deepEqual(transition.mutations, []);
+});
+
+await runTest("alias-backed app overrides migrate to the explicit canonical executable key", () => {
+  const transition = buildAppOverrideTransition(
+    "__app_override::Douyin_tray.exe",
+    JSON.stringify({ displayName: "短视频", enabled: true, updatedAt: 123 }),
+  );
+
+  assert.equal(transition.canonicalExe, "douyin.exe");
+  assert.equal(transition.override?.displayName, "短视频");
+  assert.deepEqual(transition.mutations.map((mutation) => mutation.key), [
+    "__app_override::Douyin_tray.exe",
+    "__app_override::douyin.exe",
+  ]);
+  assert.equal(transition.mutations[0].value, null);
 });
 
 await runTest("plain category override storage values are ignored", () => {

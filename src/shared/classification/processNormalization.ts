@@ -1,11 +1,33 @@
-import { DEFAULT_APP_MAPPINGS } from "./defaultMappings.ts";
-
 const DERIVED_ALIAS_SUFFIXES = [
   "webhelper",
   "helper",
   "widget",
   "tray",
 ];
+
+// Only owners with verified component naming conventions may use the generic
+// helper/widget/tray suffix parser. Presence in a display-name catalog is not
+// evidence that two executables share an application identity.
+const DERIVED_COMPONENT_OWNER_EXES = new Set([
+  "douyin.exe",
+  "steam.exe",
+]);
+
+// Lifecycle executables are normally filtered before aggregation. These
+// owners remain explicit so canonicalization never guesses an arbitrary
+// product identity from installer/update naming alone.
+const LIFECYCLE_ALIAS_OWNER_EXES = new Set([
+  "alma.exe",
+  "cursor.exe",
+  "notion.exe",
+  "obsidian.exe",
+]);
+
+// This equivalence is scoped to compact lifecycle metadata matching. It does
+// not merge the main application executables in statistics.
+const LIFECYCLE_METADATA_STEM_ALIASES: Readonly<Record<string, string>> = {
+  weixin: "wechat",
+};
 
 const LIFECYCLE_ALIAS_MARKERS = [
   "uninstaller",
@@ -115,6 +137,8 @@ const NON_TRACKABLE_EXE_NAMES = new Set([
 ]);
 
 const READ_MODEL_BLOCKED_EXE_NAMES = new Set([
+  "control.exe",
+  "control",
   "consent.exe",
   "consent",
   "csrss.exe",
@@ -129,6 +153,10 @@ const READ_MODEL_BLOCKED_EXE_NAMES = new Set([
   "logonui",
   "lsass.exe",
   "lsass",
+  "mmc.exe",
+  "mmc",
+  "regedit.exe",
+  "regedit",
   "runtimebroker.exe",
   "runtimebroker",
   "services.exe",
@@ -158,12 +186,16 @@ const READ_MODEL_BLOCKED_EXE_NAMES = new Set([
   "pickerhost",
   "searchhost.exe",
   "searchhost",
+  "shellhost.exe",
+  "shellhost",
   "shellexperiencehost.exe",
   "shellexperiencehost",
   "startmenuexperiencehost.exe",
   "startmenuexperiencehost",
   "taskhostw.exe",
   "taskhostw",
+  "taskmgr.exe",
+  "taskmgr",
   "textinputhost.exe",
   "textinputhost",
 ]);
@@ -208,13 +240,9 @@ function hasCompactLifecycleSuffix(stem: string) {
 }
 
 function areKnownEquivalentAppStems(left: string, right: string) {
-  if (left === right) {
-    return true;
-  }
-
-  const leftMapping = DEFAULT_APP_MAPPINGS[`${left}.exe`];
-  const rightMapping = DEFAULT_APP_MAPPINGS[`${right}.exe`];
-  return Boolean(leftMapping && rightMapping && leftMapping.name === rightMapping.name);
+  const canonicalLeft = LIFECYCLE_METADATA_STEM_ALIASES[left] ?? left;
+  const canonicalRight = LIFECYCLE_METADATA_STEM_ALIASES[right] ?? right;
+  return canonicalLeft === canonicalRight;
 }
 
 function isLifecycleUtilityExecutable(
@@ -387,12 +415,21 @@ function resolveDerivedAliasExecutable(normalizedExe: string) {
     }
 
     const candidateExe = `${baseStem}.exe`;
-    if (DEFAULT_APP_MAPPINGS[candidateExe]) {
+    if (DERIVED_COMPONENT_OWNER_EXES.has(candidateExe)) {
       return candidateExe;
     }
   }
 
   return null;
+}
+
+function resolveExplicitLifecycleOwner(baseStem: string | null) {
+  if (!baseStem) {
+    return null;
+  }
+
+  const candidateExe = `${baseStem}.exe`;
+  return LIFECYCLE_ALIAS_OWNER_EXES.has(candidateExe) ? candidateExe : null;
 }
 
 function resolveLifecycleAliasExecutable(normalizedExe: string) {
@@ -404,16 +441,18 @@ function resolveLifecycleAliasExecutable(normalizedExe: string) {
   ));
   if (suffixMatch?.[1]) {
     const baseStem = sanitizeAliasBaseStem(suffixMatch[1]);
-    if (baseStem) {
-      return `${baseStem}.exe`;
+    const ownerExe = resolveExplicitLifecycleOwner(baseStem);
+    if (ownerExe) {
+      return ownerExe;
     }
   }
 
   const prefixMatch = stem.match(new RegExp(`^(?:${LIFECYCLE_ALIAS_PATTERN})[_\\-. ](.+)$`));
   if (prefixMatch?.[1]) {
     const baseStem = sanitizeAliasBaseStem(prefixMatch[1]);
-    if (baseStem) {
-      return `${baseStem}.exe`;
+    const ownerExe = resolveExplicitLifecycleOwner(baseStem);
+    if (ownerExe) {
+      return ownerExe;
     }
   }
 
@@ -428,8 +467,9 @@ function resolveLifecycleAliasExecutable(normalizedExe: string) {
 
   if (hasVersion && (hasLifecycleMarker || hasBuildContext)) {
     const baseStem = sanitizeAliasBaseStem(tokens[0]);
-    if (baseStem) {
-      return `${baseStem}.exe`;
+    const ownerExe = resolveExplicitLifecycleOwner(baseStem);
+    if (ownerExe) {
+      return ownerExe;
     }
   }
 
@@ -449,11 +489,6 @@ export function resolveCanonicalExecutable(exeName: string) {
   }
 
   return normalized;
-}
-
-export function resolveCanonicalDisplayName(exeName: string) {
-  const canonicalExe = resolveCanonicalExecutable(exeName);
-  return DEFAULT_APP_MAPPINGS[canonicalExe]?.name;
 }
 
 export function shouldTrackProcess(

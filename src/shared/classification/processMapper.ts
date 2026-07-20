@@ -7,12 +7,8 @@ import {
   type AppCategory,
   type UserAssignableAppCategory,
 } from "./categoryTokens.ts";
-import { DEFAULT_APP_MAPPINGS } from "./defaultMappings.ts";
 import { resolveCanonicalExecutable, shouldTrackProcess } from "./processNormalization.ts";
 import { CategoryColorRegistry } from "./categoryColorRegistry.ts";
-import { getUiTextLanguage } from "../copy/index.ts";
-
-export type MappingConfidence = "high" | "medium" | "low";
 
 export interface MappingHints {
   appName?: string;
@@ -32,8 +28,6 @@ export interface AppInfo {
   name: string;
   category: AppCategory;
   color: string;
-  confidence: MappingConfidence;
-  source: "default" | "override" | "fallback";
 }
 
 const USER_ASSIGNABLE_CATEGORY_SET = new Set<string>(USER_ASSIGNABLE_CATEGORIES);
@@ -82,10 +76,6 @@ function normalizeCategoryLabelOverrides(
     normalized[category] = trimmed;
   }
   return normalized;
-}
-
-function resolveDefaultMappingName(defaultMapping: { name: string; localizedNames?: Partial<Record<string, string>> }) {
-  return defaultMapping.localizedNames?.[getUiTextLanguage()] ?? defaultMapping.name;
 }
 
 function normalizeUserAssignableCategory(category: string | undefined): UserAssignableAppCategory | null {
@@ -262,28 +252,6 @@ export class ProcessMapper {
 
   private static mapWithOverride(exeName: string, hints: MappingHints, override: AppOverride | null | undefined): AppInfo {
     const canonicalExe = resolveCanonicalExecutable(exeName);
-    const defaultMapping = DEFAULT_APP_MAPPINGS[canonicalExe];
-    const hasOverride = Boolean(
-      override?.category
-      || override?.displayName
-      || override?.color
-      || override?.track === false
-      || override?.captureTitle === false,
-    );
-
-    if (defaultMapping) {
-      const mappedCategory = override?.category ?? defaultMapping.category ?? "other";
-      const category = this.categoryColors.resolveActiveCategory(mappedCategory);
-      const name = override?.displayName || resolveDefaultMappingName(defaultMapping);
-      return {
-        name,
-        category,
-        color: override?.color ?? this.categoryColors.getCategoryColor(category),
-        confidence: "high",
-        source: hasOverride ? "override" : "default",
-      };
-    }
-
     const fallbackName = formatFallbackName(canonicalExe) || canonicalExe;
     const resolvedName = override?.displayName || normalizeDisplayName(hints.appName) || fallbackName;
     const rawCategory = override?.category ?? "other";
@@ -293,10 +261,6 @@ export class ProcessMapper {
       name: resolvedName,
       category: resolvedCategory,
       color: override?.color ?? this.categoryColors.getCategoryColor(resolvedCategory),
-      confidence: override?.category || override?.color || override?.track === false || override?.captureTitle === false
-        ? "high"
-        : "low",
-      source: hasOverride ? "override" : "fallback",
     };
   }
 
@@ -305,22 +269,21 @@ export class ProcessMapper {
     return this.mapWithOverride(exeName, hints, this.userOverrides[canonicalExe]);
   }
 
-  static mapDefault(exeName: string, hints: MappingHints = {}): AppInfo {
+  static mapWithoutOverride(exeName: string, hints: MappingHints = {}): AppInfo {
     return this.mapWithOverride(exeName, hints, null);
   }
 
-  static shouldTrack(exeName: string): boolean {
+  static isTrackingEnabledByUser(exeName: string): boolean {
     const canonicalExe = resolveCanonicalExecutable(exeName);
-    if (!shouldTrackProcess(canonicalExe)) {
+    return this.userOverrides[canonicalExe]?.track !== false;
+  }
+
+  static shouldTrack(exeName: string): boolean {
+    if (!shouldTrackProcess(exeName)) {
       return false;
     }
 
-    const override = this.userOverrides[canonicalExe];
-    if (override?.track === false) {
-      return false;
-    }
-
-    return this.map(canonicalExe).category !== "system";
+    return this.isTrackingEnabledByUser(exeName);
   }
 
   static toOverrideStorageValue(override: AppOverride) {

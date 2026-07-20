@@ -74,6 +74,7 @@ export interface RecordedAppCatalogQuery {
 }
 
 interface MutableObservedSessionStat extends ObservedSessionStatRow {
+  appNameFactRank: number;
   appNameOriginRank: number;
   appNameLastSeenMs: number;
 }
@@ -135,14 +136,17 @@ export function buildObservedSessionStats(
     const duration = Math.max(0, range.endTime - range.startTime);
     if (duration <= 0) continue;
     const originRank = APP_NAME_ORIGIN_RANK[row.origin];
+    const appName = row.app_name?.trim() || "";
+    const appNameFactRank = appName ? 1 : 0;
     const previous = aggregated.get(row.exe_name);
     if (!previous) {
       aggregated.set(row.exe_name, {
         exeName: row.exe_name,
-        appName: row.app_name?.trim() || row.exe_name,
+        appName,
         totalDuration: duration,
         lastSeenMs: range.startTime,
         hasNativeRecords: row.origin === "native",
+        appNameFactRank,
         appNameOriginRank: originRank,
         appNameLastSeenMs: range.startTime,
       });
@@ -153,10 +157,17 @@ export function buildObservedSessionStats(
     previous.hasNativeRecords ||= row.origin === "native";
     previous.lastSeenMs = Math.max(previous.lastSeenMs, range.startTime);
     if (
-      originRank < previous.appNameOriginRank
-      || (originRank === previous.appNameOriginRank && range.startTime > previous.appNameLastSeenMs)
+      appNameFactRank > previous.appNameFactRank
+      || (
+        appNameFactRank === previous.appNameFactRank
+        && (
+          originRank < previous.appNameOriginRank
+          || (originRank === previous.appNameOriginRank && range.startTime > previous.appNameLastSeenMs)
+        )
+      )
     ) {
-      previous.appName = row.app_name?.trim() || row.exe_name;
+      previous.appName = appName;
+      previous.appNameFactRank = appNameFactRank;
       previous.appNameOriginRank = originRank;
       previous.appNameLastSeenMs = range.startTime;
     }
@@ -243,7 +254,7 @@ export async function loadObservedSessionStats(
        WHERE start_time < ? AND end_time > ?
        UNION ALL
        SELECT id AS record_id, 'import_bucket' AS origin, exe_name,
-              COALESCE(NULLIF(app_name, ''), exe_name) AS app_name,
+              COALESCE(app_name, '') AS app_name,
               bucket_start_time AS start_time,
               bucket_start_time + duration AS effective_end_time,
               bucket_start_time + 3600000 AS capacity_end_time
@@ -298,7 +309,7 @@ export function buildRecordedAppCatalogQuery({
                         AND NULLIF(TRIM(session.app_name), '') IS NOT NULL
                       ORDER BY session.start_time DESC
                       LIMIT 1),
-                     native.exe_name
+                     ''
                    ) AS app_name,
                    native.last_seen_ms, 0 AS origin_rank, 1 AS has_native_records
             FROM native_app_times AS native
@@ -311,7 +322,7 @@ export function buildRecordedAppCatalogQuery({
                         AND NULLIF(TRIM(imported.app_name), '') IS NOT NULL
                       ORDER BY imported.start_time DESC
                       LIMIT 1),
-                     exact.exe_name
+                     ''
                    ) AS app_name,
                    exact.last_seen_ms, 1 AS origin_rank, 0 AS has_native_records
             FROM exact_app_times AS exact
@@ -324,7 +335,7 @@ export function buildRecordedAppCatalogQuery({
                         AND NULLIF(TRIM(imported_bucket.app_name), '') IS NOT NULL
                       ORDER BY imported_bucket.bucket_start_time DESC
                       LIMIT 1),
-                     bucket.exe_name
+                     ''
                    ) AS app_name,
                    bucket.last_seen_ms, 2 AS origin_rank, 0 AS has_native_records
             FROM bucket_app_times AS bucket
@@ -334,7 +345,7 @@ export function buildRecordedAppCatalogQuery({
                      MAX(CASE WHEN origin_rank = 0 THEN NULLIF(TRIM(app_name), '') END),
                      MAX(CASE WHEN origin_rank = 1 THEN NULLIF(TRIM(app_name), '') END),
                      MAX(CASE WHEN origin_rank = 2 THEN NULLIF(TRIM(app_name), '') END),
-                     exe_name
+                     ''
                    ) AS app_name,
                    MAX(last_seen_ms) AS last_seen_ms,
                    MAX(has_native_records) AS has_native_records

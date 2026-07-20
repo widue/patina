@@ -20,7 +20,6 @@ import {
   type AppOverride,
   type ClassificationDraftState,
 } from "../services/classificationService";
-import { fallbackDisplayName } from "./appMappingStateHelpers.ts";
 
 const USER_ASSIGNABLE_CATEGORY_SET = new Set<string>(USER_ASSIGNABLE_CATEGORIES);
 interface UseAppMappingDerivedStateParams {
@@ -118,21 +117,17 @@ export function useAppMappingDerivedState({
     draftCategoryLabelOverrides[category] ?? AppClassification.getCategoryLabel(category)
   ), [draftCategoryLabelOverrides]);
 
-  const resolveAutoDisplayName = useCallback((candidate: ObservedAppCandidate) => {
-    const appName = candidate.appName.trim();
-    return appName || fallbackDisplayName(candidate.exeName) || candidate.exeName;
-  }, []);
+  const resolveAutoDisplayName = useCallback((candidate: ObservedAppCandidate) => (
+    AppClassification.mapAppWithoutOverride(candidate.exeName, { appName: candidate.appName }).name
+  ), []);
 
   const resolveMappedCategory = useCallback((candidate: ObservedAppCandidate): UserAssignableAppCategory => {
-    const mapped = AppClassification.mapDefaultApp(candidate.exeName, { appName: candidate.appName });
     const overrideCategory = draftOverrides[candidate.exeName]?.category;
-    return resolveUserAssignableCategory(overrideCategory ?? mapped.category);
+    return resolveUserAssignableCategory(overrideCategory ?? "other");
   }, [draftOverrides]);
 
   const resolveEffectiveDisplayName = useCallback((candidate: ObservedAppCandidate) => {
-    const mapped = AppClassification.mapDefaultApp(candidate.exeName, { appName: candidate.appName });
     return draftOverrides[candidate.exeName]?.displayName?.trim()
-      || mapped.name
       || resolveAutoDisplayName(candidate);
   }, [draftOverrides, resolveAutoDisplayName]);
 
@@ -140,9 +135,7 @@ export function useAppMappingDerivedState({
     candidate: ObservedAppCandidate,
     override: AppOverride | null,
   ) => {
-    const mapped = AppClassification.mapDefaultApp(candidate.exeName, { appName: candidate.appName });
     return override?.displayName?.trim()
-      || mapped.name
       || resolveAutoDisplayName(candidate);
   }, [resolveAutoDisplayName]);
 
@@ -157,9 +150,8 @@ export function useAppMappingDerivedState({
   }, [draftOverrides, editingNameExe, nameEditSnapshots, resolveDisplayNameFromOverride, resolveEffectiveDisplayName]);
 
   const resolveTrackingEnabled = useCallback((candidate: ObservedAppCandidate) => {
-    const mapped = AppClassification.mapDefaultApp(candidate.exeName, { appName: candidate.appName });
-    const baseCategory = draftOverrides[candidate.exeName]?.category ?? mapped.category;
-    return baseCategory !== "system" && draftOverrides[candidate.exeName]?.track !== false;
+    return AppClassification.shouldTrackProcess(candidate.exeName, { appName: candidate.appName })
+      && draftOverrides[candidate.exeName]?.track !== false;
   }, [draftOverrides]);
 
   const resolveTitleCaptureEnabled = useCallback((candidate: ObservedAppCandidate) => (

@@ -2,7 +2,6 @@ import { ProcessMapper, type AppInfo, type AppOverride, type MappingHints } from
 import type { AppCategory } from "./categoryTokens.ts";
 import {
   normalizeExecutable,
-  resolveCanonicalDisplayName,
   resolveCanonicalExecutable,
   shouldTrackProcess,
 } from "./processNormalization.ts";
@@ -12,8 +11,8 @@ export class AppClassification {
     return ProcessMapper.map(exeName, hints);
   }
 
-  static mapDefaultApp(exeName: string, hints: MappingHints = {}): AppInfo {
-    return ProcessMapper.mapDefault(exeName, hints);
+  static mapAppWithoutOverride(exeName: string, hints: MappingHints = {}): AppInfo {
+    return ProcessMapper.mapWithoutOverride(exeName, hints);
   }
 
   static getCategoryLabel(category: AppCategory): string {
@@ -32,12 +31,12 @@ export class AppClassification {
     return ProcessMapper.shouldTrack(exeName);
   }
 
-  static resolveCanonicalExecutable(exeName: string): string {
-    return resolveCanonicalExecutable(exeName);
+  static isAppTrackingEnabledByUser(exeName: string): boolean {
+    return ProcessMapper.isTrackingEnabledByUser(exeName);
   }
 
-  static resolveCanonicalDisplayName(exeName: string): string | undefined {
-    return resolveCanonicalDisplayName(exeName);
+  static resolveCanonicalExecutable(exeName: string): string {
+    return resolveCanonicalExecutable(exeName);
   }
 
   static shouldTrackProcess(

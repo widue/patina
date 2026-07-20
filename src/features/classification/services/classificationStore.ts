@@ -9,6 +9,7 @@ import {
   loadSettingKeysByKeyPrefix,
   loadSettingRowsByKeyPrefix,
   upsertSettingValue,
+  type ObservedSessionStatRow,
   type RecordedAppCatalogQueryInput,
 } from "../../../platform/persistence/classificationPersistence.ts";
 import {
@@ -28,7 +29,11 @@ import {
   type AppCategory,
   type ExtendedAppCategory,
 } from "../../../shared/classification/categoryTokens.ts";
-import { resolveCanonicalExecutable, shouldTrackProcess } from "../../../shared/classification/processNormalization.ts";
+import {
+  normalizeExecutable,
+  resolveCanonicalExecutable,
+  shouldTrackProcess,
+} from "../../../shared/classification/processNormalization.ts";
 import type { ClassificationDraftChangePlan } from "./classificationDraftState.ts";
 import { buildLegacyAutoClassificationOverrides } from "./legacyAutoClassificationMigration.ts";
 import type {
@@ -719,15 +724,12 @@ export async function commitDraftChangePlan(changePlan: ClassificationDraftChang
   await commitClassificationSettingMutations(buildCommitDraftChangePlanSettingMutations(changePlan));
 }
 
-export async function loadObservedAppCandidates(
-  days: number = 30,
+export function buildObservedAppCandidates(
+  rows: readonly ObservedSessionStatRow[],
   limit: number = 120,
-): Promise<ObservedAppCandidate[]> {
-  const sinceMs = Date.now() - (Math.max(1, days) * 24 * 60 * 60 * 1000);
-  const nowMs = Date.now();
-  const rows = await loadObservedSessionStats(sinceMs, nowMs);
-
+): ObservedAppCandidate[] {
   const merged = new Map<string, ObservedAppCandidate>();
+  const displayNameRanks = new Map<string, number>();
 
   for (const row of rows) {
     const canonicalExe = resolveCanonicalExecutable(row.exeName);
@@ -735,14 +737,19 @@ export async function loadObservedAppCandidates(
       continue;
     }
 
-    const mapped = ProcessMapper.map(canonicalExe, { appName: row.appName });
-    if (mapped.category === "system") {
-      continue;
-    }
+    const isCanonicalExecutable = normalizeExecutable(row.exeName) === canonicalExe;
+    const runtimeAppName = row.appName?.trim() ?? "";
+    const mapped = ProcessMapper.mapWithoutOverride(
+      canonicalExe,
+      isCanonicalExecutable ? { appName: runtimeAppName } : {},
+    );
     const previous = merged.get(canonicalExe);
     const duration = Math.max(0, Number(row.totalDuration ?? 0));
     const lastSeenMs = Math.max(0, Number(row.lastSeenMs ?? 0));
-    const appName = row.appName?.trim() || mapped.name;
+    const appName = mapped.name;
+    const displayNameRank = isCanonicalExecutable
+      ? (runtimeAppName ? 2 : 1)
+      : 0;
 
     if (!previous) {
       merged.set(canonicalExe, {
@@ -752,21 +759,37 @@ export async function loadObservedAppCandidates(
         lastSeenMs,
         hasNativeRecords: row.hasNativeRecords,
       });
+      displayNameRanks.set(canonicalExe, displayNameRank);
       continue;
     }
 
     const previousHadNativeRecords = previous.hasNativeRecords === true;
+    const previousDisplayNameRank = displayNameRanks.get(canonicalExe) ?? 0;
     previous.totalDuration += duration;
     previous.lastSeenMs = Math.max(previous.lastSeenMs, lastSeenMs);
     previous.hasNativeRecords ||= row.hasNativeRecords;
-    if ((!previousHadNativeRecords && row.hasNativeRecords) || (!previous.appName && appName)) {
+    if (
+      displayNameRank > previousDisplayNameRank
+      || (displayNameRank === previousDisplayNameRank && !previousHadNativeRecords && row.hasNativeRecords)
+    ) {
       previous.appName = appName;
+      displayNameRanks.set(canonicalExe, displayNameRank);
     }
   }
 
   return Array.from(merged.values())
     .sort((a, b) => b.lastSeenMs - a.lastSeenMs || b.totalDuration - a.totalDuration)
     .slice(0, Math.max(1, limit));
+}
+
+export async function loadObservedAppCandidates(
+  days: number = 30,
+  limit: number = 120,
+): Promise<ObservedAppCandidate[]> {
+  const sinceMs = Date.now() - (Math.max(1, days) * 24 * 60 * 60 * 1000);
+  const nowMs = Date.now();
+  const rows = await loadObservedSessionStats(sinceMs, nowMs);
+  return buildObservedAppCandidates(rows, limit);
 }
 
 export async function loadAppCatalogPage(input: RecordedAppCatalogQueryInput) {

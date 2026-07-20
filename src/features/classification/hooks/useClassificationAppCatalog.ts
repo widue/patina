@@ -30,7 +30,7 @@ export function useClassificationAppCatalog({
   const loadAll = useCallback(async () => {
     const cachedCatalog = completeCatalogCache;
     const hasCache = !!cachedCatalog;
-    const loadedCandidates: ObservedAppCandidate[] = [];
+    const loadedCandidates = new Map<string, ObservedAppCandidate>();
     setView({
       candidates: cachedCatalog ?? [...initialCandidates],
       loading: !hasCache,
@@ -42,9 +42,11 @@ export function useClassificationAppCatalog({
         onBatch: (candidates, hasMore) => {
           if (!candidates.length && hasMore) return;
 
-          loadedCandidates.push(...candidates);
+          for (const candidate of candidates) {
+            loadedCandidates.set(candidate.exeName, candidate);
+          }
           if (hasMore && hasCache) return;
-          const nextCandidates = [...loadedCandidates];
+          const nextCandidates = Array.from(loadedCandidates.values());
           if (!hasMore) completeCatalogCache = nextCandidates;
 
           setView({

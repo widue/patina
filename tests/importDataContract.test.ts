@@ -283,6 +283,45 @@ test("classification statistics apply native precedence and clip the requested r
   assert.equal(editor?.hasNativeRecords, false);
 });
 
+test("classification statistics preserve missing runtime app names", () => {
+  const stats = buildObservedSessionStats([{
+    record_id: 5,
+    origin: "native",
+    exe_name: "new-editor.exe",
+    app_name: "",
+    start_time: 0,
+    effective_end_time: 1_000,
+    capacity_end_time: null,
+  }], 0, 1_000);
+
+  assert.equal(stats[0].appName, "");
+});
+
+test("classification statistics keep runtime facts when newer rows have no app name", () => {
+  const stats = buildObservedSessionStats([
+    {
+      record_id: 6,
+      origin: "native",
+      exe_name: "new-editor.exe",
+      app_name: "New Editor Runtime",
+      start_time: 0,
+      effective_end_time: 1_000,
+      capacity_end_time: null,
+    },
+    {
+      record_id: 7,
+      origin: "native",
+      exe_name: "new-editor.exe",
+      app_name: "",
+      start_time: 1_000,
+      effective_end_time: 2_000,
+      capacity_end_time: null,
+    },
+  ], 0, 2_000);
+
+  assert.equal(stats[0].appName, "New Editor Runtime");
+});
+
 test("import gateway rejects malformed backend payloads", () => {
   assert.throws(() => parseImportPreview({ fileName: "missing fields" }), /invalid import preview/i);
   assert.throws(() => parseImportBatches([{ id: 1 }]), /invalid import batch/i);
