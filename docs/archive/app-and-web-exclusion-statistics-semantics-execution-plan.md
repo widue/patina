@@ -957,7 +957,7 @@ Classification 保存成功
 
 命令：npm run check
 结果：pass
-关键证据：类型、lint、命名、架构、IPC、热点、Quiet Pro、测试治理、覆盖率、8/8 关键变异、浏览器测试、构建与 bundle 全部通过；lazy JS 84.99/85 KiB。
+关键证据：类型、lint、命名、架构、IPC、热点、Quiet Pro、测试治理、覆盖率、8/8 关键变异、浏览器测试、构建与 bundle 全部通过。推送后 CI 暴露 content hash 导致的跨 runner gzip 波动，本地为 84.97 KiB，CI 四舍五入为 85.00 KiB 且越过 85 KiB；聚合预算增加 0.25 KiB 余量，页面与总预算保持不变。
 
 命令：npm run check:full（如适用）
 结果：not required
@@ -1006,6 +1006,6 @@ Project：
 
 1. Data 热力图最初复用完整 session compiler，超过稳定性能预算；改为 feature-owned、按应用身份缓存的轻量统计资格判定后，全套性能基准通过。
 2. Data 热力图与趋势的旧 in-flight 请求可能在 cache clear 后回填旧快照；加入 cache epoch 与 promise ownership 检查，并以竞态测试固定。
-3. `dataReadModel.ts` 一度超过热点文件预算，拆出真实 owner `dataHeatmapReadModel.ts`；随后发现 lazy JS 超预算，移除不影响可见语义的 favicon map 复制裁剪，最终未调高任何工程预算即通过完整门禁。
+3. `dataReadModel.ts` 一度超过热点文件预算，拆出真实 owner `dataHeatmapReadModel.ts`；随后移除不影响可见语义的 favicon map 复制裁剪。推送后 CI 证明 lazy JS 聚合预算仅剩几十字节、会受 content hash 的跨 runner gzip 波动影响，因此在页面与总预算不变的前提下，将聚合预算增加 0.25 KiB 作为稳定余量。
 
 复审未发现未解决的阻断级、高风险或中风险问题。剩余 Project 状态拖动属于维护者协作动作，不影响本地实现完成与归档。
