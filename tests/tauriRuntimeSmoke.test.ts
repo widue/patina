@@ -60,6 +60,31 @@ async function evaluate(client: CdpConnection, expression: string) {
   return (response.result as { value?: unknown } | undefined)?.value;
 }
 
+async function warmViteClientGraph(server: ViteDevServer, entryUrl: string) {
+  // An HTML 200 only proves that Vite is listening. Hosted runners may still
+  // spend longer than Patina's product watchdog transforming the cold client
+  // graph, so finish that test-only work before the native window is created.
+  await server.warmupRequest(entryUrl);
+
+  return waitFor(
+    "Vite client module graph warmup",
+    async () => {
+      const modules = [...server.moduleGraph.urlToModuleMap.values()]
+        .filter((module) => module.type !== "asset");
+      const pendingModules = modules.filter((module) => module.transformResult === null);
+
+      if (pendingModules.length > 0) {
+        await Promise.all(pendingModules.map((module) => server.warmupRequest(module.url)));
+        return null;
+      }
+
+      const entryModule = await server.moduleGraph.getModuleByUrl(entryUrl);
+      return entryModule?.transformResult && modules.length > 0 ? modules.length : null;
+    },
+    60_000,
+  );
+}
+
 function isProcessRunning(pid: number) {
   try {
     process.kill(pid, 0);
@@ -236,6 +261,7 @@ let databaseMutationCompleted = false;
 try {
   viteServer = await createViteServer({
     configFile: "vite.config.ts",
+    cacheDir: join(root, "vite-cache"),
     logLevel: "error",
     server: {
       host: "127.0.0.1",
@@ -252,6 +278,11 @@ try {
       return null;
     }
   }, 30_000);
+  const warmedViteModuleCount = await warmViteClientGraph(viteServer, "/src/main.tsx");
+  console.log("PATINA_VITE_WARMUP_REPORT", JSON.stringify({
+    moduleCount: warmedViteModuleCount,
+    cache: "isolated-cold",
+  }));
 
   const tauriConfigOverride = {
     identifier: "com.ceceliaee.patina.runtime-smoke",
