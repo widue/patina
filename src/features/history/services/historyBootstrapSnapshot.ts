@@ -154,6 +154,8 @@ function isHistorySnapshot(value: unknown): value is HistorySnapshot {
       Array.isArray(value.weeklyAggregateSessions)
       && value.weeklyAggregateSessions.every(isAggregateSessionRecord)
     ))
+    && (value.aggregateIncludesExactFacts === undefined
+      || typeof value.aggregateIncludesExactFacts === "boolean")
     && Array.isArray(value.dayWebSegments)
     && value.dayWebSegments.every(isWebActivitySegment)
     && isRecord(value.webDomainFavicons)
@@ -231,6 +233,7 @@ function buildHistoryBootstrapSnapshot(
       weeklySessions: [],
       dayAggregateSessions: (snapshot.dayAggregateSessions ?? []).map((record) => ({ ...record })),
       weeklyAggregateSessions: [],
+      aggregateIncludesExactFacts: snapshot.aggregateIncludesExactFacts ?? false,
       dayWebSegments: identity.webActivityEnabled
         ? snapshot.dayWebSegments.map(sanitizeWebActivitySegment)
         : [],

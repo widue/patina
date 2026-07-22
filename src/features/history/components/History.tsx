@@ -220,6 +220,7 @@ export default function History({
     visibleDayWebSegments,
     rawWeeklySessions,
     rawWeeklyAggregateSessions,
+    aggregateIncludesExactFacts,
     setNowMs,
     snapshotIcons,
     visibleDateKey,
@@ -566,6 +567,11 @@ export default function History({
   const hasVisibleSnapshotForSelectedDate = visibleDateKey === selectedDateKey;
   const showQuietPlaceholder = !hasVisibleSnapshotForSelectedDate
     || contentState === "cold-loading";
+  const showTimelineQuietPlaceholder = showQuietPlaceholder || (
+    contentState === "bootstrap"
+    && rawDaySessions.length === 0
+    && rawDayAggregateSessions.length > 0
+  );
   const contentPlaceholderMessage = contentState === "error"
     ? historyCopy.loadFailed
     : "";
@@ -575,13 +581,14 @@ export default function History({
       weeklySessions: rawWeeklySessions,
       dayAggregateSessions: rawDayAggregateSessions,
       weeklyAggregateSessions: rawWeeklyAggregateSessions,
+      aggregateIncludesExactFacts,
       selectedDate,
       nowMs,
       trackerHealth,
       minSessionSecs,
       mergeThresholdSecs,
     })),
-    [mappingVersion, mergeThresholdSecs, minSessionSecs, nowMs, rawDayAggregateSessions, rawDaySessions, rawWeeklyAggregateSessions, rawWeeklySessions, selectedDate, trackerHealth],
+    [aggregateIncludesExactFacts, mappingVersion, mergeThresholdSecs, minSessionSecs, nowMs, rawDayAggregateSessions, rawDaySessions, rawWeeklyAggregateSessions, rawWeeklySessions, selectedDate, trackerHealth],
   );
   const {
     compiledSessions,
@@ -1092,9 +1099,9 @@ export default function History({
           mode={historyTimelineMode}
           iconThemeColors={iconThemeColors}
           title={historyCopy.timelineAxis}
-          actions={showQuietPlaceholder ? null : timelineAxisActions}
+          actions={showTimelineQuietPlaceholder ? null : timelineAxisActions}
           showEmptyMessage
-          emptyMessage={showQuietPlaceholder ? contentPlaceholderMessage : undefined}
+          emptyMessage={showTimelineQuietPlaceholder ? contentPlaceholderMessage : undefined}
         />
       </div>
 

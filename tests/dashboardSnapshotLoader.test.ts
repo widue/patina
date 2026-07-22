@@ -3,6 +3,11 @@ import {
   loadDashboardSnapshotWithDeps,
   loadIconSnapshotWithDeps,
 } from "../src/features/dashboard/services/dashboardReadModel.ts";
+import {
+  clearDashboardSnapshotCache,
+  setDashboardSnapshotCache,
+} from "../src/features/dashboard/services/dashboardSnapshotCache.ts";
+import { getHistoryRuntimeSeedSnapshot } from "../src/app/services/readModelRuntimeService.ts";
 import type { HistorySession } from "../src/shared/types/sessions.ts";
 
 function session(id: number, exeName: string): HistorySession {
@@ -67,4 +72,40 @@ const cachedIcons = await loadIconSnapshotWithDeps([], {
 });
 assert.deepEqual(cachedIcons, { fetchedAtMs: 3000, icons: { cached: "hit" } });
 
-console.log("Passed 3 dashboard snapshot loader tests");
+let legacyReadCount = 0;
+const aggregateSnapshot = await loadDashboardSnapshotWithDeps(selectedDate, {
+  now: () => 4000,
+  getHistoryByDate: async () => {
+    legacyReadCount += 1;
+    return [];
+  },
+  getImportedTimeBucketsByDate: async () => {
+    legacyReadCount += 1;
+    return [];
+  },
+  getActivityAggregateRange: async () => ({
+    records: todayBuckets,
+    readPath: "projection",
+    fallbackReason: null,
+    sourceRevision: 9,
+    projectionRowCount: 1,
+    factRowCount: 0,
+    hasActiveSession: true,
+  }),
+  loadIcons: async () => ({}),
+  getCachedIcons: () => ({}),
+});
+assert.equal(legacyReadCount, 0);
+assert.equal(aggregateSnapshot.aggregateIncludesExactFacts, true);
+assert.equal(aggregateSnapshot.hasActiveSession, true);
+assert.deepEqual(aggregateSnapshot.sessions, []);
+assert.deepEqual(aggregateSnapshot.importedBuckets, todayBuckets);
+
+setDashboardSnapshotCache(aggregateSnapshot, selectedDate);
+const historySeed = getHistoryRuntimeSeedSnapshot(selectedDate);
+assert.deepEqual(historySeed?.daySessions, []);
+assert.deepEqual(historySeed?.dayAggregateSessions, todayBuckets);
+assert.equal(historySeed?.aggregateIncludesExactFacts, true);
+clearDashboardSnapshotCache();
+
+console.log("Passed 5 dashboard snapshot loader tests");

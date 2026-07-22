@@ -129,6 +129,9 @@ export function useHistorySnapshotRuntime({
   const [rawWeeklyAggregateSessions, setRawWeeklyAggregateSessions] = useState<AggregateSessionRecord[]>(
     () => initialVisibleSnapshot?.weeklyAggregateSessions ?? [],
   );
+  const [aggregateIncludesExactFacts, setAggregateIncludesExactFacts] = useState(
+    () => initialVisibleSnapshot?.aggregateIncludesExactFacts ?? false,
+  );
   const [snapshotIcons, setSnapshotIcons] = useState<Record<string, string>>(
     () => initialVisibleSnapshot?.icons ?? {},
   );
@@ -175,6 +178,7 @@ export function useHistorySnapshotRuntime({
       setRawWeeklySessions(snapshot.weeklySessions);
       setRawDayAggregateSessions(snapshot.dayAggregateSessions ?? []);
       setRawWeeklyAggregateSessions(snapshot.weeklyAggregateSessions ?? []);
+      setAggregateIncludesExactFacts(snapshot.aggregateIncludesExactFacts ?? false);
       setSnapshotIcons(snapshot.icons);
       setRawDayWebSegments(snapshot.dayWebSegments);
       setWebDomainFavicons(nextWebDomainFavicons);
@@ -198,6 +202,7 @@ export function useHistorySnapshotRuntime({
     setRawWeeklySessions([]);
     setRawDayAggregateSessions([]);
     setRawWeeklyAggregateSessions([]);
+    setAggregateIncludesExactFacts(false);
     setSnapshotIcons({});
     setRawDayWebSegments([]);
     setWebDomainFavicons({});
@@ -353,6 +358,7 @@ export function useHistorySnapshotRuntime({
     visibleDayWebSegments,
     rawWeeklySessions,
     rawWeeklyAggregateSessions,
+    aggregateIncludesExactFacts,
     setNowMs,
     snapshotIcons,
     visibleDateKey: visibleDateKeyRef.current,

@@ -45,6 +45,7 @@ import {
   type ReadModelDiagnostics,
 } from "../../../shared/lib/readModelCore.ts";
 import { getCachedHistoryIconsForExecutables } from "./historyIconService.ts";
+import { loadActivityAggregateRange } from "../../../platform/persistence/activityReadModelGateway.ts";
 
 export type { AggregateSessionRecord } from "../../../platform/persistence/sessionReadRepository.ts";
 
@@ -55,6 +56,7 @@ export interface HistorySnapshot {
   weeklySessions: HistorySession[];
   dayAggregateSessions?: AggregateSessionRecord[];
   weeklyAggregateSessions?: AggregateSessionRecord[];
+  aggregateIncludesExactFacts?: boolean;
   dayWebSegments: WebActivitySegment[];
   webDomainFavicons: Record<string, string>;
   webDomainOverrides: Record<string, WebDomainOverride>;
@@ -82,6 +84,7 @@ export interface HistorySnapshotDeps {
   getDaySessionsInRange?: typeof getSessionsInRangeWithoutTitleSamples;
   getWeeklySessionsInRange?: typeof getSessionsInRangeWithoutTitleSamples;
   getImportedTimeBucketsInRange?: typeof getImportedTimeBucketsInRange;
+  getActivityAggregateRange?: typeof loadActivityAggregateRange;
   getWebActivitySegmentsInRange: typeof getWebActivitySegmentsInRange;
   getWebFaviconsForDomains: typeof getWebFaviconsForDomains;
   loadWebDomainOverrides: typeof loadWebDomainOverrides;
@@ -98,6 +101,7 @@ const DEFAULT_HISTORY_SNAPSHOT_DEPS: HistorySnapshotDeps = {
   getDaySessionsInRange: getSessionsInRangeWithoutTitleSamples,
   getWeeklySessionsInRange: getSessionsInRangeWithoutTitleSamples,
   getImportedTimeBucketsInRange,
+  getActivityAggregateRange: loadActivityAggregateRange,
   getWebActivitySegmentsInRange,
   getWebFaviconsForDomains,
   loadWebDomainOverrides,
@@ -367,8 +371,13 @@ export async function loadHistorySnapshot(
       selectedDayRange.startMs,
       selectedDayRange.endMs,
     );
-  const loadAggregateSessions = deps.getImportedTimeBucketsInRange
-    ?? (async () => [] as AggregateSessionRecord[]);
+  const aggregateIncludesExactFacts = Boolean(deps.getActivityAggregateRange);
+  const loadAggregateSessions = deps.getActivityAggregateRange
+    ? async (startMs: number, endMs: number) => (
+      await deps.getActivityAggregateRange!(startMs, endMs)
+    ).records
+    : deps.getImportedTimeBucketsInRange
+      ?? (async () => [] as AggregateSessionRecord[]);
   const [
     daySessions,
     weeklySessions,
@@ -377,7 +386,9 @@ export async function loadHistorySnapshot(
     webSnapshotPart,
   ] = await Promise.all([
     loadDaySessions(),
-    (deps.getWeeklySessionsInRange ?? deps.getSessionsInRange)(weeklyRangeStart, weeklyRangeEnd),
+    aggregateIncludesExactFacts
+      ? Promise.resolve([] as HistorySession[])
+      : (deps.getWeeklySessionsInRange ?? deps.getSessionsInRange)(weeklyRangeStart, weeklyRangeEnd),
     loadAggregateSessions(selectedDayRange.startMs, selectedDayRange.endMs),
     loadAggregateSessions(weeklyRangeStart, weeklyRangeEnd),
     includeWebActivity
@@ -402,6 +413,7 @@ export async function loadHistorySnapshot(
     weeklySessions,
     dayAggregateSessions,
     weeklyAggregateSessions,
+    aggregateIncludesExactFacts,
     dayWebSegments: webSnapshotPart.dayWebSegments,
     webDomainFavicons: webSnapshotPart.webDomainFavicons,
     webDomainOverrides: webSnapshotPart.webDomainOverrides,
@@ -413,6 +425,7 @@ export function buildHistoryReadModel(params: {
   weeklySessions: HistorySession[];
   dayAggregateSessions?: AggregateSessionRecord[];
   weeklyAggregateSessions?: AggregateSessionRecord[];
+  aggregateIncludesExactFacts?: boolean;
   trackerHealth: TrackerHealthSnapshot;
   selectedDate: Date;
   nowMs: number;
@@ -424,6 +437,7 @@ export function buildHistoryReadModel(params: {
     weeklySessions,
     dayAggregateSessions = [],
     weeklyAggregateSessions = [],
+    aggregateIncludesExactFacts = false,
     trackerHealth,
     selectedDate,
     nowMs,
@@ -436,7 +450,10 @@ export function buildHistoryReadModel(params: {
   const liveWeeklySessions = materializeLiveSessions(weeklySessions, trackerHealth, nowMs);
   const compiledSessions = compileForRange(liveDaySessions, selectedDayRange, 0);
   const summaryCompiledSessions = compileForRange(
-    [...liveDaySessions, ...mapAggregateSessionsForSummary(dayAggregateSessions)],
+    [
+      ...(aggregateIncludesExactFacts ? [] : liveDaySessions),
+      ...mapAggregateSessionsForSummary(dayAggregateSessions),
+    ],
     selectedDayRange,
     0,
   );
@@ -453,7 +470,10 @@ export function buildHistoryReadModel(params: {
   const hourlyActivity = buildHourlyActivity(summaryCompiledSessions);
   const hourlyCategoryActivity = buildHourlyCategoryActivity(summaryCompiledSessions);
   const weekly = buildDailySummaries(
-    [...liveWeeklySessions, ...mapAggregateSessionsForSummary(weeklyAggregateSessions)],
+    [
+      ...(aggregateIncludesExactFacts ? [] : liveWeeklySessions),
+      ...mapAggregateSessionsForSummary(weeklyAggregateSessions),
+    ],
     rollingRanges,
     0,
   );

@@ -188,6 +188,40 @@ await runTest("hour buckets feed History summaries without becoming timeline ses
   assert.equal(readModel.weekly.reduce((total, day) => total + day.totalDuration, 0), 30 * 60_000);
 });
 
+await runTest("persistent aggregate summaries do not double count exact timeline facts", async () => {
+  const selectedDate = new Date(2026, 0, 2);
+  const startTime = new Date(2026, 0, 2, 10, 0, 0, 0).getTime();
+  const exact = makeSession({
+    id: 99,
+    appName: "Code",
+    exeName: "code.exe",
+    startTime,
+    endTime: startTime + 30 * 60_000,
+    duration: 30 * 60_000,
+  });
+  const aggregate = {
+    appName: "Code",
+    exeName: "code.exe",
+    startTime,
+    endTime: startTime + 30 * 60_000,
+  };
+  const readModel = buildHistoryReadModel({
+    daySessions: [exact],
+    weeklySessions: [],
+    dayAggregateSessions: [aggregate],
+    weeklyAggregateSessions: [aggregate],
+    aggregateIncludesExactFacts: true,
+    trackerHealth: resolveTrackerHealth(startTime + 3_600_000, startTime + 3_600_000, 8_000),
+    selectedDate,
+    nowMs: startTime + 3_600_000,
+    minSessionSecs: 0,
+    mergeThresholdSecs: 0,
+  });
+  assert.equal(readModel.timelineSessions.length, 1);
+  assert.equal(readModel.summaryActiveDurationMs, 30 * 60_000);
+  assert.equal(readModel.appSummary[0]?.duration, 30 * 60_000);
+});
+
 await runTest("history core snapshot defers title samples until detail enrichment", async () => {
   let coreReadCount = 0;
   let detailReadCount = 0;

@@ -4,6 +4,7 @@ import type { TrackerHealthSnapshot } from "../../../shared/types/tracking.ts";
 import {
   getHistoryByDate,
   getImportedTimeBucketsByDate,
+  getSessionSummariesInRange,
   type AggregateSessionRecord,
 } from "../../../platform/persistence/sessionReadRepository.ts";
 import {
@@ -35,6 +36,7 @@ import {
   resolveLiveCutoffMs,
   type ReadModelDiagnostics,
 } from "../../../shared/lib/readModelCore.ts";
+import { loadActivityAggregateRange } from "../../../platform/persistence/activityReadModelGateway.ts";
 
 export interface DashboardSnapshot {
   fetchedAtMs: number;
@@ -43,6 +45,8 @@ export interface DashboardSnapshot {
   yesterdaySessions?: HistorySession[];
   importedBuckets?: AggregateSessionRecord[];
   yesterdayImportedBuckets?: AggregateSessionRecord[];
+  aggregateIncludesExactFacts?: boolean;
+  hasActiveSession?: boolean;
 }
 
 export type ImportedDashboardBucket = AggregateSessionRecord;
@@ -69,6 +73,8 @@ interface DashboardSnapshotDependencies {
   now: () => number;
   getHistoryByDate: typeof getHistoryByDate;
   getImportedTimeBucketsByDate: typeof getImportedTimeBucketsByDate;
+  getSessionSummariesInRange?: typeof getSessionSummariesInRange;
+  getActivityAggregateRange?: typeof loadActivityAggregateRange;
   loadIcons: typeof loadDashboardIconsForExecutables;
   getCachedIcons: typeof getDashboardIconRuntimeCacheSnapshot;
 }
@@ -77,6 +83,8 @@ const DASHBOARD_SNAPSHOT_DEPENDENCIES: DashboardSnapshotDependencies = {
   now: Date.now,
   getHistoryByDate,
   getImportedTimeBucketsByDate,
+  getSessionSummariesInRange,
+  getActivityAggregateRange: loadActivityAggregateRange,
   loadIcons: loadDashboardIconsForExecutables,
   getCachedIcons: getDashboardIconRuntimeCacheSnapshot,
 };
@@ -106,6 +114,48 @@ export async function loadDashboardSnapshotWithDeps(
 ): Promise<DashboardSnapshot> {
   const yesterday = new Date(date);
   yesterday.setDate(yesterday.getDate() - 1);
+  if (deps.getActivityAggregateRange) {
+    const dayRange = getDayRange(date);
+    const yesterdayRange = getDayRange(yesterday);
+    const [dayResponse, yesterdayResponse] = await Promise.all([
+      deps.getActivityAggregateRange(dayRange.startMs, dayRange.endMs),
+      deps.getActivityAggregateRange(yesterdayRange.startMs, yesterdayRange.endMs),
+    ]);
+    const icons = await deps.loadIcons(
+      collectDashboardIconExecutables(dayResponse.records),
+    );
+    return {
+      fetchedAtMs: deps.now(),
+      icons,
+      sessions: [],
+      yesterdaySessions: [],
+      importedBuckets: dayResponse.records,
+      yesterdayImportedBuckets: yesterdayResponse.records,
+      aggregateIncludesExactFacts: true,
+      hasActiveSession: dayResponse.hasActiveSession,
+    };
+  }
+  if (deps.getSessionSummariesInRange) {
+    const dayRange = getDayRange(date);
+    const yesterdayRange = getDayRange(yesterday);
+    const [aggregateSessions, yesterdayAggregateSessions] = await Promise.all([
+      deps.getSessionSummariesInRange(dayRange.startMs, dayRange.endMs),
+      deps.getSessionSummariesInRange(yesterdayRange.startMs, yesterdayRange.endMs),
+    ]);
+    const icons = await deps.loadIcons(
+      collectDashboardIconExecutables(aggregateSessions),
+    );
+    return {
+      fetchedAtMs: deps.now(),
+      icons,
+      sessions: [],
+      yesterdaySessions: [],
+      importedBuckets: aggregateSessions,
+      yesterdayImportedBuckets: yesterdayAggregateSessions,
+      aggregateIncludesExactFacts: true,
+      hasActiveSession: false,
+    };
+  }
   const [sessions, yesterdaySessions, importedBuckets, yesterdayImportedBuckets] = await Promise.all([
     deps.getHistoryByDate(date),
     deps.getHistoryByDate(yesterday),
@@ -155,19 +205,25 @@ export function buildDashboardReadModel(
   yesterdaySessions: HistorySession[] = [],
   importedBuckets: AggregateSessionRecord[] = [],
   yesterdayImportedBuckets: AggregateSessionRecord[] = [],
+  aggregateIncludesExactFacts: boolean = false,
 ): DashboardReadModel {
   const dayRange = getDayRange(new Date(nowMs), nowMs);
   const yesterday = new Date(nowMs);
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayRange = getDayRange(yesterday);
-  const liveSessions = materializeLiveSessions(sessions, trackerHealth, nowMs);
+  const liveSessions = aggregateIncludesExactFacts
+    ? []
+    : materializeLiveSessions(sessions, trackerHealth, nowMs);
   const compiledSessions = compileForRange(
     [...liveSessions, ...materializeImportedBuckets(importedBuckets)],
     dayRange,
     0,
   );
   const compiledYesterdaySessions = compileForRange(
-    [...yesterdaySessions, ...materializeImportedBuckets(yesterdayImportedBuckets)],
+    [
+      ...(aggregateIncludesExactFacts ? [] : yesterdaySessions),
+      ...materializeImportedBuckets(yesterdayImportedBuckets),
+    ],
     yesterdayRange,
     0,
   );

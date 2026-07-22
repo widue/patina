@@ -365,7 +365,7 @@ await runTest("catalog controller automatically exhausts every internal batch", 
   assert.equal(completed, true);
   assert.equal(collected.length, 130);
   assert.equal(new Set(collected).size, 130);
-  assert.ok(batches >= 3);
+  assert.equal(batches, 1);
   db.close();
 });
 

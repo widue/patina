@@ -5,6 +5,7 @@ import {
   resolveNativeSessionPrecedence,
   type TimeRecordOrigin,
 } from "./nativeSessionPrecedence.ts";
+import { loadActivityAggregateRange } from "./activityReadModelGateway.ts";
 
 interface RawHistorySessionRow {
   id: number;
@@ -339,9 +340,29 @@ async function loadEffectiveAggregateCandidateRows(
 }
 
 export async function getSessionSummariesInRange(startMs: number, endMs: number): Promise<AggregateSessionRecord[]> {
-  return mapRawAggregateSessionCandidates(
-    await loadEffectiveAggregateCandidateRows(startMs, endMs),
-  );
+  const response = await loadActivityAggregateRange(startMs, endMs);
+  return response.records.filter((row) => AppClassification.shouldTrackProcess(row.exeName, {
+    appName: row.appName,
+  }));
+}
+
+export async function getSessionSummariesInRangeByLocalDay(
+  startMs: number,
+  endMs: number,
+): Promise<AggregateSessionRecord[]> {
+  if (endMs <= startMs) return [];
+  const boundaries = [startMs];
+  const cursor = new Date(startMs);
+  cursor.setHours(24, 0, 0, 0);
+  while (cursor.getTime() < endMs) {
+    boundaries.push(cursor.getTime());
+    cursor.setHours(24, 0, 0, 0);
+  }
+  boundaries.push(endMs);
+  const response = await loadActivityAggregateRange(startMs, endMs, boundaries);
+  return response.records.filter((row) => AppClassification.shouldTrackProcess(row.exeName, {
+    appName: row.appName,
+  }));
 }
 
 export async function getImportedTimeBucketsInRange(

@@ -39,6 +39,12 @@ export function useDashboardStats(
   const [yesterdayImportedBuckets, setYesterdayImportedBuckets] = useState<ImportedDashboardBucket[]>(
     () => initialSnapshot?.yesterdayImportedBuckets ?? [],
   );
+  const [aggregateIncludesExactFacts, setAggregateIncludesExactFacts] = useState(
+    () => initialSnapshot?.aggregateIncludesExactFacts ?? false,
+  );
+  const [hasActiveSession, setHasActiveSession] = useState(
+    () => initialSnapshot?.hasActiveSession ?? false,
+  );
   const [icons, setIcons] = useState<Record<string, string>>(
     () => initialSnapshot?.icons ?? {},
   );
@@ -53,6 +59,8 @@ export function useDashboardStats(
         setRawYesterdaySessions(snapshot.yesterdaySessions ?? []);
         setImportedBuckets(snapshot.importedBuckets ?? []);
         setYesterdayImportedBuckets(snapshot.yesterdayImportedBuckets ?? []);
+        setAggregateIncludesExactFacts(snapshot.aggregateIncludesExactFacts ?? false);
+        setHasActiveSession(snapshot.hasActiveSession ?? false);
         setIcons(snapshot.icons);
         setNowMs(snapshot.fetchedAtMs);
       });
@@ -74,15 +82,19 @@ export function useDashboardStats(
   }, [classificationReady, foregroundRefreshEnabled, refreshKey, loadSnapshot]);
 
   useEffect(() => {
-    const hasLiveSession = rawSessions.some((session) => session.endTime === null);
+    const hasLiveSession = hasActiveSession
+      || rawSessions.some((session) => session.endTime === null);
     if (!classificationReady || !foregroundRefreshEnabled || !hasLiveSession || trackerHealth.status !== "healthy") {
       return;
     }
 
-    const iconExeNames = rawSessions.map((session) => session.exeName);
+    const iconExeNames = [...rawSessions, ...importedBuckets].map((session) => session.exeName);
 
     const timer = window.setInterval(() => {
       setNowMs(Date.now());
+      if (aggregateIncludesExactFacts) {
+        void loadSnapshot();
+      }
 
       const missingIconExeNames = getRetryableMissingDashboardIconExecutables(
         iconExeNames,
@@ -108,7 +120,7 @@ export function useDashboardStats(
     return () => {
       window.clearInterval(timer);
     };
-  }, [classificationReady, icons, rawSessions, foregroundRefreshEnabled, refreshIntervalSecs, trackerHealth.status]);
+  }, [aggregateIncludesExactFacts, classificationReady, foregroundRefreshEnabled, hasActiveSession, icons, importedBuckets, loadSnapshot, rawSessions, refreshIntervalSecs, trackerHealth.status]);
 
   const dashboard = useMemo(
     () => buildDashboardReadModel(
@@ -118,10 +130,11 @@ export function useDashboardStats(
       classificationReady ? rawYesterdaySessions : [],
       classificationReady ? importedBuckets : [],
       classificationReady ? yesterdayImportedBuckets : [],
+      aggregateIncludesExactFacts,
     ),
     // The read model reads module-level classification mappings; this token is its explicit invalidation signal.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [classificationReady, importedBuckets, mappingVersion, nowMs, rawSessions, rawYesterdaySessions, trackerHealth, yesterdayImportedBuckets],
+    [aggregateIncludesExactFacts, classificationReady, importedBuckets, mappingVersion, nowMs, rawSessions, rawYesterdaySessions, trackerHealth, yesterdayImportedBuckets],
   );
 
   return {

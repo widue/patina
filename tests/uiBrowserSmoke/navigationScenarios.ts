@@ -34,6 +34,63 @@ export async function runNavigationScenarios(context: BrowserSmokeContext) {
     }
   });
 
+  await runTest("warm navigation records response and blank-frame evidence", async () => {
+    const samples: Array<{
+      label: string;
+      activeMs: number;
+      structureMs: number;
+      blankFrames: number;
+    }> = [];
+    const labels = ["今天", "历史", "数据", "分类"];
+    for (let cycle = 0; cycle < 5; cycle += 1) {
+      for (const label of labels) {
+        const sample = await evaluate(client!, sessionId, `
+          (async () => {
+            const label = ${jsonString(label)};
+            const node = document.querySelector('[aria-label=' + ${jsonString(JSON.stringify(label))} + ']');
+            if (!node) return null;
+            const startedAt = performance.now();
+            let activeAt = null;
+            let structureAt = null;
+            let blankFrames = 0;
+            node.click();
+            for (let frame = 0; frame < 120; frame += 1) {
+              await new Promise((resolve) => requestAnimationFrame(resolve));
+              const canvas = document.querySelector("main.qp-canvas");
+              if (!canvas || canvas.childElementCount === 0) blankFrames += 1;
+              if (structureAt === null && canvas && canvas.childElementCount > 0) {
+                structureAt = performance.now();
+              }
+              if (activeAt === null && node.className.includes("qp-nav-item-active")) {
+                activeAt = performance.now();
+              }
+              if (activeAt !== null && frame >= 4) break;
+            }
+            return {
+              label,
+              activeMs: (activeAt ?? performance.now()) - startedAt,
+              structureMs: (structureAt ?? performance.now()) - startedAt,
+              blankFrames,
+            };
+          })()
+        `) as { label: string; activeMs: number; structureMs: number; blankFrames: number } | null;
+        assert.ok(sample, `missing navigation sample for ${label}`);
+        samples.push(sample);
+      }
+    }
+    const percentile = (values: number[], fraction: number) => {
+      const sorted = [...values].sort((left, right) => left - right);
+      return sorted[Math.min(sorted.length - 1, Math.ceil(sorted.length * fraction) - 1)] ?? 0;
+    };
+    console.log(`PATINA_NAVIGATION_EXPERIENCE_REPORT:${JSON.stringify({
+      environment: "Vite browser smoke with Tauri stubs; recommendation evidence, not a release hard gate",
+      sampleCount: samples.length,
+      activeP95Ms: percentile(samples.map((sample) => sample.activeMs), 0.95),
+      structureP95Ms: percentile(samples.map((sample) => sample.structureMs), 0.95),
+      maxBlankFrames: Math.max(...samples.map((sample) => sample.blankFrames)),
+    })}`);
+  });
+
   await runTest("Data navigation is immediate and avoids visible loading affordances", async () => {
     const clicked = await evaluate(client!, sessionId, `
       (() => {
@@ -292,6 +349,13 @@ export async function runNavigationScenarios(context: BrowserSmokeContext) {
       `),
       true,
     );
+    await waitForExpression(
+      client!,
+      sessionId,
+      `localStorage.getItem("patina:last-active-view") === "dashboard"`,
+      undefined,
+      "Dashboard navigation should persist before the simulated WebView reload",
+    );
     await client!.command("Page.navigate", { url: context.appUrl }, sessionId);
     await waitForExpression(
       client!,
@@ -328,9 +392,9 @@ export async function runNavigationScenarios(context: BrowserSmokeContext) {
       client!,
       sessionId,
       `document.querySelector("[data-history-content-state]")?.getAttribute("data-history-content-state") === "bootstrap"
-        && document.querySelectorAll(".history-horizontal-timeline-segment").length >= 1`,
+        && !["—", "0m"].includes(document.querySelector(".history-day-summary-value")?.textContent?.trim() ?? "")`,
       undefined,
-      "History should mount the Dashboard seed before the delayed query settles",
+      "History should mount the Dashboard aggregate seed before the delayed detail query settles",
     );
 
     const coldState = JSON.parse(String(await evaluate(client!, sessionId, `
@@ -352,8 +416,8 @@ export async function runNavigationScenarios(context: BrowserSmokeContext) {
     assert.notEqual(coldState.activeDuration, "—");
     assert.notEqual(coldState.activeDuration, "0m");
     assert.equal(coldState.statusText, null);
-    assert.equal(coldState.timelineText, null);
-    assert.ok(coldState.segmentCount >= 1, JSON.stringify(coldState));
+    assert.equal(coldState.timelineText, "");
+    assert.equal(coldState.segmentCount, 0, JSON.stringify(coldState));
 
     await waitForExpression(
       client!,

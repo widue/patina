@@ -61,6 +61,17 @@ export function useAppShellNavigation({ confirm }: UseAppShellNavigationParams) 
     setViewDirtyState((current) => ({ ...current, mapping: dirty }));
   }, []);
 
+  const prepareNavigate = useCallback((nextView: View) => {
+    if (nextView === currentView) return true;
+    if (viewDirtyState.settings || viewDirtyState.mapping) return false;
+
+    // Navigation rendering is intentionally deferred by the sidebar so its
+    // selection can paint first. Persist the accepted intent synchronously so
+    // a reload in that frame still restores the destination view.
+    rememberLastActiveView(nextView);
+    return true;
+  }, [currentView, viewDirtyState]);
+
   const handleNavigate = useCallback(async (nextView: View): Promise<NavigationResult> => {
     if (nextView === currentView) {
       return { navigated: true };
@@ -106,6 +117,7 @@ export function useAppShellNavigation({ confirm }: UseAppShellNavigationParams) 
 
   return {
     currentView,
+    prepareNavigate,
     handleNavigate,
     registerSettingsSaveHandler,
     registerMappingSaveHandler,

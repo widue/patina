@@ -107,8 +107,7 @@ function AppShellContent() {
   const { confirm, dialogs } = useQuietDialogs();
   const { sidebarUpdateEntry, settingsUpdateEntry } = useAppShellUpdateEntry();
   const {
-    currentView,
-    handleNavigate,
+    currentView, prepareNavigate, handleNavigate,
     registerSettingsSaveHandler,
     registerMappingSaveHandler,
     setSettingsDirty,
@@ -470,6 +469,7 @@ function AppShellContent() {
         {dialogs}
         <AppSidebar
           currentView={currentView}
+          onPrepareNavigate={prepareNavigate}
           onNavigate={handleSidebarNavigate}
           onPreviewNavigate={handleSidebarPreviewNavigate}
           footerContent={<ToolsSidebarStatusEntry onOpenSection={handleToolsStatusChipOpen} uiText={uiText} />}

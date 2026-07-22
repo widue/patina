@@ -88,6 +88,118 @@ function tauriStubFor(path: string) {
 
       export async function invoke(command, payload = {}) {
         globalThis.__PATINA_INVOKED_COMMANDS.push({ command, payload });
+        if (command === "cmd_get_recorded_app_catalog_page") {
+          const queryDelayMs = Math.max(
+            Number(
+              globalThis.__TIME_TRACKER_CLASSIFICATION_QUERY_DELAY_MS
+                ?? localStorage.getItem("__time_tracker_classification_query_delay_ms")
+                ?? 0
+            ),
+            Number(
+              globalThis.__TIME_TRACKER_CLASSIFICATION_CATALOG_QUERY_DELAY_MS
+                ?? localStorage.getItem("__time_tracker_classification_catalog_query_delay_ms")
+                ?? 0
+            ),
+          );
+          if (queryDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, queryDelayMs));
+          }
+          if (localStorage.getItem("__time_tracker_reject_classification_query") === "1") {
+            throw new Error("classification query rejected by browser smoke fixture");
+          }
+          const fixtureEnabled = globalThis.__TIME_TRACKER_ENABLE_CLASSIFICATION_CATALOG_FIXTURE
+            || localStorage.getItem("__time_tracker_enable_classification_catalog_fixture") === "1";
+          const baseRows = fixtureEnabled
+            ? Array.from({ length: 130 }, (_, index) => ({
+                rawExeName: "catalog-" + String(index).padStart(3, "0") + ".exe",
+                appName: index === 129 ? "一年以前的应用" : "Catalog App " + index,
+                lastSeenMs: 1767229200000 - index * 24 * 60 * 60 * 1000,
+                hasNativeRecords: index % 2 === 0,
+                hasImportExactRecords: index % 2 !== 0,
+                hasImportBucketRecords: false,
+              }))
+            : [
+            {
+              rawExeName: "cursor.exe",
+              appName: "Cursor",
+              lastSeenMs: 1767229200000,
+              hasNativeRecords: true,
+              hasImportExactRecords: false,
+              hasImportBucketRecords: false,
+            },
+            {
+              rawExeName: "deep-research-workbench.exe",
+              appName: "Deep Research Workbench",
+              lastSeenMs: 1767225600000,
+              hasNativeRecords: true,
+              hasImportExactRecords: true,
+              hasImportBucketRecords: false,
+            },
+          ];
+          const searchQuery = String(payload.searchQuery ?? "").trim().toLowerCase();
+          const cursor = payload.cursor ?? null;
+          const limit = Math.max(1, Math.min(120, Number(payload.limit ?? 120)));
+          const filteredRows = baseRows
+            .filter((row) => !searchQuery
+              || (row.rawExeName + " " + row.appName).toLowerCase().includes(searchQuery))
+            .filter((row) => !cursor
+              || row.lastSeenMs < Number(cursor.lastSeenMs)
+              || (
+                row.lastSeenMs === Number(cursor.lastSeenMs)
+                && row.rawExeName > String(cursor.rawExeName)
+              ));
+          const rows = filteredRows.slice(0, limit);
+          const hasMore = filteredRows.length > rows.length;
+          return {
+            rows,
+            nextCursor: hasMore && rows.length > 0
+              ? { lastSeenMs: rows.at(-1).lastSeenMs, rawExeName: rows.at(-1).rawExeName }
+              : null,
+            hasMore,
+            readPath: "projection",
+            fallbackReason: null,
+            sourceRevision: 4,
+          };
+        }
+        if (command === "cmd_get_activity_aggregate_range") {
+          const historyQueryDelayMs = Number(
+            globalThis.__TIME_TRACKER_HISTORY_QUERY_DELAY_MS
+              ?? localStorage.getItem("__time_tracker_history_query_delay_ms")
+              ?? 0
+          );
+          if (historyQueryDelayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, historyQueryDelayMs));
+          }
+          const start = Number(payload.startMs ?? 0);
+          const end = Number(payload.endMs ?? start);
+          const duration = Math.max(0, Math.min(30 * 60 * 1000, end - start));
+          return {
+            records: duration > 0 ? [
+              { appName: "Cursor", exeName: "cursor.exe", startTime: start, endTime: start + duration },
+              { appName: "Extremely Long Research Workbench Application Name", exeName: "deep-research-workbench.exe", startTime: start + duration, endTime: start + duration * 2 },
+            ].filter((record) => record.startTime < end).map((record) => ({
+              ...record,
+              endTime: Math.min(record.endTime, end),
+            })) : [],
+            readPath: "projection",
+            fallbackReason: null,
+            sourceRevision: 4,
+            projectionRowCount: duration > 0 ? 2 : 0,
+            factRowCount: 0,
+            hasActiveSession: false,
+          };
+        }
+        if (command === "cmd_get_activity_read_model_status") {
+          return {
+            sourceRevision: 4,
+            appCatalogState: "ready",
+            activityHourlyState: "ready",
+            activityCoverageStartMs: 0,
+            activityCoverageEndMs: Date.now(),
+            dirtyAppCount: 0,
+            dirtyRangeCount: 0,
+          };
+        }
         if (command === "cmd_list_import_batches") {
           return [...globalThis.__PATINA_IMPORT_BATCHES];
         }

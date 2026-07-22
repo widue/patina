@@ -1,4 +1,4 @@
-import { getSessionSummariesInRange } from "../../../platform/persistence/sessionReadRepository.ts";
+import { getSessionSummariesInRangeByLocalDay } from "../../../platform/persistence/sessionReadRepository.ts";
 import type { AggregateSessionRecord } from "../../../platform/persistence/sessionReadRepository.ts";
 import {
   resolveDataTrendRange,
@@ -78,7 +78,7 @@ export function clearDataTrendSnapshotCache(): void {
 export async function loadDataTrendSnapshot(
   selection: DataTrendRangeSelection,
   nowMs: number = Date.now(),
-  deps: DataTrendSnapshotDependencies = { getSessionSummariesInRange },
+  deps: DataTrendSnapshotDependencies = { getSessionSummariesInRange: getSessionSummariesInRangeByLocalDay },
 ): Promise<DataTrendSnapshot> {
   const range = resolveDataTrendRange(selection, nowMs);
   const pending = sessionPromises.get(range.cacheKey);

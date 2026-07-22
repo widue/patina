@@ -214,7 +214,6 @@ export class ClassificationAppCatalogController {
         }
         return { ...existing };
       });
-      input.onBatch(updates, hasMore);
 
       const recordedCursorAdvanced = previousCursor?.lastSeenMs !== result.nextCursor?.lastSeenMs
         || previousCursor?.rawExeName !== result.nextCursor?.rawExeName;
@@ -222,6 +221,10 @@ export class ClassificationAppCatalogController {
         throw new Error("Classification app catalog made no progress");
       }
     }
+    input.onBatch(
+      Array.from(accumulatedCandidates.values(), (candidate) => ({ ...candidate })),
+      false,
+    );
     return true;
   }
 }

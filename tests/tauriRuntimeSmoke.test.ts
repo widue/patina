@@ -143,15 +143,76 @@ function isResidualRuntimeBinaryRunning() {
   return result?.stdout.trim() === "running";
 }
 
+function measureRuntimeProcessTree() {
+  const result = runRuntimeBinaryProcessCommand(`
+    $target = [IO.Path]::GetFullPath($env:PATINA_RUNTIME_SMOKE_BINARY)
+    $rootProcess = @(Get-Process patina -ErrorAction SilentlyContinue) | Where-Object {
+      try { $_.Path -and [IO.Path]::GetFullPath($_.Path) -ieq $target } catch { $false }
+    } | Select-Object -First 1
+    if (-not $rootProcess) { throw 'runtime smoke root process not found' }
+    $ids = [Collections.Generic.HashSet[int]]::new()
+    [void]$ids.Add([int]$rootProcess.Id)
+    $coverage = 'root_only'
+    try {
+      $processRows = @(Get-CimInstance Win32_Process -Property ProcessId,ParentProcessId -ErrorAction Stop)
+      do {
+        $added = $false
+        foreach ($row in $processRows) {
+          if ($ids.Contains([int]$row.ParentProcessId) -and $ids.Add([int]$row.ProcessId)) {
+            $added = $true
+          }
+        }
+      } while ($added)
+      $coverage = 'root_and_descendants'
+    } catch {
+      # Process-tree enumeration is a diagnostic enhancement. Some Windows
+      # sessions stop CIM while the test is running; retain the exact root
+      # measurement instead of failing unrelated runtime assertions.
+    }
+    $workingSet = 0L
+    $privateUsage = 0L
+    $measured = 0
+    foreach ($id in $ids) {
+      try {
+        $process = Get-Process -Id $id -ErrorAction Stop
+        $workingSet += [long]$process.WorkingSet64
+        $privateUsage += [long]$process.PrivateMemorySize64
+        $measured += 1
+      } catch {}
+    }
+    [pscustomobject]@{
+      rootPid = [int]$rootProcess.Id
+      processCount = $measured
+      workingSetBytes = $workingSet
+      privateUsageBytes = $privateUsage
+      coverage = $coverage
+    } | ConvertTo-Json -Compress
+  `);
+  assert.ok(result && !result.error && result.status === 0, result?.stderr || result?.stdout);
+  return JSON.parse(result.stdout.trim()) as {
+    rootPid: number;
+    processCount: number;
+    workingSetBytes: number;
+    privateUsageBytes: number;
+    coverage: "root_only" | "root_and_descendants";
+  };
+}
+
 function verifyDatabase(dbPath: string) {
   const script = [
     "import sqlite3, sys",
     "db = sqlite3.connect(sys.argv[1])",
     "integrity = db.execute('PRAGMA integrity_check').fetchone()[0]",
     "value = db.execute(\"SELECT value FROM settings WHERE key='refresh_interval_secs'\").fetchone()",
+    "migration = db.execute('SELECT MAX(version) FROM _sqlx_migrations').fetchone()",
+    "states = dict(db.execute('SELECT model_name, state FROM read_model_state'))",
+    "tables = {row[0] for row in db.execute(\"SELECT name FROM sqlite_master WHERE type='table'\")}",
     "db.close()",
     "assert integrity == 'ok', integrity",
     "assert value == ('77',), value",
+    "assert migration == (8,), migration",
+    "assert states == {'app_catalog': 'ready', 'activity_hourly': 'ready'}, states",
+    "assert {'recorded_app_catalog', 'activity_hourly_effective', 'activity_summary_dirty_ranges', 'app_catalog_dirty_keys'} <= tables, tables",
   ].join("; ");
   const result = spawnSync("python", ["-c", script, dbPath], { encoding: "utf8" });
   assert.equal(result.status, 0, `database verification failed: ${result.stderr || result.stdout}`);
@@ -282,6 +343,92 @@ try {
 
   const storage = await evaluate(client, `window.__TAURI_INTERNALS__.invoke("cmd_get_storage_snapshot")`);
   assert.equal(typeof storage, "object");
+
+  const readModelStatus = await waitFor(
+    "activity read models ready",
+    async () => {
+      const value = await evaluate(
+        client!,
+        `window.__TAURI_INTERNALS__.invoke("cmd_get_activity_read_model_status")`,
+      ) as { appCatalogState?: string; activityHourlyState?: string };
+      return value.appCatalogState === "ready" && value.activityHourlyState === "ready"
+        ? value
+        : null;
+    },
+    10_000,
+  );
+  assert.deepEqual(readModelStatus, {
+    sourceRevision: 0,
+    appCatalogState: "ready",
+    activityHourlyState: "ready",
+    activityCoverageStartMs: null,
+    activityCoverageEndMs: null,
+    dirtyAppCount: 0,
+    dirtyRangeCount: 0,
+  });
+
+  const catalogPage = await evaluate(
+    client,
+    `window.__TAURI_INTERNALS__.invoke("cmd_get_recorded_app_catalog_page", {
+      cursor: null,
+      searchQuery: "",
+      limit: 50,
+    })`,
+  );
+  assert.deepEqual(catalogPage, {
+    rows: [],
+    nextCursor: null,
+    hasMore: false,
+    readPath: "projection",
+    fallbackReason: null,
+    sourceRevision: 0,
+  });
+
+  const aggregateRange = await evaluate(
+    client,
+    `window.__TAURI_INTERNALS__.invoke("cmd_get_activity_aggregate_range", {
+      startMs: 0,
+      endMs: 3600000,
+      bucketBoundariesMs: [0, 3600000],
+    })`,
+  );
+  assert.deepEqual(aggregateRange, {
+    records: [],
+    readPath: "facts",
+    fallbackReason: "outside_projection_coverage",
+    sourceRevision: 0,
+    projectionRowCount: 0,
+    factRowCount: 0,
+    hasActiveSession: false,
+  });
+
+  const resourceDiagnostics = await evaluate(
+    client,
+    `window.__TAURI_INTERNALS__.invoke("cmd_get_resource_diagnostics")`,
+  ) as {
+    process_resources?: {
+      working_set_bytes?: number | null;
+      private_usage_bytes?: number | null;
+    };
+  };
+  assert.equal(typeof resourceDiagnostics.process_resources, "object");
+  console.log("PATINA_RUNTIME_MEMORY_REPORT", JSON.stringify({
+    scope: "isolated real Tauri main process after read-model initialization",
+    workingSetBytes: resourceDiagnostics.process_resources?.working_set_bytes ?? null,
+    privateUsageBytes: resourceDiagnostics.process_resources?.private_usage_bytes ?? null,
+    comparison: "absolute diagnostic only; before/after payload retention is measured by perf:activity-read-model",
+  }));
+  const processTreeMemory = measureRuntimeProcessTree();
+  assert.ok(processTreeMemory.processCount >= 1);
+  assert.ok(processTreeMemory.workingSetBytes > 0);
+  assert.ok(processTreeMemory.privateUsageBytes > 0);
+  console.log("PATINA_RUNTIME_PROCESS_TREE_MEMORY_REPORT", JSON.stringify({
+    scope: processTreeMemory.coverage === "root_and_descendants"
+      ? "isolated real Tauri root process and descendant WebView2 process tree"
+      : "isolated real Tauri root process; Windows CIM descendant enumeration unavailable",
+    ...processTreeMemory,
+    comparison: "absolute diagnostic only; before/after payload retention is measured by perf:activity-read-model",
+  }));
 
   await evaluate(client, `
     (async () => {

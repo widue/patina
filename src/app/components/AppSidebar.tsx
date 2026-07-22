@@ -6,6 +6,7 @@ import type { View } from "../types/view";
 
 interface Props {
   currentView: View;
+  onPrepareNavigate?: (view: View) => boolean;
   onNavigate: (view: View) => boolean | void | Promise<boolean | void>;
   onPreviewNavigate?: (view: View) => void;
   footerContent?: ReactNode;
@@ -19,6 +20,7 @@ const NO_DRAG_STYLE: AppRegionStyle = { WebkitAppRegion: "no-drag" };
 
 export default function AppSidebar({
   currentView,
+  onPrepareNavigate,
   onNavigate,
   onPreviewNavigate,
   footerContent,
@@ -50,7 +52,10 @@ export default function AppSidebar({
     navigateRequestRef.current += 1;
     const requestId = navigateRequestRef.current;
 
-    setOptimisticView(view);
+    const canNavigateImmediately = onPrepareNavigate?.(view) ?? true;
+    if (canNavigateImmediately) {
+      setOptimisticView(view);
+    }
 
     const runNavigate = () => {
       if (navigateRequestRef.current !== requestId) return;
@@ -63,7 +68,10 @@ export default function AppSidebar({
       });
     };
 
-    runNavigate();
+    // Let the optimistic selection commit in the next paint before the owning
+    // page performs a potentially expensive mount. This keeps click feedback
+    // independent from read-model rendering without changing navigation rules.
+    window.requestAnimationFrame(runNavigate);
   };
 
   useEffect(() => {

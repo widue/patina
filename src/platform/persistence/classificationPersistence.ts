@@ -8,6 +8,7 @@ import {
   resolveNativeSessionPrecedence,
   type TimeRecordOrigin,
 } from "./nativeSessionPrecedence.ts";
+import { loadActivityCatalogPage } from "./activityReadModelGateway.ts";
 
 export interface SettingKeyValueRow {
   key: string;
@@ -378,27 +379,16 @@ export function buildRecordedAppCatalogQuery({
 export async function loadRecordedAppCatalogPage(
   input: RecordedAppCatalogQueryInput,
 ): Promise<RecordedAppCatalogPage> {
-  const db = await getDB();
-  const query = buildRecordedAppCatalogQuery(input);
-  const rows = await db.select<Array<{
-    exe_name: string;
-    app_name: string;
-    last_seen_ms: number;
-    has_native_records: number;
-  }>>(query.sql, query.params);
-  const mappedRows = rows.map((row) => ({
-    rawExeName: row.exe_name,
-    appName: row.app_name,
-    lastSeenMs: Math.max(0, Number(row.last_seen_ms ?? 0)),
-    hasNativeRecords: Number(row.has_native_records) === 1,
-  }));
-  const last = mappedRows[mappedRows.length - 1];
+  const page = await loadActivityCatalogPage(input);
   return {
-    rows: mappedRows,
-    nextCursor: last
-      ? { lastSeenMs: last.lastSeenMs, rawExeName: last.rawExeName }
-      : input.cursor,
-    hasMore: mappedRows.length === Math.min(500, Math.max(1, Math.trunc(input.limit))),
+    rows: page.rows.map((row) => ({
+      rawExeName: row.rawExeName,
+      appName: row.appName,
+      lastSeenMs: row.lastSeenMs,
+      hasNativeRecords: row.hasNativeRecords,
+    })),
+    nextCursor: page.nextCursor ?? input.cursor,
+    hasMore: page.hasMore,
   };
 }
 

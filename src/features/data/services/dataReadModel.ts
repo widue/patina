@@ -3,7 +3,7 @@ import type { SessionRange } from "../../../shared/lib/sessionReadCompiler.ts";
 import { getUiLocale, UI_TEXT } from "../../../shared/copy/index.ts";
 import {
   getEarliestSessionStartTime,
-  getSessionSummariesInRange,
+  getSessionSummariesInRangeByLocalDay,
   type AggregateSessionRecord,
 } from "../../../platform/persistence/sessionReadRepository.ts";
 import {
@@ -666,7 +666,7 @@ export function buildDataTrendViewModelsFromAggregate(
 async function resolveDefaultDataHeatmapDependencies(): Promise<DataHeatmapDependencies> {
   return {
     getEarliestSessionStartTime,
-    getSessionsInRange: getSessionSummariesInRange,
+    getSessionsInRange: getSessionSummariesInRangeByLocalDay,
   };
 }
 
