@@ -164,6 +164,12 @@ pub(crate) async fn replace_product_db_from_candidate<R: Runtime>(
             next_pool.close().await;
             return Err(error);
         }
+        if let Err(error) =
+            crate::data::activity_read_model::invalidate_all(&next_pool, "database_restore").await
+        {
+            next_pool.close().await;
+            return Err(error);
+        }
         if let Err(error) = register_sqlite_pool(app, next_pool.clone()).await {
             next_pool.close().await;
             return Err(error);

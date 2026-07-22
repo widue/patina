@@ -88,6 +88,9 @@ fn register_managed_state_and_plugins(
 
 fn register_invoke_handlers(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
     builder.invoke_handler(tauri::generate_handler![
+        commands::activity_read_model::cmd_get_recorded_app_catalog_page,
+        commands::activity_read_model::cmd_get_activity_aggregate_range,
+        commands::activity_read_model::cmd_get_activity_read_model_status,
         commands::tracking::get_current_active_window,
         commands::tracking::get_current_tracking_snapshot,
         commands::tracking::cmd_get_tracker_health_snapshot,

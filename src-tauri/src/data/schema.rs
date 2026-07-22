@@ -14,6 +14,8 @@ pub const IMPORT_DATA_MIGRATION_VERSION: i64 = 6;
 pub const IMPORT_DATA_MIGRATION_DESCRIPTION: &str = "create_import_data_tables";
 pub const IMPORT_DATA_ISOLATION_MIGRATION_VERSION: i64 = 7;
 pub const IMPORT_DATA_ISOLATION_MIGRATION_DESCRIPTION: &str = "isolate_imported_exact_sessions";
+pub const ACTIVITY_READ_MODELS_MIGRATION_VERSION: i64 = 8;
+pub const ACTIVITY_READ_MODELS_MIGRATION_DESCRIPTION: &str = "create_activity_read_models";
 
 pub const CURRENT_BASELINE_SCHEMA_SQL: &str = "
     CREATE TABLE IF NOT EXISTS sessions (
@@ -373,6 +375,369 @@ pub const IMPORT_DATA_ISOLATION_SCHEMA_SQL: &str = "
     DROP TABLE import_exact_migration_guard;
 ";
 
+pub const ACTIVITY_READ_MODELS_SCHEMA_SQL: &str = "
+    CREATE TABLE IF NOT EXISTS read_model_revision (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        source_revision INTEGER NOT NULL DEFAULT 0 CHECK(source_revision >= 0),
+        updated_at_ms INTEGER NOT NULL DEFAULT 0 CHECK(updated_at_ms >= 0)
+    );
+
+    INSERT OR IGNORE INTO read_model_revision(id, source_revision, updated_at_ms)
+    VALUES (1, 0, 0);
+
+    CREATE TABLE IF NOT EXISTS read_model_state (
+        model_name TEXT PRIMARY KEY CHECK(model_name IN ('app_catalog', 'activity_hourly')),
+        schema_version INTEGER NOT NULL CHECK(schema_version > 0),
+        algorithm_version INTEGER NOT NULL CHECK(algorithm_version > 0),
+        timezone_fingerprint TEXT NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('invalid', 'building', 'ready', 'failed')),
+        coverage_start_ms INTEGER,
+        coverage_end_ms INTEGER,
+        backfill_cursor_ms INTEGER,
+        backfill_target_revision INTEGER NOT NULL DEFAULT 0 CHECK(backfill_target_revision >= 0),
+        last_success_revision INTEGER NOT NULL DEFAULT 0 CHECK(last_success_revision >= 0),
+        last_error_code TEXT,
+        updated_at_ms INTEGER NOT NULL DEFAULT 0 CHECK(updated_at_ms >= 0),
+        CHECK(coverage_start_ms IS NULL OR coverage_end_ms IS NULL OR coverage_end_ms >= coverage_start_ms)
+    );
+
+    INSERT OR IGNORE INTO read_model_state(
+        model_name, schema_version, algorithm_version, timezone_fingerprint, state
+    ) VALUES
+        ('app_catalog', 1, 1, 'executable-v1', 'invalid'),
+        ('activity_hourly', 1, 1, 'epoch-hour-v1', 'invalid');
+
+    UPDATE read_model_state
+    SET state = 'invalid', coverage_start_ms = NULL, coverage_end_ms = NULL,
+        backfill_cursor_ms = NULL, last_error_code = 'schema_migration';
+
+    CREATE TABLE IF NOT EXISTS activity_summary_dirty_ranges (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        start_ms INTEGER NOT NULL,
+        end_ms INTEGER NOT NULL,
+        generation INTEGER NOT NULL CHECK(generation >= 0),
+        reason TEXT NOT NULL CHECK(reason IN (
+            'native_insert', 'native_update', 'native_delete',
+            'import_exact_insert', 'import_exact_update', 'import_exact_delete',
+            'import_bucket_insert', 'import_bucket_update', 'import_bucket_delete',
+            'restore', 'rebuild'
+        )),
+        created_at_ms INTEGER NOT NULL DEFAULT 0 CHECK(created_at_ms >= 0),
+        CHECK(end_ms > start_ms)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_activity_dirty_ranges_window
+    ON activity_summary_dirty_ranges(start_ms, end_ms, generation);
+
+    CREATE TABLE IF NOT EXISTS app_catalog_dirty_keys (
+        app_key TEXT PRIMARY KEY CHECK(TRIM(app_key) <> ''),
+        generation INTEGER NOT NULL CHECK(generation >= 0),
+        reason TEXT NOT NULL,
+        created_at_ms INTEGER NOT NULL DEFAULT 0 CHECK(created_at_ms >= 0)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_app_catalog_dirty_generation
+    ON app_catalog_dirty_keys(generation, app_key);
+
+    CREATE TABLE IF NOT EXISTS recorded_app_catalog (
+        app_key TEXT PRIMARY KEY CHECK(TRIM(app_key) <> ''),
+        raw_exe_name TEXT NOT NULL CHECK(TRIM(raw_exe_name) <> ''),
+        display_app_name TEXT NOT NULL DEFAULT '',
+        last_seen_ms INTEGER NOT NULL,
+        has_native_records INTEGER NOT NULL CHECK(has_native_records IN (0, 1)),
+        has_import_exact_records INTEGER NOT NULL CHECK(has_import_exact_records IN (0, 1)),
+        has_import_bucket_records INTEGER NOT NULL CHECK(has_import_bucket_records IN (0, 1)),
+        computed_revision INTEGER NOT NULL CHECK(computed_revision >= 0),
+        updated_at_ms INTEGER NOT NULL DEFAULT 0 CHECK(updated_at_ms >= 0)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_recorded_app_catalog_page
+    ON recorded_app_catalog(last_seen_ms DESC, raw_exe_name ASC);
+
+    CREATE INDEX IF NOT EXISTS idx_recorded_app_catalog_search
+    ON recorded_app_catalog(raw_exe_name COLLATE NOCASE, display_app_name COLLATE NOCASE);
+
+    CREATE TABLE IF NOT EXISTS activity_hourly_effective (
+        bucket_start_ms INTEGER NOT NULL,
+        bucket_end_ms INTEGER NOT NULL,
+        app_key TEXT NOT NULL CHECK(TRIM(app_key) <> ''),
+        raw_exe_name TEXT NOT NULL CHECK(TRIM(raw_exe_name) <> ''),
+        display_app_name TEXT NOT NULL DEFAULT '',
+        origin TEXT NOT NULL CHECK(origin IN ('native', 'import_exact', 'import_bucket')),
+        source_id TEXT NOT NULL,
+        effective_duration_ms INTEGER NOT NULL CHECK(effective_duration_ms > 0),
+        computed_revision INTEGER NOT NULL CHECK(computed_revision >= 0),
+        updated_at_ms INTEGER NOT NULL DEFAULT 0 CHECK(updated_at_ms >= 0),
+        PRIMARY KEY(bucket_start_ms, app_key, origin, source_id),
+        CHECK(bucket_end_ms > bucket_start_ms),
+        CHECK(effective_duration_ms <= bucket_end_ms - bucket_start_ms)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_activity_hourly_range
+    ON activity_hourly_effective(bucket_start_ms, bucket_end_ms);
+
+    CREATE INDEX IF NOT EXISTS idx_activity_hourly_app_range
+    ON activity_hourly_effective(app_key, bucket_start_ms, effective_duration_ms);
+
+    DROP TRIGGER IF EXISTS trg_read_model_sessions_insert;
+    CREATE TRIGGER trg_read_model_sessions_insert
+    AFTER INSERT ON sessions
+    WHEN TRIM(NEW.exe_name) <> ''
+    BEGIN
+        UPDATE read_model_revision
+        SET source_revision = source_revision + 1,
+            updated_at_ms = MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+        WHERE id = 1;
+        INSERT INTO app_catalog_dirty_keys(app_key, generation, reason, created_at_ms)
+        VALUES (
+            CASE
+                WHEN LOWER(TRIM(NEW.exe_name, ' \"')) LIKE '%.exe' THEN LOWER(TRIM(NEW.exe_name, ' \"'))
+                ELSE LOWER(TRIM(NEW.exe_name, ' \"')) || '.exe'
+            END,
+            (SELECT source_revision FROM read_model_revision WHERE id = 1),
+            'native_insert',
+            MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+        )
+        ON CONFLICT(app_key) DO UPDATE SET
+            generation = excluded.generation,
+            reason = excluded.reason,
+            created_at_ms = excluded.created_at_ms;
+        INSERT INTO activity_summary_dirty_ranges(start_ms, end_ms, generation, reason, created_at_ms)
+        VALUES (
+            NEW.start_time - (((NEW.start_time % 3600000) + 3600000) % 3600000),
+            MAX(NEW.start_time + 1, COALESCE(NEW.end_time, NEW.start_time + 1))
+              + ((3600000 - (((MAX(NEW.start_time + 1, COALESCE(NEW.end_time, NEW.start_time + 1)) % 3600000) + 3600000) % 3600000)) % 3600000),
+            (SELECT source_revision FROM read_model_revision WHERE id = 1),
+            'native_insert',
+            MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+        );
+    END;
+
+    DROP TRIGGER IF EXISTS trg_read_model_sessions_update;
+    CREATE TRIGGER trg_read_model_sessions_update
+    AFTER UPDATE OF app_name, exe_name, window_title, start_time, end_time, duration ON sessions
+    WHEN OLD.app_name IS NOT NEW.app_name
+      OR OLD.exe_name IS NOT NEW.exe_name
+      OR OLD.window_title IS NOT NEW.window_title
+      OR OLD.start_time IS NOT NEW.start_time
+      OR OLD.end_time IS NOT NEW.end_time
+      OR OLD.duration IS NOT NEW.duration
+    BEGIN
+        UPDATE read_model_revision
+        SET source_revision = source_revision + 1,
+            updated_at_ms = MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+        WHERE id = 1;
+        INSERT INTO app_catalog_dirty_keys(app_key, generation, reason, created_at_ms)
+        SELECT app_key, (SELECT source_revision FROM read_model_revision WHERE id = 1),
+               'native_update', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+        FROM (
+            SELECT CASE WHEN LOWER(TRIM(OLD.exe_name, ' \"')) LIKE '%.exe'
+                        THEN LOWER(TRIM(OLD.exe_name, ' \"'))
+                        ELSE LOWER(TRIM(OLD.exe_name, ' \"')) || '.exe' END AS app_key
+            UNION
+            SELECT CASE WHEN LOWER(TRIM(NEW.exe_name, ' \"')) LIKE '%.exe'
+                        THEN LOWER(TRIM(NEW.exe_name, ' \"'))
+                        ELSE LOWER(TRIM(NEW.exe_name, ' \"')) || '.exe' END
+        ) WHERE TRIM(app_key) <> '' AND app_key <> '.exe'
+        ON CONFLICT(app_key) DO UPDATE SET
+            generation = excluded.generation,
+            reason = excluded.reason,
+            created_at_ms = excluded.created_at_ms;
+        INSERT INTO activity_summary_dirty_ranges(start_ms, end_ms, generation, reason, created_at_ms)
+        VALUES (
+            MIN(OLD.start_time, NEW.start_time)
+              - (((MIN(OLD.start_time, NEW.start_time) % 3600000) + 3600000) % 3600000),
+            MAX(MAX(OLD.start_time + 1, COALESCE(OLD.end_time, OLD.start_time + 1)),
+                MAX(NEW.start_time + 1, COALESCE(NEW.end_time, NEW.start_time + 1)))
+              + ((3600000 - (((MAX(MAX(OLD.start_time + 1, COALESCE(OLD.end_time, OLD.start_time + 1)),
+                                      MAX(NEW.start_time + 1, COALESCE(NEW.end_time, NEW.start_time + 1))) % 3600000)
+                                     + 3600000) % 3600000)) % 3600000),
+            (SELECT source_revision FROM read_model_revision WHERE id = 1),
+            'native_update',
+            MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+        );
+    END;
+
+    DROP TRIGGER IF EXISTS trg_read_model_sessions_delete;
+    CREATE TRIGGER trg_read_model_sessions_delete
+    AFTER DELETE ON sessions
+    WHEN TRIM(OLD.exe_name) <> ''
+    BEGIN
+        UPDATE read_model_revision
+        SET source_revision = source_revision + 1,
+            updated_at_ms = MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+        WHERE id = 1;
+        INSERT INTO app_catalog_dirty_keys(app_key, generation, reason, created_at_ms)
+        VALUES (
+            CASE WHEN LOWER(TRIM(OLD.exe_name, ' \"')) LIKE '%.exe'
+                 THEN LOWER(TRIM(OLD.exe_name, ' \"'))
+                 ELSE LOWER(TRIM(OLD.exe_name, ' \"')) || '.exe' END,
+            (SELECT source_revision FROM read_model_revision WHERE id = 1),
+            'native_delete',
+            MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+        )
+        ON CONFLICT(app_key) DO UPDATE SET
+            generation = excluded.generation,
+            reason = excluded.reason,
+            created_at_ms = excluded.created_at_ms;
+        INSERT INTO activity_summary_dirty_ranges(start_ms, end_ms, generation, reason, created_at_ms)
+        VALUES (
+            OLD.start_time - (((OLD.start_time % 3600000) + 3600000) % 3600000),
+            MAX(OLD.start_time + 1, COALESCE(OLD.end_time, OLD.start_time + 1))
+              + ((3600000 - (((MAX(OLD.start_time + 1, COALESCE(OLD.end_time, OLD.start_time + 1)) % 3600000) + 3600000) % 3600000)) % 3600000),
+            (SELECT source_revision FROM read_model_revision WHERE id = 1),
+            'native_delete',
+            MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+        );
+    END;
+
+    DROP TRIGGER IF EXISTS trg_read_model_exact_insert;
+    CREATE TRIGGER trg_read_model_exact_insert
+    AFTER INSERT ON import_exact_sessions
+    WHEN TRIM(NEW.exe_name) <> ''
+    BEGIN
+        UPDATE read_model_revision SET source_revision = source_revision + 1,
+            updated_at_ms = MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000) WHERE id = 1;
+        INSERT INTO app_catalog_dirty_keys(app_key, generation, reason, created_at_ms)
+        VALUES (CASE WHEN LOWER(TRIM(NEW.exe_name, ' \"')) LIKE '%.exe'
+                     THEN LOWER(TRIM(NEW.exe_name, ' \"'))
+                     ELSE LOWER(TRIM(NEW.exe_name, ' \"')) || '.exe' END,
+                (SELECT source_revision FROM read_model_revision WHERE id = 1),
+                'import_exact_insert', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000))
+        ON CONFLICT(app_key) DO UPDATE SET generation = excluded.generation,
+            reason = excluded.reason, created_at_ms = excluded.created_at_ms;
+        INSERT INTO activity_summary_dirty_ranges(start_ms, end_ms, generation, reason, created_at_ms)
+        VALUES (NEW.start_time - (((NEW.start_time % 3600000) + 3600000) % 3600000),
+                NEW.end_time + ((3600000 - (((NEW.end_time % 3600000) + 3600000) % 3600000)) % 3600000),
+                (SELECT source_revision FROM read_model_revision WHERE id = 1),
+                'import_exact_insert', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000));
+    END;
+
+    DROP TRIGGER IF EXISTS trg_read_model_exact_update;
+    CREATE TRIGGER trg_read_model_exact_update
+    AFTER UPDATE OF app_name, exe_name, window_title, start_time, end_time, duration, batch_id ON import_exact_sessions
+    WHEN OLD.app_name IS NOT NEW.app_name OR OLD.exe_name IS NOT NEW.exe_name
+      OR OLD.window_title IS NOT NEW.window_title
+      OR OLD.start_time IS NOT NEW.start_time OR OLD.end_time IS NOT NEW.end_time
+      OR OLD.duration IS NOT NEW.duration OR OLD.batch_id IS NOT NEW.batch_id
+    BEGIN
+        UPDATE read_model_revision SET source_revision = source_revision + 1,
+            updated_at_ms = MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000) WHERE id = 1;
+        INSERT INTO app_catalog_dirty_keys(app_key, generation, reason, created_at_ms)
+        SELECT app_key, (SELECT source_revision FROM read_model_revision WHERE id = 1),
+               'import_exact_update', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+        FROM (
+            SELECT CASE WHEN LOWER(TRIM(OLD.exe_name, ' \"')) LIKE '%.exe'
+                        THEN LOWER(TRIM(OLD.exe_name, ' \"')) ELSE LOWER(TRIM(OLD.exe_name, ' \"')) || '.exe' END app_key
+            UNION
+            SELECT CASE WHEN LOWER(TRIM(NEW.exe_name, ' \"')) LIKE '%.exe'
+                        THEN LOWER(TRIM(NEW.exe_name, ' \"')) ELSE LOWER(TRIM(NEW.exe_name, ' \"')) || '.exe' END
+        ) WHERE TRIM(app_key) <> '' AND app_key <> '.exe'
+        ON CONFLICT(app_key) DO UPDATE SET generation = excluded.generation,
+            reason = excluded.reason, created_at_ms = excluded.created_at_ms;
+        INSERT INTO activity_summary_dirty_ranges(start_ms, end_ms, generation, reason, created_at_ms)
+        VALUES (MIN(OLD.start_time, NEW.start_time)
+                  - (((MIN(OLD.start_time, NEW.start_time) % 3600000) + 3600000) % 3600000),
+                MAX(OLD.end_time, NEW.end_time)
+                  + ((3600000 - (((MAX(OLD.end_time, NEW.end_time) % 3600000) + 3600000) % 3600000)) % 3600000),
+                (SELECT source_revision FROM read_model_revision WHERE id = 1),
+                'import_exact_update', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000));
+    END;
+
+    DROP TRIGGER IF EXISTS trg_read_model_exact_delete;
+    CREATE TRIGGER trg_read_model_exact_delete
+    AFTER DELETE ON import_exact_sessions
+    WHEN TRIM(OLD.exe_name) <> ''
+    BEGIN
+        UPDATE read_model_revision SET source_revision = source_revision + 1,
+            updated_at_ms = MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000) WHERE id = 1;
+        INSERT INTO app_catalog_dirty_keys(app_key, generation, reason, created_at_ms)
+        VALUES (CASE WHEN LOWER(TRIM(OLD.exe_name, ' \"')) LIKE '%.exe'
+                     THEN LOWER(TRIM(OLD.exe_name, ' \"')) ELSE LOWER(TRIM(OLD.exe_name, ' \"')) || '.exe' END,
+                (SELECT source_revision FROM read_model_revision WHERE id = 1),
+                'import_exact_delete', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000))
+        ON CONFLICT(app_key) DO UPDATE SET generation = excluded.generation,
+            reason = excluded.reason, created_at_ms = excluded.created_at_ms;
+        INSERT INTO activity_summary_dirty_ranges(start_ms, end_ms, generation, reason, created_at_ms)
+        VALUES (OLD.start_time - (((OLD.start_time % 3600000) + 3600000) % 3600000),
+                OLD.end_time + ((3600000 - (((OLD.end_time % 3600000) + 3600000) % 3600000)) % 3600000),
+                (SELECT source_revision FROM read_model_revision WHERE id = 1),
+                'import_exact_delete', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000));
+    END;
+
+    DROP TRIGGER IF EXISTS trg_read_model_bucket_insert;
+    CREATE TRIGGER trg_read_model_bucket_insert
+    AFTER INSERT ON import_time_buckets
+    WHEN TRIM(NEW.exe_name) <> ''
+    BEGIN
+        UPDATE read_model_revision SET source_revision = source_revision + 1,
+            updated_at_ms = MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000) WHERE id = 1;
+        INSERT INTO app_catalog_dirty_keys(app_key, generation, reason, created_at_ms)
+        VALUES (CASE WHEN LOWER(TRIM(NEW.exe_name, ' \"')) LIKE '%.exe'
+                     THEN LOWER(TRIM(NEW.exe_name, ' \"')) ELSE LOWER(TRIM(NEW.exe_name, ' \"')) || '.exe' END,
+                (SELECT source_revision FROM read_model_revision WHERE id = 1),
+                'import_bucket_insert', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000))
+        ON CONFLICT(app_key) DO UPDATE SET generation = excluded.generation,
+            reason = excluded.reason, created_at_ms = excluded.created_at_ms;
+        INSERT INTO activity_summary_dirty_ranges(start_ms, end_ms, generation, reason, created_at_ms)
+        VALUES (NEW.bucket_start_time - (((NEW.bucket_start_time % 3600000) + 3600000) % 3600000),
+                NEW.bucket_start_time - (((NEW.bucket_start_time % 3600000) + 3600000) % 3600000) + 3600000,
+                (SELECT source_revision FROM read_model_revision WHERE id = 1),
+                'import_bucket_insert', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000));
+    END;
+
+    DROP TRIGGER IF EXISTS trg_read_model_bucket_update;
+    CREATE TRIGGER trg_read_model_bucket_update
+    AFTER UPDATE OF app_name, exe_name, bucket_start_time, duration, batch_id ON import_time_buckets
+    WHEN OLD.app_name IS NOT NEW.app_name OR OLD.exe_name IS NOT NEW.exe_name
+      OR OLD.bucket_start_time IS NOT NEW.bucket_start_time OR OLD.duration IS NOT NEW.duration
+      OR OLD.batch_id IS NOT NEW.batch_id
+    BEGIN
+        UPDATE read_model_revision SET source_revision = source_revision + 1,
+            updated_at_ms = MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000) WHERE id = 1;
+        INSERT INTO app_catalog_dirty_keys(app_key, generation, reason, created_at_ms)
+        SELECT app_key, (SELECT source_revision FROM read_model_revision WHERE id = 1),
+               'import_bucket_update', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000)
+        FROM (
+            SELECT CASE WHEN LOWER(TRIM(OLD.exe_name, ' \"')) LIKE '%.exe'
+                        THEN LOWER(TRIM(OLD.exe_name, ' \"')) ELSE LOWER(TRIM(OLD.exe_name, ' \"')) || '.exe' END app_key
+            UNION
+            SELECT CASE WHEN LOWER(TRIM(NEW.exe_name, ' \"')) LIKE '%.exe'
+                        THEN LOWER(TRIM(NEW.exe_name, ' \"')) ELSE LOWER(TRIM(NEW.exe_name, ' \"')) || '.exe' END
+        ) WHERE TRIM(app_key) <> '' AND app_key <> '.exe'
+        ON CONFLICT(app_key) DO UPDATE SET generation = excluded.generation,
+            reason = excluded.reason, created_at_ms = excluded.created_at_ms;
+        INSERT INTO activity_summary_dirty_ranges(start_ms, end_ms, generation, reason, created_at_ms)
+        VALUES (MIN(OLD.bucket_start_time, NEW.bucket_start_time)
+                  - (((MIN(OLD.bucket_start_time, NEW.bucket_start_time) % 3600000) + 3600000) % 3600000),
+                MAX(OLD.bucket_start_time, NEW.bucket_start_time)
+                  - (((MAX(OLD.bucket_start_time, NEW.bucket_start_time) % 3600000) + 3600000) % 3600000) + 3600000,
+                (SELECT source_revision FROM read_model_revision WHERE id = 1),
+                'import_bucket_update', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000));
+    END;
+
+    DROP TRIGGER IF EXISTS trg_read_model_bucket_delete;
+    CREATE TRIGGER trg_read_model_bucket_delete
+    AFTER DELETE ON import_time_buckets
+    WHEN TRIM(OLD.exe_name) <> ''
+    BEGIN
+        UPDATE read_model_revision SET source_revision = source_revision + 1,
+            updated_at_ms = MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000) WHERE id = 1;
+        INSERT INTO app_catalog_dirty_keys(app_key, generation, reason, created_at_ms)
+        VALUES (CASE WHEN LOWER(TRIM(OLD.exe_name, ' \"')) LIKE '%.exe'
+                     THEN LOWER(TRIM(OLD.exe_name, ' \"')) ELSE LOWER(TRIM(OLD.exe_name, ' \"')) || '.exe' END,
+                (SELECT source_revision FROM read_model_revision WHERE id = 1),
+                'import_bucket_delete', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000))
+        ON CONFLICT(app_key) DO UPDATE SET generation = excluded.generation,
+            reason = excluded.reason, created_at_ms = excluded.created_at_ms;
+        INSERT INTO activity_summary_dirty_ranges(start_ms, end_ms, generation, reason, created_at_ms)
+        VALUES (OLD.bucket_start_time - (((OLD.bucket_start_time % 3600000) + 3600000) % 3600000),
+                OLD.bucket_start_time - (((OLD.bucket_start_time % 3600000) + 3600000) % 3600000) + 3600000,
+                (SELECT source_revision FROM read_model_revision WHERE id = 1),
+                'import_bucket_delete', MAX(0, CAST(strftime('%s', 'now') AS INTEGER) * 1000));
+    END;
+";
+
 pub fn tracker_migrations() -> Vec<Migration> {
     vec![
         Migration {
@@ -417,12 +782,21 @@ pub fn tracker_migrations() -> Vec<Migration> {
             sql: IMPORT_DATA_ISOLATION_SCHEMA_SQL,
             kind: MigrationKind::Up,
         },
+        Migration {
+            version: ACTIVITY_READ_MODELS_MIGRATION_VERSION,
+            description: ACTIVITY_READ_MODELS_MIGRATION_DESCRIPTION,
+            sql: ACTIVITY_READ_MODELS_SCHEMA_SQL,
+            kind: MigrationKind::Up,
+        },
     ]
 }
 
 #[cfg(test)]
 mod query_plan_diagnostics {
-    use super::{CURRENT_BASELINE_SCHEMA_SQL, WEB_ACTIVITY_SCHEMA_SQL};
+    use super::{
+        ACTIVITY_READ_MODELS_SCHEMA_SQL, CURRENT_BASELINE_SCHEMA_SQL,
+        IMPORT_DATA_ISOLATION_SCHEMA_SQL, IMPORT_DATA_SCHEMA_SQL, WEB_ACTIVITY_SCHEMA_SQL,
+    };
     use chrono::Utc;
     use serde::Serialize;
     use sqlx::{Executor, Row, SqlitePool};
@@ -470,6 +844,11 @@ mod query_plan_diagnostics {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         pool.execute(CURRENT_BASELINE_SCHEMA_SQL).await.unwrap();
         pool.execute(WEB_ACTIVITY_SCHEMA_SQL).await.unwrap();
+        pool.execute(IMPORT_DATA_SCHEMA_SQL).await.unwrap();
+        pool.execute(IMPORT_DATA_ISOLATION_SCHEMA_SQL)
+            .await
+            .unwrap();
+        pool.execute(ACTIVITY_READ_MODELS_SCHEMA_SQL).await.unwrap();
         pool
     }
 
@@ -738,6 +1117,88 @@ mod query_plan_diagnostics {
         )
     }
 
+    async fn seed_activity_projections(pool: &SqlitePool) {
+        let mut tx = pool.begin().await.unwrap();
+        for day in 0..365_i64 {
+            let bucket_start_ms = RANGE_START_MS + day * DAY_MS + 9 * 60 * 60 * 1000;
+            for app_index in 0..12_i64 {
+                sqlx::query(
+                    "INSERT INTO activity_hourly_effective(
+                       bucket_start_ms, bucket_end_ms, app_key, raw_exe_name,
+                       display_app_name, origin, source_id, effective_duration_ms,
+                       computed_revision, updated_at_ms
+                     ) VALUES (?, ?, ?, ?, ?, 'native', ?, ?, 1, ?)",
+                )
+                .bind(bucket_start_ms)
+                .bind(bucket_start_ms + 60 * 60 * 1000)
+                .bind(format!("app-{app_index}.exe"))
+                .bind(format!("app-{app_index}.exe"))
+                .bind(format!("App {app_index}"))
+                .bind(format!("native:{day}:{app_index}"))
+                .bind(10 * 60 * 1000 + app_index * 1000)
+                .bind(NOW_MS)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            }
+        }
+        for app_index in 0..12_i64 {
+            sqlx::query(
+                "INSERT INTO recorded_app_catalog(
+                   app_key, raw_exe_name, display_app_name, last_seen_ms,
+                   has_native_records, has_import_exact_records, has_import_bucket_records,
+                   computed_revision, updated_at_ms
+                 ) VALUES (?, ?, ?, ?, 1, 0, 0, 1, ?)",
+            )
+            .bind(format!("app-{app_index}.exe"))
+            .bind(format!("app-{app_index}.exe"))
+            .bind(format!("App {app_index}"))
+            .bind(NOW_MS - app_index * DAY_MS)
+            .bind(NOW_MS)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        }
+        tx.commit().await.unwrap();
+    }
+
+    async fn measure_hourly_projection(pool: &SqlitePool) -> QueryMeasurement {
+        let sql = "SELECT bucket_start_ms, bucket_end_ms, raw_exe_name,
+                          display_app_name, effective_duration_ms
+                   FROM activity_hourly_effective
+                   WHERE bucket_start_ms < ? AND bucket_end_ms > ?
+                   ORDER BY bucket_start_ms ASC, app_key ASC, origin ASC, source_id ASC";
+        let plan = explain_query(pool, sql, &[RANGE_END_MS, RANGE_START_MS]).await;
+        let started_at = Instant::now();
+        let rows = sqlx::query(sql)
+            .bind(RANGE_END_MS)
+            .bind(RANGE_START_MS)
+            .fetch_all(pool)
+            .await
+            .unwrap();
+        build_measurement(
+            "activity-hourly-projection-year",
+            rows.len(),
+            started_at,
+            plan,
+        )
+    }
+
+    async fn measure_catalog_projection(pool: &SqlitePool) -> QueryMeasurement {
+        let sql = "SELECT raw_exe_name, display_app_name, last_seen_ms, has_native_records
+                   FROM recorded_app_catalog
+                   ORDER BY last_seen_ms DESC, raw_exe_name ASC LIMIT 60";
+        let plan = explain_query(pool, sql, &[]).await;
+        let started_at = Instant::now();
+        let rows = sqlx::query(sql).fetch_all(pool).await.unwrap();
+        build_measurement(
+            "recorded-app-catalog-projection",
+            rows.len(),
+            started_at,
+            plan,
+        )
+    }
+
     fn build_measurement(
         name: &'static str,
         row_count: usize,
@@ -762,12 +1223,15 @@ mod query_plan_diagnostics {
         let pool = create_pool().await;
         seed_sessions(&pool).await;
         seed_web_segments(&pool).await;
+        seed_activity_projections(&pool).await;
 
         let mut measurements = vec![
             measure_session_summary_current(&pool).await,
             measure_session_summary_split(&pool, "sessions-split-closed-active-baseline").await,
             measure_title_samples(&pool).await,
             measure_web_activity_current(&pool).await,
+            measure_hourly_projection(&pool).await,
+            measure_catalog_projection(&pool).await,
         ];
 
         pool.execute(

@@ -1,3 +1,4 @@
+pub mod activity_read_model;
 pub mod backup;
 pub mod lifecycle;
 pub mod settings;

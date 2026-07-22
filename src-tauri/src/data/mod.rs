@@ -1,3 +1,4 @@
+pub mod activity_read_model;
 pub mod app_settings_service;
 pub mod backup;
 pub mod classification_service;

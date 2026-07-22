@@ -73,6 +73,7 @@ pub fn setup(
     crate::app::web_activity_bridge::start(app.handle().clone());
     crate::app::remote_status_bridge::start(app.handle().clone());
     crate::app::web_activity::spawn_startup_repair(app.handle().clone());
+    crate::data::activity_read_model::spawn_background_worker(app.handle().clone());
 
     let app_handle = app.handle().clone();
     main_window::ensure_main_window_with_initial_visibility(&app_handle, false)

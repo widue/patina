@@ -14,10 +14,12 @@ use tauri_plugin_sql::{DbInstances, DbPool, MigrationKind};
 use tokio::time::{sleep, Duration};
 
 pub const SQLITE_DB_NAME: &str = "sqlite:patina.db";
-const VALIDATED_SCHEMA_MIGRATION_HEAD: i64 = schema::IMPORT_DATA_ISOLATION_MIGRATION_VERSION;
-mod import_schema;
+const VALIDATED_SCHEMA_MIGRATION_HEAD: i64 = schema::ACTIVITY_READ_MODELS_MIGRATION_VERSION;
+mod activity_read_model_schema;
+pub(super) mod import_schema;
 mod maintenance;
 mod restore;
+pub(super) use activity_read_model_schema::has_activity_read_models_schema;
 use import_schema::{has_import_data_schema, has_import_data_v6_schema};
 pub(crate) use maintenance::{acquire_sqlite_maintenance, checkpoint_sqlite_pool};
 pub(crate) use restore::replace_product_db_from_candidate;
@@ -250,6 +252,12 @@ async fn table_has_columns(
         "tool_software_reminder_rules" => "PRAGMA table_info(tool_software_reminder_rules)",
         "web_activity_segments" => "PRAGMA table_info(web_activity_segments)",
         "web_favicon_cache" => "PRAGMA table_info(web_favicon_cache)",
+        "read_model_revision" => "PRAGMA table_info(read_model_revision)",
+        "read_model_state" => "PRAGMA table_info(read_model_state)",
+        "activity_summary_dirty_ranges" => "PRAGMA table_info(activity_summary_dirty_ranges)",
+        "app_catalog_dirty_keys" => "PRAGMA table_info(app_catalog_dirty_keys)",
+        "recorded_app_catalog" => "PRAGMA table_info(recorded_app_catalog)",
+        "activity_hourly_effective" => "PRAGMA table_info(activity_hourly_effective)",
         _ => {
             return Err(format!(
                 "unsupported schema inspection table `{table_name}`"
@@ -293,6 +301,10 @@ async fn table_has_index(
         "tool_daily_stats" => "PRAGMA index_list(tool_daily_stats)",
         "tool_software_reminder_rules" => "PRAGMA index_list(tool_software_reminder_rules)",
         "web_activity_segments" => "PRAGMA index_list(web_activity_segments)",
+        "activity_summary_dirty_ranges" => "PRAGMA index_list(activity_summary_dirty_ranges)",
+        "app_catalog_dirty_keys" => "PRAGMA index_list(app_catalog_dirty_keys)",
+        "recorded_app_catalog" => "PRAGMA index_list(recorded_app_catalog)",
+        "activity_hourly_effective" => "PRAGMA index_list(activity_hourly_effective)",
         _ => return Err(format!("unsupported index inspection table `{table_name}`")),
     };
 
@@ -500,7 +512,7 @@ async fn repair_legacy_schema_before_baseline_normalization(
     Ok(changed)
 }
 
-async fn has_current_baseline_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
+pub(super) async fn has_current_baseline_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
     if !table_exists(pool, "sessions").await?
         || !table_exists(pool, "settings").await?
         || !table_exists(pool, "icon_cache").await?
@@ -561,7 +573,7 @@ async fn has_current_baseline_schema(pool: &Pool<Sqlite>) -> Result<bool, String
         && title_sample_time_index_ready)
 }
 
-async fn has_base_tools_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
+pub(super) async fn has_base_tools_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
     if !table_exists(pool, "tool_reminders").await?
         || !table_exists(pool, "tool_timers").await?
         || !table_exists(pool, "tool_timer_laps").await?
@@ -670,7 +682,9 @@ async fn has_base_tools_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
         && daily_index_ready)
 }
 
-async fn has_software_reminder_rules_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
+pub(super) async fn has_software_reminder_rules_schema(
+    pool: &Pool<Sqlite>,
+) -> Result<bool, String> {
     if !table_exists(pool, "tool_software_reminder_rules").await? {
         return Ok(false);
     }
@@ -708,7 +722,7 @@ async fn has_software_reminder_rules_schema(pool: &Pool<Sqlite>) -> Result<bool,
         && sessions_exe_usage_index_ready)
 }
 
-async fn has_web_activity_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
+pub(super) async fn has_web_activity_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
     if !table_exists(pool, "web_activity_segments").await? {
         return Ok(false);
     }
@@ -757,7 +771,7 @@ async fn has_web_activity_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
     Ok(segments_ready && time_index_ready && domain_time_index_ready && single_active_index_ready)
 }
 
-async fn has_web_favicon_cache_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
+pub(super) async fn has_web_favicon_cache_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
     if !table_exists(pool, "web_favicon_cache").await? {
         return Ok(false);
     }
@@ -776,7 +790,8 @@ async fn has_current_schema(pool: &Pool<Sqlite>) -> Result<bool, String> {
         && has_software_reminder_rules_schema(pool).await?
         && has_web_activity_schema(pool).await?
         && has_web_favicon_cache_schema(pool).await?
-        && has_import_data_schema(pool).await?)
+        && has_import_data_schema(pool).await?
+        && has_activity_read_models_schema(pool).await?)
 }
 
 async fn normalize_current_baseline_migration_history_for_pool(
@@ -805,6 +820,8 @@ async fn normalize_current_baseline_migration_history_for_pool(
         } else {
             5
         });
+    } else if !has_activity_read_models_schema(pool).await? {
+        expected.truncate(schema::IMPORT_DATA_ISOLATION_MIGRATION_VERSION as usize);
     }
     if expected.is_empty() {
         return Ok(false);
@@ -1235,13 +1252,14 @@ mod tests {
             run_current_migrations(&pool).await.unwrap();
 
             assert!(has_import_data_schema(&pool).await.unwrap());
+            assert!(has_activity_read_models_schema(&pool).await.unwrap());
             assert!(!table_exists(&pool, "import_exact_records").await.unwrap());
             let final_versions: Vec<i64> =
                 sqlx::query_scalar("SELECT version FROM _sqlx_migrations ORDER BY version")
                     .fetch_all(&pool)
                     .await
                     .unwrap();
-            assert_eq!(final_versions, vec![1, 2, 3, 4, 5, 6, 7]);
+            assert_eq!(final_versions, vec![1, 2, 3, 4, 5, 6, 7, 8]);
         });
     }
 
