@@ -54,9 +54,9 @@
 
 代码应该落在真正拥有该能力的层，而不是“当前最顺手改”的层。
 
-### 3.2 运行时写侧归 Rust，界面与读模型归前端
+### 3.2 运行时写侧和持久化派生状态归 Rust，界面读模型归前端
 
-Rust 拥有运行时主链和写侧副作用；前端拥有 UI、交互编排和读模型组织。
+Rust 拥有运行时主链、写侧副作用，以及需要跨启动维护一致性的持久化派生状态；前端拥有 UI、交互编排和页面读模型组织。前端可以组合页面视图，但不应为了页面方便长期装载全部事实并在 WebView 内维护第二份持久化索引。
 
 ### 3.3 平台细节必须显式收口
 
@@ -113,13 +113,23 @@ Rust 负责：
 
 IPC 契约应保持稳定、可解析、可测试。
 
-### 4.3 前端本地 SQLite 通道
+### 4.3 本地数据读取通道
 
 前端当前保留受控的本地 SQLite 读访问，用于：
 
 - settings 读取
-- classification 读取
-- history / dashboard 读模型查询
+- History 精确会话、标题样本和仍未迁出的局部明细读取
+
+跨启动、可重建的活动派生状态由 Rust `data/activity_read_model/*` 持有：
+
+- `recorded_app_catalog` 提供完整应用目录、搜索和 keyset 分页
+- `activity_hourly_effective` 提供 Dashboard、History 汇总区和 Data 所需的有效活动聚合
+- revision、state 与 dirty 表和事实写入处于同一 SQLite 事务边界
+- 后台维护可以分批重建；状态不可信、范围脏或存在活动会话时，读取在同一快照内按范围回退到事实
+- History 精确时间线不由小时汇总伪造，仍读取事实和标题样本
+- 数据库覆盖恢复后先让派生状态失效，再由后台幂等重建
+
+前端通过 `platform/persistence/activityReadModelGateway.ts` 调用 typed Rust command，并继续在 feature service 内应用用户分类、别名和页面展示规则；这些可编辑规则不固化进活动汇总表。
 
 这条通道不是默认自由边界，而是显式受控边界。规则如下：
 
@@ -133,6 +143,8 @@ IPC 契约应保持稳定、可解析、可测试。
 - `app/services/*` 只保留应用启动、运行时同步或全局偏好写入所需的薄协调，不从 `features/settings/*` 借基础能力
 - `features/settings/*` 只保留 settings 页面的保存、cleanup、backup、restore 与外链打开等 feature 私有流程
 - 涉及运行时写侧、数据写侧和平台副作用的操作，优先迁往 Rust command
+- 需要持久化、跨页面复用或保证事实/派生一致性的读索引，默认由 Rust data owner 维护并经 typed command 读取
+- 页面特有的格式化、分类映射、图表组合和精确时间线几何继续留在对应 feature read model
 
 备份与恢复沿用同一 owner 规则：
 

@@ -20,11 +20,17 @@ App note en: TBD.
 
 ### Changed
 
+- Classification、Dashboard、History 汇总区和 Data 改用可重建的 SQLite 应用目录与活动汇总读模型；长历史读取不再默认把全部事实记录搬入 WebView 聚合，读模型脏、构建中或不可用时会按范围安全回退到事实。
+- 主导航先提交点击反馈，再在下一帧挂载目标页面；暖切换保持已有页面结构且不出现空白画布。
+
 ### Fixed
 
 ### Removed
 
 ### Internal
+
+- 新增 Migration 8、事实表事务内 revision/dirty 触发器、Rust 后台分批回填、活动会话覆盖、数据库恢复失效、新 IPC/gateway，以及迁移、优先级、generation、浏览器导航和真实 Tauri 运行时验证。
+- 对抗式验证补齐混合生命周期事实、损坏目录投影、epoch 前时间、Migration 8 草稿触发器重装，以及半小时时区内部日界线的正确性回归覆盖。
 
 ## [1.8.5] - 2026-07-20
 
