@@ -43,7 +43,7 @@ import UpdateDialogProvider from "./providers/UpdateDialogProvider";
 import { useAppShellNavigation } from "./hooks/useAppShellNavigation";
 import { useAppShellToasts } from "./hooks/useAppShellToasts";
 import { useAppShellUpdateEntry } from "./hooks/useAppShellUpdateEntry";
-import { useAppThemeMode } from "./hooks/useAppThemeMode.ts";
+import { useMainWindowReady } from "./hooks/useMainWindowReady.ts";
 import { useQuietMotionPreference } from "../shared/motion/useQuietMotionPreference.ts";
 import { useImportClassificationCoordinator } from "./hooks/useImportClassificationCoordinator.ts";
 import {
@@ -136,6 +136,7 @@ function AppShellContent() {
     activeWindow,
     trackingStatus,
     appSettings,
+    appearanceResolved,
     classificationReady,
     setAppSettings,
     syncTick,
@@ -199,12 +200,10 @@ function AppShellContent() {
       cancelled = true;
     };
   }, [currentView]);
-
-  useAppThemeMode(
-    settingsThemeModePreview ?? appSettings.themeMode,
-    settingsColorSchemePreview?.light ?? appSettings.colorSchemeLight,
-    settingsColorSchemePreview?.dark ?? appSettings.colorSchemeDark,
-  );
+  const appFrameRef = useMainWindowReady({
+    appearanceResolved, appSettings, themeModePreview: settingsThemeModePreview,
+    colorSchemePreview: settingsColorSchemePreview,
+  });
   const refreshSignal = resolveReadModelRefreshSignal(syncTick, readModelRefreshState);
   void syncedUiTextLanguage;
   const { mappingVersion } = readModelRefreshState;
@@ -455,6 +454,7 @@ function AppShellContent() {
 
   return (
     <div
+      ref={appFrameRef}
       data-qp-motion={quietMotionMode}
       className={[
         "qp-app-frame",

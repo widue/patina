@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useLayoutEffect } from "react";
 import type { ColorScheme, ThemeMode } from "../../shared/settings/appSettings.ts";
 
 type EffectiveTheme = "light" | "dark";
@@ -19,12 +19,33 @@ function applyDocumentTheme(themeMode: ThemeMode, effectiveTheme: EffectiveTheme
   root.style.colorScheme = effectiveTheme;
 }
 
+export function isDocumentThemeApplied(
+  themeMode: ThemeMode,
+  colorSchemeLight: ColorScheme,
+  colorSchemeDark: ColorScheme,
+): boolean {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    return false;
+  }
+
+  const prefersDark = typeof window.matchMedia === "function"
+    && window.matchMedia(COLOR_SCHEME_QUERY).matches;
+  const effectiveTheme = resolveEffectiveTheme(themeMode, prefersDark);
+  const colorScheme = effectiveTheme === "dark" ? colorSchemeDark : colorSchemeLight;
+  const root = document.documentElement;
+
+  return root.dataset.themeMode === themeMode
+    && root.dataset.theme === effectiveTheme
+    && root.dataset.colorScheme === colorScheme
+    && root.style.colorScheme === effectiveTheme;
+}
+
 export function useAppThemeMode(
   themeMode: ThemeMode,
   colorSchemeLight: ColorScheme,
   colorSchemeDark: ColorScheme,
 ) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
       applyDocumentTheme(themeMode, "light", colorSchemeLight);
       return undefined;

@@ -46,6 +46,7 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
   const [trackingRuntimeProbeStatus, setTrackingRuntimeProbeStatus] = useState<TrackingRuntimeProbeStatus | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [appSettingsLoaded, setAppSettingsLoaded] = useState(false);
+  const [appearanceResolved, setAppearanceResolved] = useState(false);
   const [syncTick, setSyncTick] = useState(0);
   const [classificationReady, setClassificationReady] = useState(false);
   const [trackerHealth, setTrackerHealth] = useState<TrackerHealthSnapshot>(() => (
@@ -67,6 +68,7 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
 
         setAppSettings(bootstrap.settings);
         setAppSettingsLoaded(true);
+        setAppearanceResolved(true);
         setActiveWindow(bootstrap.activeWindow);
         setTrackingStatus(bootstrap.trackingStatus);
         setTrackingRuntimeProbeStatus(bootstrap.trackingRuntimeProbeStatus);
@@ -75,6 +77,7 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
       } catch (err) {
         if (cancelled) return;
         console.error("Tracking init error", err);
+        setAppearanceResolved(true);
         setClassificationReady(true);
       }
 
@@ -195,6 +198,7 @@ export function useWindowTracking(options: UseWindowTrackingOptions = {}) {
     activeWindow,
     trackingStatus,
     appSettings,
+    appearanceResolved,
     setAppSettings,
     classificationReady,
     syncTick,

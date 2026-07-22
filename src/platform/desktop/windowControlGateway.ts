@@ -7,6 +7,74 @@ export interface CurrentWindowForegroundState {
   foregroundLike: boolean;
 }
 
+export type MainWindowReadyOutcome = "stale" | "duplicate" | "hidden" | "revealed";
+
+export interface MainWindowReadyResult {
+  outcome: MainWindowReadyOutcome;
+  generation: number;
+}
+
+declare global {
+  interface Window {
+    __PATINA_MAIN_WINDOW_GENERATION__?: number;
+  }
+}
+
+const MAIN_WINDOW_LABEL = "main";
+const MAIN_WINDOW_READY_OUTCOMES = new Set<MainWindowReadyOutcome>([
+  "stale",
+  "duplicate",
+  "hidden",
+  "revealed",
+]);
+
+function parseMainWindowReadyResult(value: unknown): MainWindowReadyResult {
+  if (typeof value !== "object" || value === null) {
+    throw new Error("main-window ready command returned an invalid result");
+  }
+
+  const candidate = value as { outcome?: unknown; generation?: unknown };
+  if (
+    typeof candidate.outcome !== "string"
+    || !MAIN_WINDOW_READY_OUTCOMES.has(candidate.outcome as MainWindowReadyOutcome)
+    || typeof candidate.generation !== "number"
+    || !Number.isSafeInteger(candidate.generation)
+    || candidate.generation < 1
+  ) {
+    throw new Error("main-window ready command returned an invalid contract");
+  }
+
+  return {
+    outcome: candidate.outcome as MainWindowReadyOutcome,
+    generation: candidate.generation,
+  };
+}
+
+export function readCurrentMainWindowGeneration(): number | null {
+  if (typeof window === "undefined" || getCurrentWindow().label !== MAIN_WINDOW_LABEL) {
+    return null;
+  }
+
+  const generation = window.__PATINA_MAIN_WINDOW_GENERATION__;
+  return typeof generation === "number"
+    && Number.isSafeInteger(generation)
+    && generation >= 1
+    ? generation
+    : null;
+}
+
+export async function markCurrentMainWindowReady(
+  generation: number,
+): Promise<MainWindowReadyResult> {
+  if (getCurrentWindow().label !== MAIN_WINDOW_LABEL) {
+    throw new Error("only the main window can report main-window readiness");
+  }
+
+  return parseMainWindowReadyResult(await invoke<unknown>("cmd_mark_main_window_ready", {
+    generation,
+  }));
+}
+
 export async function minimizeCurrentWindow(): Promise<void> {
   await invoke("cmd_minimize_main_window");
 }
